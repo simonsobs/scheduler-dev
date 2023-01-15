@@ -2,8 +2,10 @@
 
 import flask
 import flask_cors
-import datetime
+from datetime import datetime
 import random
+
+SUPPORTED_POLICIES = ['dummy']
 
 app = flask.Flask(__name__)
 
@@ -16,26 +18,27 @@ def schedule():
     data = flask.request.get_json()
 
     # check for missing field
-    if 't0' not in data:
-        response = flask.jsonify({
-            'status': 'error',
-            'message': 'Missing t0 field'
-        })
-        response.status_code = 400
-        return response
-    if 't1' not in data:
-        response = flask.jsonify({
-            'status': 'error',
-            'message': 'Missing t1 field'
-        })
-        response.status_code = 400
-        return response
+    for f in ['t0', 't1', 'policy']:
+        if f not in data:
+            response = flask.jsonify({
+                'status': 'error',
+                'message': f'Missing {f} field'
+            })
+            response.status_code = 400
+            return response
 
     t0 = data['t0']
     t1 = data['t1']
+    policy = data['policy']
 
-    if policy in data: policy = data['policy']
-    # check for missing field
+    # check policy is supported
+    if policy not in SUPPORTED_POLICIES:
+        response = flask.jsonify({
+            'status': 'error',
+            'message': f'Invalid policy. Supported policies are: {SUPPORTED_POLICIES}'
+        })
+        response.status_code = 400
+        return response
 
     # parse into datetime objects
     try:
