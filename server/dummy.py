@@ -14,13 +14,40 @@ flask_cors.CORS(app)
 def schedule():
     """return a schedule"""
     data = flask.request.get_json()
+
+    # check for missing field
+    if 't0' not in data:
+        response = flask.jsonify({
+            'status': 'error',
+            'message': 'Missing t0 field'
+        })
+        response.status_code = 400
+        return response
+    if 't1' not in data:
+        response = flask.jsonify({
+            'status': 'error',
+            'message': 'Missing t1 field'
+        })
+        response.status_code = 400
+        return response
+
     t0 = data['t0']
     t1 = data['t1']
-    policy = data['policy']
+
+    if policy in data: policy = data['policy']
+    # check for missing field
 
     # parse into datetime objects
-    t0 = datetime.strptime(t0, "%Y-%m-%d %H:%M")
-    t1 = datetime.strptime(t1, "%Y-%m-%d %H:%M")
+    try:
+        t0 = datetime.strptime(t0, "%Y-%m-%d %H:%M")
+        t1 = datetime.strptime(t1, "%Y-%m-%d %H:%M")
+    except ValueError:
+        response = flask.jsonify({
+            'status': 'error',
+            'message': 'Invalid date format'
+        })
+        response.status_code = 400
+        return response
 
     commands = ["import time"]
     # add a random number of sleep commands betweeen 1 and 10 seconds
