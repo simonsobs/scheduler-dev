@@ -52,11 +52,8 @@ def schedule():
         response.status_code = 400
         return response
 
-    commands = ["import time"]
-    # add a random number of sleep commands betweeen 1 and 10 seconds
-    for i in range(random.randint(1, 10)):
-        commands.append("time.sleep(1)")
-
+    dt = abs(t1.timestamp() - t0.timestamp())  # too lazy to check for t1<t0 now
+    commands = ["import time", f"time.sleep({dt})"]
     commands = "\n".join(commands)
 
     response = flask.jsonify({
