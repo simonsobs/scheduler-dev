@@ -53,7 +53,12 @@ def schedule():
         return response
 
     dt = abs(t1.timestamp() - t0.timestamp())  # too lazy to check for t1<t0 now
-    commands = ["import time", f"time.sleep({dt})"]
+    # get current time as a timestamp string
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    n = random.randint(1, 10)
+    commands = ["import time", f"time.sleep({random.random()*5:.2f})  # {now}"]
+    for i in range(n):
+        commands.append(f"time.sleep({random.random()*5:.2f})")
     commands = "\n".join(commands)
 
     response = flask.jsonify({
