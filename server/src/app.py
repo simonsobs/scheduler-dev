@@ -42,12 +42,12 @@ def schedule():
 
     # parse into datetime objects
     try:
-        t0 = datetime.strptime(t0, "%Y-%m-%d %H:%M")
-        t1 = datetime.strptime(t1, "%Y-%m-%d %H:%M")
+        t0 = datetime.fromisoformat(t0)
+        t1 = datetime.fromisoformat(t1)
     except ValueError:
         response = flask.jsonify({
             'status': 'error',
-            'message': 'Invalid date format'
+            'message': 'Invalid date format, needs to be ISO format'
         })
         response.status_code = 400
         return response
@@ -56,9 +56,10 @@ def schedule():
     # get current time as a timestamp string
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     n = random.randint(1, 10)
-    commands = ["import time", f"time.sleep({random.random()*5:.2f})  # {now}"]
-    for i in range(n):
-        commands.append(f"time.sleep({random.random()*5:.2f})")
+    parts = split_into_parts(dt, n)
+    commands = ["import time", f"# {now}"]
+    for i, part in enumerate(parts):
+        commands += [f"time.sleep({part:.2f})"]
     commands = "\n".join(commands)
 
     response = flask.jsonify({
@@ -68,3 +69,13 @@ def schedule():
     })
     response.status_code = 200
     return response
+
+
+def split_into_parts(N, m):
+    parts = []
+    for i in range(m-1):
+        parts.append(random.uniform(0, N/m))
+        N -= parts[-1]
+    parts.append(N)
+    random.shuffle(parts)
+    return parts
