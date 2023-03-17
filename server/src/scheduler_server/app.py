@@ -1,11 +1,18 @@
 """Create a dummy server for testing purposes."""
 
+import os, yaml
+from pathlib import Path
 import flask
 import flask_cors
-from datetime import datetime
-import random
+from datetime import datetime, timezone
 
-SUPPORTED_POLICIES = ['dummy']
+from . import handler
+
+SUPPORTED_POLICIES = ['dummy', 'basic']
+POLICY_HANDLERS = {
+    'dummy': handler.dummy_policy,
+    'basic': handler.basic_policy
+}
 
 app = flask.Flask(__name__)
 
@@ -44,6 +51,11 @@ def schedule():
     try:
         t0 = datetime.fromisoformat(t0)
         t1 = datetime.fromisoformat(t1)
+        # if no timezone is specified, assume UTC
+        if t0.tzinfo is None:
+            t0 = t0.replace(tzinfo=timezone.utc)
+        if t1.tzinfo is None:
+            t1 = t1.replace(tzinfo=timezone.utc)
     except ValueError:
         response = flask.jsonify({
             'status': 'error',
@@ -52,15 +64,7 @@ def schedule():
         response.status_code = 400
         return response
 
-    dt = abs(t1.timestamp() - t0.timestamp())  # too lazy to check for t1<t0 now
-    # get current time as a timestamp string
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    n = random.randint(1, 10)
-    parts = split_into_parts(dt, n)
-    commands = ["import time", f"# {now}"]
-    for i, part in enumerate(parts):
-        commands += [f"time.sleep({part:.2f})"]
-    commands = "\n".join(commands)
+    commands = POLICY_HANDLERS[policy](t0, t1, app.config)
 
     response = flask.jsonify({
         'status': 'ok',
@@ -70,12 +74,11 @@ def schedule():
     response.status_code = 200
     return response
 
-
-def split_into_parts(N, m):
-    parts = []
-    for i in range(m-1):
-        parts.append(random.uniform(0, N/m))
-        N -= parts[-1]
-    parts.append(N)
-    random.shuffle(parts)
-    return parts
+# load config
+default_config = Path(__file__).parent / 'config.yaml'
+config_file = os.environ.get('SCHEDULER_CONFIG', default_config)
+with open(config_file, 'r') as file:
+    config_data = yaml.safe_load(file)
+if config_data is None:
+    config_data = {}
+app.config.update(config_data)
