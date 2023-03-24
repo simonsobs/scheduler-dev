@@ -69,7 +69,7 @@ class Preamble(CompositeCommand):
     commands: List[Command] = field(default_factory=lambda: [
         "from sorunlib import *",
         "",
-        "initialize()",
+        "initialize(test_mode=True)",
         "",
         "smurf.uxm_setup()",
         "smurf.iv_curve()",
@@ -87,9 +87,9 @@ def sequence2command(seq: Sequence):
                 BiasDets(),
                 Wait(block.t0),
                 BiasStep(),
-                Stream('on'),
+                # Stream('on'),
                 Scan(block.patch, block.t1, block.throw),
-                Stream('off'),
+                # Stream('off'),
                 BiasStep(),
                 "",  # line break
             ])
