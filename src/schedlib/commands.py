@@ -68,8 +68,10 @@ class IV(CompositeCommand):
 class Preamble(CompositeCommand):
     commands: List[Command] = field(default_factory=lambda: [
         "from sorunlib import *",
+        "from nextline import disable_trace",
         "",
-        "initialize(test_mode=True)",
+        "with disable_trace():",
+        "\tinitialize(test_mode=True)",
         "",
         "smurf.uxm_setup()",
         "smurf.iv_curve()",
