@@ -28,7 +28,7 @@ class Scan(Command):
 class Wait(Command):
     t0: datetime
     def __str__(self):
-        return f"wait('{self.t0.isoformat()}')"
+        return f"wait_until('{self.t0.isoformat()}')"
 
 @dataclass(frozen=True)
 class BiasStep(Command):
@@ -68,8 +68,10 @@ class IV(CompositeCommand):
 class Preamble(CompositeCommand):
     commands: List[Command] = field(default_factory=lambda: [
         "from sorunlib import *",
+        "from nextline import disable_trace",
         "",
-        "initialize(test_mode=True)",
+        "with disable_trace():",
+        "\tinitialize(test_mode=True)",
         "",
         "smurf.uxm_setup()",
         "smurf.iv_curve()",
