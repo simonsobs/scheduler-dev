@@ -1,2 +1,2 @@
-# vigilant-fiesta
-new scheduler test development
+# scheduler-dev
+repo to experiment with new scheduler design
