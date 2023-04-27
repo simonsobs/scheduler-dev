@@ -28,7 +28,7 @@ class Scan(Command):
 class Wait(Command):
     t0: datetime
     def __str__(self):
-        return f"wait('{self.t0.isoformat()}')"
+        return f"wait_until('{self.t0.isoformat()}')"
 
 @dataclass(frozen=True)
 class BiasStep(Command):
