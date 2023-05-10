@@ -33,4 +33,4 @@ def parse_sequence_from_toast(ifile: str) -> Sequence:
         )
         blocks.append(block)
 
-    return Sequence(blocks)
+    return Sequence.from_blocks(blocks)
