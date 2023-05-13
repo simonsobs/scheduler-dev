@@ -22,7 +22,9 @@ class ScanBlock(Block):
     alt: float
     throw: float
     patch: str
-    
+
+class FixedBlock(Block): pass
+
 def block_split(block: Block, t: dt.datetime) -> Blocks:
     if t <= block.t0 or t >= block.t1:
         return [block]

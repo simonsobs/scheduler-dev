@@ -1,5 +1,12 @@
 from datetime import datetime
+from pathlib import Path
+from .utils import split_into_parts, rand_upto
+import numpy as np
+from schedlib.policy import BasicPolicy
 import random
+
+random.seed(int(datetime.now().timestamp()))
+default_schedule = Path(__file__).parent / "schedule_sat.txt"
 
 def dummy_policy(t0, t1, policy_config={}, app_config={}):
     dt = abs(t1.timestamp() - t0.timestamp())  # too lazy to check for t1<t0 now
@@ -13,23 +20,15 @@ def dummy_policy(t0, t1, policy_config={}, app_config={}):
     commands = "\n".join(commands)
     return commands
 
-def split_into_parts(N, m):
-    parts = []
-    for i in range(m-1):
-        parts.append(random.uniform(0, N/m))
-        N -= parts[-1]
-    parts.append(N)
-    random.shuffle(parts)
-    return parts
 
 def basic_policy(t0, t1, policy_config={}, config={}):
     import schedlib as sl
-    from pathlib import Path
+
     config.update(policy_config)
+    policy = BasicPolicy.from_config(config)
 
     # get root path of the repo
-    default_schedule = Path(__file__).parent / "schedule_sat.txt"
-    sat_schedule_ifile = config.get("master_schedule", default_schedule)
+    sat_schedule_ifile = policy.get("master_schedule", default_schedule)
     seq = sl.parse_sequence_from_toast(sat_schedule_ifile)
 
     # filter out the observations that are not in the time range
@@ -37,7 +36,9 @@ def basic_policy(t0, t1, policy_config={}, config={}):
     seq = sl.seq_filter(lambda x: x.t0 < t1, seq)
 
     # make partial observations if needed
-    # sl.seq_map_when(lambda x: (x.t0 < t0) and (x.t1 - t0))
+    if seq[0].t0 < t0:
+        block = sl.block_shrink_left(seq[0], rand_upto(policy.get_block_tolerance(seq[0])))
+        seq = [block] + seq[1:]
 
     # convert to commands
     cmd = sl.seq2cmd(seq)
