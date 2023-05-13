@@ -5,6 +5,7 @@ from pathlib import Path
 import flask
 import flask_cors
 from datetime import datetime, timezone
+import json
 
 from . import handler
 
@@ -38,8 +39,23 @@ def schedule():
     t1 = data['t1']
     policy = data['policy']
 
+    # policy is a json string, so parse it now. The json
+    # has the form {"policy": "policy_name", "config": {...}}
+    try:
+        policy_dict = json.loads(policy)
+    except json.JSONDecodeError:
+        response = flask.jsonify({
+            'status': 'error',
+            'message': 'Invalid policy, needs to be a json string'
+        })
+        response.status_code = 400
+        return response 
+
+    policy_name = policy_dict.get('policy', 'dummy')
+    policy_config = policy_dict.get('config', {})
+
     # check policy is supported
-    if policy not in SUPPORTED_POLICIES:
+    if policy_name not in SUPPORTED_POLICIES:
         response = flask.jsonify({
             'status': 'error',
             'message': f'Invalid policy. Supported policies are: {SUPPORTED_POLICIES}'
@@ -64,7 +80,7 @@ def schedule():
         response.status_code = 400
         return response
 
-    commands = POLICY_HANDLERS[policy](t0, t1, app.config)
+    commands = POLICY_HANDLERS[policy](t0, t1, policy_config, app.config)
 
     response = flask.jsonify({
         'status': 'ok',

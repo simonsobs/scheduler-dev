@@ -81,7 +81,7 @@ class Preamble(CompositeCommand):
 def seq2cmd(seq: Blocks):
     """map a scan to a command"""
     commands = [Preamble()]
-    for block in seq.blocks:
+    for block in seq:
         if isinstance(block, ScanBlock):
             command = CompositeCommand([
                 f"# {block.patch}",
