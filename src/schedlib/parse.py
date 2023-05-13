@@ -1,21 +1,15 @@
 import pandas as pd
 import numpy as np
 
-from .core import Sequence, ScanBlock
+from .core import ScanBlock, Blocks
 from . import utils as u
 
-def parse_sequence_from_toast(ifile: str) -> Sequence:
+def parse_sequence_from_toast(ifile: str) -> Blocks:
     """
     Parameters
     ----------
     ifile: input master schedule from toast
-
-    Returns
-    -------
-    - Sequence object
-
     """
-    # load schedules
     columns = ["start_utc", "stop_utc", "start_mjd", "stop_mjd",
                "rotation", "patch", "az_min", "az_max", "el", "mode"]
     df = pd.read_fwf(ifile, skiprows=3, header=None, index_col=None,
@@ -33,4 +27,4 @@ def parse_sequence_from_toast(ifile: str) -> Sequence:
         )
         blocks.append(block)
 
-    return Sequence.from_blocks(blocks)
+    return blocks

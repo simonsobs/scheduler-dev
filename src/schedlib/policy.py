@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import FrozenSet
 
-
 @dataclass(frozen=True)
 class Rule: 
     pass
@@ -10,6 +9,6 @@ class Rule:
 class RuleSet:
     rules: FrozenSet[Rule]
 
-@dataclass
+@dataclass(frozen=True)
 class Policy:
     pass

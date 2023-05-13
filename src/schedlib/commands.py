@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from . import utils as u
-from .core import ScanBlock, Sequence
+from .core import ScanBlock, Blocks
 
 @dataclass(frozen=True)
 class Command:
@@ -78,7 +78,7 @@ class Preamble(CompositeCommand):
         ""
     ])
 
-def sequence2command(seq: Sequence):
+def seq2cmd(seq: Blocks):
     """map a scan to a command"""
     commands = [Preamble()]
     for block in seq.blocks:
