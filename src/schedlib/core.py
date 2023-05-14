@@ -93,6 +93,7 @@ def seq_has_overlap(blocks: Blocks) -> bool:
     return False
 
 def seq_is_sorted(blocks: Blocks) -> bool:
+    blocks = seq_flatten(blocks)
     for i in range(len(blocks)-1):
         if blocks[i].t1 > blocks[i+1].t0:
             return False
@@ -108,10 +109,11 @@ def seq_filter(op: Callable[[Blocks], bool], blocks: Blocks) -> Blocks:
     return list(filter(op, seq_flatten(blocks)))
 
 def seq_map(op: Callable[[Blocks], Any], blocks: Blocks) -> List[Any]:
-    return tu.tree_map(op, blocks)
+    """preserves nesting and nones"""
+    return tu.tree_map(op, blocks, is_leaf=is_block)
 
-def seq_map_when(op_when: Callable[[Blocks], bool], op: Callable[[Block], Any], blocks: Blocks) -> Any:
-    return tu.tree_map(lambda b: op(b) if op_when(b) else b, blocks)
+def seq_map_when(op_when: Callable[[Blocks], bool], op: Callable[[Block], Any], blocks: Blocks) -> List[Any]:
+    return tu.tree_map(lambda b: op(b) if op_when(b) else b, blocks, is_leaf=is_block)
 
 def seq_trim(blocks: Blocks, t0: dt.datetime, t1: dt.datetime) -> Blocks:
     return seq_map(lambda b: block_trim(b, t0, t1), blocks)

@@ -34,57 +34,33 @@ def test_block_split():
     assert len(s2) == 2 and s2[0].t1 == dt.datetime(2023, 5, 10, 11, 0, 0) and s2[1].t0 == dt.datetime(2023, 5, 10, 11, 0, 0)
     assert len(s3) == 1 and s3[0] == b
 
-def test_block_trim_within_range():
-    # Create a block from 10:00 to 12:00
+def test_block_trim():
+    # within range
     block = core.Block(t0=dt.datetime(2023, 1, 1, 10, 0), t1=dt.datetime(2023, 1, 1, 12, 0))
-
-    # Trim the block from 10:30 to 11:30
     trimmed_block = core.block_trim(block, dt.datetime(2023, 1, 1, 10, 30), dt.datetime(2023, 1, 1, 11, 30))
-
-    # Check if the trimmed block is correct
     assert trimmed_block.t0 == dt.datetime(2023, 1, 1, 10, 30)
     assert trimmed_block.t1 == dt.datetime(2023, 1, 1, 11, 30)
 
-def test_block_trim_outside_range():
-    # Create a block from 10:00 to 12:00
+    # outside range
     block = core.Block(t0=dt.datetime(2023, 1, 1, 10, 0), t1=dt.datetime(2023, 1, 1, 12, 0))
-
-    # Trim the block from 9:00 to 9:30 (outside range)
     trimmed_block = core.block_trim(block, dt.datetime(2023, 1, 1, 9, 0), dt.datetime(2023, 1, 1, 9, 30))
-
-    # Check if the trimmed block is None
     assert trimmed_block is None
 
-def test_block_trim_partial_overlap():
-    # Create a block from 10:00 to 12:00
+    # partial overlap
     block = core.Block(t0=dt.datetime(2023, 1, 1, 10, 0), t1=dt.datetime(2023, 1, 1, 12, 0))
-
-    # Trim the block from 11:30 to 13:00 (partial overlap)
     trimmed_block = core.block_trim(block, dt.datetime(2023, 1, 1, 11, 30), dt.datetime(2023, 1, 1, 13, 0))
-
-    # Check if the trimmed block is correct
     assert trimmed_block.t0 == dt.datetime(2023, 1, 1, 11, 30)
     assert trimmed_block.t1 == dt.datetime(2023, 1, 1, 12, 0)
 
-def test_block_trim_full_overlap():
-    # Create a block from 10:00 to 12:00
+    # full overlap
     block = core.Block(t0=dt.datetime(2023, 1, 1, 10, 0), t1=dt.datetime(2023, 1, 1, 12, 0))
-
-    # Trim the block from 9:00 to 13:00 (full overlap)
     trimmed_block = core.block_trim(block, dt.datetime(2023, 1, 1, 9, 0), dt.datetime(2023, 1, 1, 13, 0))
-
-    # Check if the trimmed block is correct
     assert trimmed_block.t0 == dt.datetime(2023, 1, 1, 10, 0)
     assert trimmed_block.t1 == dt.datetime(2023, 1, 1, 12, 0)
 
-def test_block_trim_no_specified_range():
-    # Create a block from 10:00 to 12:00
+    # no specification
     block = core.Block(t0=dt.datetime(2023, 1, 1, 10, 0), t1=dt.datetime(2023, 1, 1, 12, 0))
-
-    # Trim the block without specifying a range (use default values)
     trimmed_block = core.block_trim(block)
-
-    # Check if the trimmed block is the same as the original block
     assert trimmed_block.t0 == block.t0
     assert trimmed_block.t1 == block.t1
 
@@ -207,26 +183,196 @@ def test_seq_has_overlap():
     # Test with no overlap
     b1 = core.Block(t0=dt.datetime(2023, 5, 10, 10, 0, 0), t1=dt.datetime(2023, 5, 10, 11, 0, 0))
     b2 = core.Block(t0=dt.datetime(2023, 5, 10, 11, 0, 0), t1=dt.datetime(2023, 5, 10, 12, 0, 0))
-    s1 = [b1, b2]
+    s1 = [b1, [None, b2]]
     assert not core.seq_has_overlap(s1)
 
     # Test with overlap
     b3 = core.Block(t0=dt.datetime(2023, 5, 10, 11, 30, 0), t1=dt.datetime(2023, 5, 10, 12, 30, 0))
-    s2 = [b1, b2, b3]
+    s2 = [b1, [b2, b3]]
     assert core.seq_has_overlap(s2)
 
 def test_seq_is_sorted():
     # Test with sorted sequence
     b1 = core.Block(t0=dt.datetime(2023, 5, 10, 10, 0, 0), t1=dt.datetime(2023, 5, 10, 11, 0, 0))
     b2 = core.Block(t0=dt.datetime(2023, 5, 10, 11, 0, 0), t1=dt.datetime(2023, 5, 10, 12, 0, 0))
-    s1 = [b1, b2]
+    s1 = [b1, None, b2]
     assert core.seq_is_sorted(s1)
 
     # Test with unsorted sequence
     b3 = core.Block(t0=dt.datetime(2023, 5, 10, 9, 0, 0), t1=dt.datetime(2023, 5, 10, 10, 0, 0))
-    s2 = [b2, b3, b1]
+    s2 = [b2, [b3, [b1, None]]] # order and nesting should not matter
     assert not core.seq_is_sorted(s2)
 
     # Test with single block sequence
     s3 = [b1]
     assert core.seq_is_sorted(s3)
+
+def test_has_overlap():
+    # Test with no overlap
+    b1 = core.Block(t0=dt.datetime(2023, 5, 10, 10, 0, 0), t1=dt.datetime(2023, 5, 10, 11, 0, 0))
+    b2 = core.Block(t0=dt.datetime(2023, 5, 10, 11, 0, 0), t1=dt.datetime(2023, 5, 10, 12, 0, 0))
+    assert not core.seq_has_overlap([b1, b2])
+
+    # Test with overlap
+    b3 = core.Block(t0=dt.datetime(2023, 5, 10, 10, 30, 0), t1=dt.datetime(2023, 5, 10, 11, 30, 0))
+    assert core.seq_has_overlap([b3, [b1, None]]) # order and nesting should not matter
+
+def test_seq_filter():
+    # Test case 1: Filtering blocks where t0 is before a specific date
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        None,
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+         None, core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))],
+        core.Block(t0=dt.datetime(2023, 1, 6), t1=dt.datetime(2023, 1, 7)),
+    ]
+    filtered_blocks = core.seq_filter(lambda b: b.t0 < dt.datetime(2023, 1, 4), blocks)
+    assert len(filtered_blocks) == 2
+    assert filtered_blocks == [blocks[0], blocks[2][0]]
+
+    # Test case 2: Filtering blocks where t1 is after a specific date
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))],
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+    ]
+    filtered_blocks = core.seq_filter(lambda b: b.t1 > dt.datetime(2023, 1, 3), blocks)
+    assert len(filtered_blocks) == 2
+    assert filtered_blocks == [core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+                               core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))]  # preserves order but not nesting
+
+    # Test case 3: Filtering blocks where t0 and t1 are the same
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 1)),
+        core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 2)),
+        core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 3)),
+    ]
+    filtered_blocks = core.seq_filter(lambda b: b.t0 == b.t1, blocks)
+    assert len(filtered_blocks) == 3
+    
+def test_seq_map():
+    # case 1: nested blocks with Nones: should preserve nesting and Nones
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 5)), [None]],
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+        None,
+    ]
+    durations = core.seq_map(lambda b: (b.t1 - b.t0).total_seconds(), blocks)
+    assert len(durations) == 4
+    assert durations == [
+        86400, [86400*2, [None]], 86400, None
+    ]
+
+    # case 2: blocks with [], should preserve nesting and []
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        [],
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+    ]
+    durations = core.seq_map(lambda b: (b.t1 - b.t0).total_seconds(), blocks)
+    assert len(durations) == 3
+    assert durations == [
+        86400, [], 86400
+    ]
+
+def test_seq_map_when():
+    # Test case 1: Mapping blocks that meet the condition
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        core.Block(t0=dt.datetime(2023, 1, 4), t1=dt.datetime(2023, 1, 5)),
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+    ]
+    result = core.seq_map_when(lambda b: b.t0.day % 2 == 0, lambda b: (b.t1 - b.t0).total_seconds(), blocks)
+    assert result == [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        86400,
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+    ]
+
+    # Test case 2: Mapping blocks that all meet the condition
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+    ]
+    result = core.seq_map_when(lambda b: b.t0.day % 2 == 1, lambda b: (b.t1 - b.t0).total_seconds(), blocks)
+    assert result == [86400, 86400, 86400]
+
+    # Test case 2: Mapping blocks that none meet the condition
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+    ]
+    result = core.seq_map_when(lambda b: b.t0.day % 2 == 0, lambda b: (b.t1 - b.t0).total_seconds(), blocks)
+    assert result == blocks
+
+    # Test case 3: Mapping with nested blocks and None values: should preserve nesting and Nones
+    nested_blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 4)),
+        [
+            core.Block(t0=dt.datetime(2023, 1, 4), t1=dt.datetime(2023, 1, 5)),
+            core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+            [],
+        ],
+        core.Block(t0=dt.datetime(2023, 1, 8), t1=dt.datetime(2023, 1, 9)),
+        None,
+    ]
+    result = core.seq_map_when(
+        lambda b: b.t0.day % 2 == 0,
+        lambda b: (b.t1 - b.t0).total_seconds(),
+        nested_blocks
+    )
+    assert result == [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 4)),
+        [86400, core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)), []],
+        86400,
+        None,
+    ]
+
+def test_seq_trim():
+    # case 1
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+    ]
+    t0 = dt.datetime(2023, 1, 2)
+    t1 = dt.datetime(2023, 1, 5)
+    trimmed_blocks = core.seq_trim(blocks, t0, t1)
+    assert trimmed_blocks == [
+        None,
+        core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+        None
+    ]
+
+    # case 2
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)), None],
+        [None],
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+    ]
+    t0 = dt.datetime(2023, 1, 1, 12, 0, 0)
+    t1 = dt.datetime(2023, 1, 5, 12, 0, 0)
+
+    trimmed_blocks = core.seq_trim(blocks, t0, t1)
+    assert trimmed_blocks == [
+        core.Block(t0=dt.datetime(2023, 1, 1, 12, 0, 0), t1=dt.datetime(2023, 1, 2)),
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)), None],
+        [None],
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 5, 12, 0, 0)),
+    ]
+    assert core.seq_flatten(trimmed_blocks) == [
+        core.Block(t0=dt.datetime(2023, 1, 1, 12, 0, 0), t1=dt.datetime(2023, 1, 2)),
+        core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 5, 12, 0, 0)),
+    ]
+
+    t0 = dt.datetime(2023, 1, 10, 12, 0, 0)
+    t1 = dt.datetime(2023, 1, 15, 12, 0, 0)
+
+    trimmed_blocks = core.seq_trim(blocks, t0, t1)
+    assert trimmed_blocks == [None, [None, None], [None], None]
+    assert core.seq_flatten(trimmed_blocks) == []
