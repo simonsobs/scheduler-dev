@@ -5,9 +5,10 @@ import ephem
 from chex import dataclass
 import datetime as dt
 from typing import Union, Optional, Callable, NamedTuple
+import numpy as np
 from scipy.interpolate import interp1d
 
-from .core import Blocks, Block, seq_trim
+from . import core
 
 
 class Location(NamedTuple):
@@ -49,7 +50,7 @@ def get_source(name: str) -> Source:
     # always get new object to avoid side effects
     return SOURCES[name]()
 
-def source_get_az_alt(source: str, times: List[dt.datetime]) -> Blocks:
+def source_get_az_alt(source: str, times: List[dt.datetime]) -> core.Blocks:
     """Get altitude and azimuth for a source in a given list of times"""
     observer = get_site().at(times[0])
     source = get_source(source)
@@ -70,13 +71,13 @@ def source_az_alt_interpolators(source: str, t0: dt.datetime, t1: dt.datetime, t
     return interp_az, interp_alt
 
 @dataclass(Frozen=True)
-class SourceBlock(Block):
-    source: Source
+class SourceBlock(core.Block):
+    source: str
     mode: str
     def __post_init__(self):
         assert self.mode in ["rising", "setting"]
 
-def source_get_blocks(source: str, t0: dt.datetime, t1: dt.datetime) -> Blocks:
+def source_get_blocks(source: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks:
     """Get altitude and azimuth for a source and save an interpolator.
     If interpolation functions are not available, build them."""
     # past is not as important as future
@@ -103,11 +104,11 @@ class PrecomputedSource(NamedTuple):
     t1: dt.datetime
     interp_az: Callable[[int], float]
     interp_alt: Callable[[int], float]
-    blocks: Blocks
+    blocks: core.Blocks
 
     @classmethod
     def for_(cls, name: str, t0: dt.datetime, t1: dt.datetime,
-                   buf: dt.timedelta = dt.timedelta(days=7)):
+             buf: dt.timedelta = dt.timedelta(days=7)):
         reuse = False
         if name in PRECOMPUTED_SOURCES:
             precomputed = PRECOMPUTED_SOURCES[name]
@@ -120,7 +121,36 @@ class PrecomputedSource(NamedTuple):
             PRECOMPUTED_SOURCES[name] = cls(t0, t1, az_interp, alt_interp, blocks)
         return PRECOMPUTED_SOURCES[name]
 
+    @classmethod
+    def for_block(cls, block: SourceBlock):
+        return cls.for_(block.source, block.t0, block.t1)
+
 def source_gen_seq(source: str, t0: dt.datetime, t1: dt.datetime) -> Blocks:
     """Get source blocks for a given source and time interval."""
     blocks = PrecomputedSource.for_(source, t0, t1).blocks
     return seq_trim(blocks, t0, t1)
+
+def source_block_get_az_alt(block: SourceBlock, time_step: dt.timedelta) -> Tuple[core.Array[float], core.Array[float]]:
+    """Get altitude and azimuth for a source block."""
+    source = PrecomputedSource.for_block(block)
+    t0, t1 = block.t0, block.t1
+    times = [t0 + i * time_step for i in range(int((t1 - t0) / time_step))]
+    times = [int(t.timestamp()) for t in times]
+    az = source.interp_az(times)
+    alt = source.interp_alt(times)
+    return az, alt
+
+def source_block_trim_by_alt_range(block:SourceBlock, alt_range:Tuple[float, float]) -> core.MaybeBlocks:
+    az, alt = source_block_get_az_alt(block)
+    alt_min, alt_max = alt_range
+    mask = (alt_min <= alt) * (alt <= alt_max)
+    if not mask.any():
+        return None
+    return [
+        SourceBlock(
+            t0=t0,
+            t1=t1,
+            source=block.source,
+            mode=block.mode
+        ) for (t0, t1) in mask2ranges(mask)
+    ]

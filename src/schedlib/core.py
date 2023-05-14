@@ -1,7 +1,9 @@
-#%%
 from typing import List, Union, Callable, Optional, Any
 import datetime as dt
 from chex import dataclass
+from abc import ABC, abstractmethod
+
+Array = np.ndarray
 
 @dataclass(frozen=True)
 class Block:
@@ -12,18 +14,10 @@ class Block:
     def duration(self) -> dt.timedelta:
         return self.t1 - self.t0
 
+BlockType = type(Block)
 Blocks = List[Block]
 MaybeBlock = Union[Block, None]
 MaybeBlocks = List[MaybeBlock]
-
-@dataclass(frozen=True)
-class ScanBlock(Block):
-    az: float
-    alt: float
-    throw: float
-    patch: str
-
-class FixedBlock(Block): pass
 
 def block_split(block: Block, t: dt.datetime) -> Blocks:
     if t <= block.t0 or t >= block.t1:
@@ -68,7 +62,12 @@ def block_trim_left_to(block: Block, t: dt.datetime) -> MaybeBlock:
     if t >= block.t1:
         return None
     return block.replace(t0=max(block.t0, t))
-    
+
+def block_isa(block_type:BlockType) -> Callable[[Block], bool]:
+    def isa(block: Block) -> bool:
+        return isinstance(block, block_type)
+    return isa
+
 def seq_sort(seq: Blocks) -> Blocks:
     return sorted(seq, key=lambda b: b.t0)
 
@@ -105,3 +104,15 @@ def seq_map_when(op_when: Callable[[MaybeBlock], bool], op: Callable[[Block], An
 
 def seq_trim(blocks: Blocks, t0: dt.datetime, t1: dt.datetime) -> Blocks:
     return seq_drop_empty(seq_map(lambda b: block_trim(b, t0, t1), blocks))
+
+
+@dataclass(frozen=True)
+class Rule(ABC):
+    @abstractmethod
+    def apply(self, blocks:MaybeBlocks) -> MaybeBlocks: ...
+
+RuleSet = List[Rule]
+
+@dataclass(frozen=True)
+class Policy:
+    rules: RuleSet
