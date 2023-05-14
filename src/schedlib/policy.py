@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from chex import dataclass
 from . import core
 
 @dataclass(frozen=True)

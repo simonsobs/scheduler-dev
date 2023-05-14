@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import ephem
 from chex import dataclass
+import ephem
 import datetime as dt
-from typing import Union, Optional, Callable, NamedTuple
-import numpy as np
+from typing import Union, Callable, NamedTuple, List, Tuple
 from scipy.interpolate import interp1d
 
-from . import core
-
+from . import core, utils
 
 class Location(NamedTuple):
     lat: float
@@ -125,32 +123,30 @@ class PrecomputedSource(NamedTuple):
     def for_block(cls, block: SourceBlock):
         return cls.for_(block.source, block.t0, block.t1)
 
-def source_gen_seq(source: str, t0: dt.datetime, t1: dt.datetime) -> Blocks:
+def source_gen_seq(source: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks:
     """Get source blocks for a given source and time interval."""
     blocks = PrecomputedSource.for_(source, t0, t1).blocks
-    return seq_trim(blocks, t0, t1)
+    return core.seq_trim(blocks, t0, t1)
 
-def source_block_get_az_alt(block: SourceBlock, time_step: dt.timedelta) -> Tuple[core.Array[float], core.Array[float]]:
+def source_block_get_az_alt(block: SourceBlock, time_step: dt.timedelta) -> Tuple[List[dt.datetime], core.Array[float], core.Array[float]]:
     """Get altitude and azimuth for a source block."""
     source = PrecomputedSource.for_block(block)
     t0, t1 = block.t0, block.t1
     times = [t0 + i * time_step for i in range(int((t1 - t0) / time_step))]
-    times = [int(t.timestamp()) for t in times]
-    az = source.interp_az(times)
-    alt = source.interp_alt(times)
-    return az, alt
+    ctimes = [int(t.timestamp()) for t in times]
+    az = source.interp_az(ctimes)
+    alt = source.interp_alt(ctimes)
+    return times, az, alt
 
-def source_block_trim_by_alt_range(block:SourceBlock, alt_range:Tuple[float, float]) -> core.MaybeBlocks:
-    az, alt = source_block_get_az_alt(block)
+def source_block_trim_by_alt_range(block:SourceBlock, alt_range:Tuple[float, float]) -> core.Blocks:
+    times, _, alt = source_block_get_az_alt(block)
     alt_min, alt_max = alt_range
     mask = (alt_min <= alt) * (alt <= alt_max)
     if not mask.any():
         return None
-    return [
-        SourceBlock(
-            t0=t0,
-            t1=t1,
-            source=block.source,
-            mode=block.mode
-        ) for (t0, t1) in mask2ranges(mask)
-    ]
+    blocks = []
+    for (i0, i1) in utils.mask2ranges(mask): 
+        t0 = times[i0]
+        t1 = times[i1-1]  # i1 is non-inclusive
+        blocks.append(SourceBlock(t0=t0, t1=t1, source=block.source, mode=block.mode))
+    return blocks
