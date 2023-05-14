@@ -102,3 +102,6 @@ def seq_map(op: Callable[[MaybeBlock], Any], blocks: MaybeBlocks) -> List[Any]:
 
 def seq_map_when(op_when: Callable[[MaybeBlock], bool], op: Callable[[Block], Any], blocks: MaybeBlocks) -> Any:
     return list(map(lambda block: op(block) if op_when(block) else block, blocks))
+
+def seq_trim(blocks: Blocks, t0: dt.datetime, t1: dt.datetime) -> Blocks:
+    return seq_drop_empty(seq_map(lambda b: block_trim(b, t0, t1), blocks))

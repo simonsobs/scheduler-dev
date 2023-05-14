@@ -7,5 +7,6 @@ setup(
     packages=find_packages(where='src'),    
     install_requires=[
         "chex",
+        "pyephem"
     ],
 )
