@@ -1,5 +1,6 @@
 from schedlib import core
 import datetime as dt
+import pytest
 
 def test_block_split():
     # Test case 1
@@ -126,7 +127,7 @@ def test_block_isa():
     # Check if the custom block is recognized as a CustomBlock
     assert is_custom_block(custom_block) is True
 
-def test_seq_has_nested():
+def test_seq_is_nested():
     # Create a list of blocks without nested blocks
     blocks_without_nested = [
         core.Block(t0=dt.datetime(2023, 1, 1, 10, 0), t1=dt.datetime(2023, 1, 1, 11, 0)),
@@ -177,7 +178,10 @@ def test_seq_sort():
     b1 = core.Block(t0=dt.datetime(2023, 5, 10, 10, 0, 0), t1=dt.datetime(2023, 5, 10, 12, 0, 0))
     b2 = core.Block(t0=dt.datetime(2023, 5, 10, 8, 0, 0), t1=dt.datetime(2023, 5, 10, 9, 0, 0))
     b3 = core.Block(t0=dt.datetime(2023, 5, 10, 9, 30, 0), t1=dt.datetime(2023, 5, 10, 11, 0, 0))
-    assert core.seq_sort([b1, None, [b2, None, b3]]) == [b2, b3, b1]
+    # cannot sort nested blocks without flatten=True
+    with pytest.raises(ValueError):
+        core.seq_sort([b1, None, [b2, None, b3]])
+    assert core.seq_sort([b1, None, [b2, None, b3]], flatten=True) == [b2, b3, b1]
 
 def test_seq_has_overlap():
     # Test with no overlap
@@ -227,8 +231,13 @@ def test_seq_filter():
         core.Block(t0=dt.datetime(2023, 1, 6), t1=dt.datetime(2023, 1, 7)),
     ]
     filtered_blocks = core.seq_filter(lambda b: b.t0 < dt.datetime(2023, 1, 4), blocks)
-    assert len(filtered_blocks) == 2
-    assert filtered_blocks == [blocks[0], blocks[2][0]]
+    assert len(filtered_blocks) == 4
+    assert filtered_blocks == [
+        blocks[0], 
+        None, 
+        [blocks[2][0], None, None],
+        None
+    ]
 
     # Test case 2: Filtering blocks where t1 is after a specific date
     blocks = [
@@ -237,9 +246,12 @@ def test_seq_filter():
         core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
     ]
     filtered_blocks = core.seq_filter(lambda b: b.t1 > dt.datetime(2023, 1, 3), blocks)
-    assert len(filtered_blocks) == 2
-    assert filtered_blocks == [core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
-                               core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))]  # preserves order but not nesting
+    assert len(filtered_blocks) == 3
+    assert filtered_blocks == [
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))],
+        None
+    ]
 
     # Test case 3: Filtering blocks where t0 and t1 are the same
     blocks = [

@@ -1,6 +1,7 @@
 import pytest
 from datetime import datetime, timezone
 from schedlib.utils import *
+import os.path as op
 
 def test_str2ctime_valid_time_string():
     time_str = "2023-05-14 12:34:56"
@@ -51,3 +52,8 @@ def test_mask2ranges_digest():
     mask = np.array([False, False, True, True, False, False, True, True, True, False, False])
     for i_left, i_right in mask2ranges(mask):
         assert np.all(mask[i_left:i_right])
+
+def test_parse_sequence_from_toast():
+    ifile = op.join(op.abspath(op.dirname(__file__)), "data/schedule_sat.txt")
+    seq = parse_sequence_from_toast(ifile)
+    assert len(seq) == 20

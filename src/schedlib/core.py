@@ -83,13 +83,16 @@ def seq_assert_not_nested(blocks: Blocks) -> None:
     assert not seq_is_nested(blocks), "seq has nested blocks"
 
 def seq_flatten(blocks: Blocks) -> Blocks:
+    """Flatten nested blocks into a single list of books and drop Nones"""
     return tu.tree_leaves(blocks, is_leaf=is_block)
 
-def seq_sort(seq: Blocks) -> Blocks:
+def seq_sort(seq: Blocks, flatten=False) -> Blocks:
+    if seq_is_nested(seq) and not flatten:
+        raise ValueError("Cannot sort nested sequence, use flatten=True")
     return sorted(seq_flatten(seq), key=lambda b: b.t0)
 
 def seq_has_overlap(blocks: Blocks) -> bool:
-    blocks = seq_sort(blocks)
+    blocks = seq_sort(blocks, flatten=True)
     for i in range(len(blocks)-1):
         if blocks[i].t1 > blocks[i+1].t0:
             return True
@@ -98,7 +101,8 @@ def seq_has_overlap(blocks: Blocks) -> bool:
 def seq_is_sorted(blocks: Blocks) -> bool:
     blocks = seq_flatten(blocks)
     for i in range(len(blocks)-1):
-        if blocks[i].t1 > blocks[i+1].t0:
+        # only care about causal ordering
+        if blocks[i].t0 > blocks[i+1].t0:
             return False
     return True
 
@@ -109,7 +113,10 @@ def seq_assert_no_overlap(seq: Blocks) -> None:
     assert not seq_has_overlap(seq), "Sequence has overlap"
 
 def seq_filter(op: Callable[[Blocks], bool], blocks: Blocks) -> Blocks:
-    return list(filter(op, seq_flatten(blocks)))
+    return tu.tree_map(lambda b: None if not op(b) else b, blocks, is_leaf=is_block)
+
+def seq_filter_out(op: Callable[[Blocks], bool], blocks: Blocks) -> Blocks:
+    return tu.tree_map(lambda b: None if op(b) else b, blocks, is_leaf=is_block)
 
 def seq_map(op: Callable[[Blocks], Any], blocks: Blocks) -> List[Any]:
     """preserves nesting and nones"""
