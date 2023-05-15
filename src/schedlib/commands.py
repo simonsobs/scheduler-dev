@@ -1,9 +1,8 @@
-from typing import NamedTuple, List, Optional
+from typing import List
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from . import utils as u
-from .core import ScanBlock, Sequence
+from .core import ScanBlock, Blocks
 
 @dataclass(frozen=True)
 class Command:
@@ -78,10 +77,12 @@ class Preamble(CompositeCommand):
         ""
     ])
 
-def sequence2command(seq: Sequence):
+def seq2cmd(seq: Blocks):
     """map a scan to a command"""
     commands = [Preamble()]
-    for block in seq.blocks:
+    for block in seq:
+        if block is None: 
+            raise ValueError("None block in sequence")
         if isinstance(block, ScanBlock):
             command = CompositeCommand([
                 f"# {block.patch}",
@@ -96,6 +97,6 @@ def sequence2command(seq: Sequence):
                 "",  # line break
             ])
         else: 
-            return NotImplementedError
+            raise ValueError(f"Unknown block type {type(block)}")
         commands.append(command)
     return CompositeCommand(commands)
