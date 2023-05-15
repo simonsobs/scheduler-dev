@@ -1,7 +1,6 @@
 """Create a dummy server for testing purposes."""
 
 import os
-from pathlib import Path
 import flask
 import flask_cors
 from datetime import datetime, timezone
@@ -9,6 +8,10 @@ import json
 import traceback
 
 from . import handler, utils
+from .configs import get_default_config
+
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 SUPPORTED_POLICIES = ['dummy', 'basic']
 POLICY_HANDLERS = {
@@ -25,6 +28,7 @@ flask_cors.CORS(app)
 def schedule():
     """return a schedule"""
     data = flask.request.get_json()
+    app.logger.debug(f"Processing request: {data}")
 
     # check for missing field
     for f in ['t0', 't1', 'policy']:
@@ -58,7 +62,7 @@ def schedule():
         return response
 
     # policy is a json string, so parse it now. The json
-    # has the form {"policy": "policy_name", "config": {...}}
+    # has the form {"policy": "name", "config": {...}}
     try:
         policy_dict = json.loads(policy)
     except json.JSONDecodeError:
@@ -82,9 +86,12 @@ def schedule():
         return response
 
     try:
-        # load default config for the selected policy
-        policy_config_file = app.config['policy_configs'][policy_name]
-        policy_config = utils.load_config(policy_config_file)
+        # load policy config: first check if a custom policy config has been provided
+        # it will be inside app.config['policy_configs'][policy_name]
+        if 'policy_configs' in app.config and policy_name in app.config['policy_configs']:
+            policy_config = app.config['policy_configs'][policy_name]
+        else:
+            policy_config = get_default_config(policy_name)
 
         # merge user config with default config
         utils.nested_update(policy_config, user_policy_config, new_keys_allowed=False)
@@ -107,7 +114,7 @@ def schedule():
     return response
 
 # load config
-default_config_file = Path(__file__).parent / 'config.yaml'
-config_file = os.environ.get('SCHEDULER_CONFIG', default_config_file)
-config = utils.load_config(config_file)
-app.config.update(config)
+config_file = os.environ.get('SCHEDULER_CONFIG')
+if config_file is not None and os.path.exists(config_file):
+    config = utils.load_config(config_file)
+    app.config.update(config)

@@ -21,4 +21,4 @@ class BasicPolicy(core.Policy):
 
     def apply(self, blocks: core.BlocksTree) -> core.Blocks:
         # dummy policy: just return the blocks
-        return blocks
+        return core.seq_flatten(blocks)
