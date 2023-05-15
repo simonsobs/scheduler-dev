@@ -1,13 +1,14 @@
 """Create a dummy server for testing purposes."""
 
-import os, yaml
+import os
 from pathlib import Path
 import flask
 import flask_cors
 from datetime import datetime, timezone
 import json
+import traceback
 
-from . import handler
+from . import handler, utils
 
 SUPPORTED_POLICIES = ['dummy', 'basic']
 POLICY_HANDLERS = {
@@ -39,30 +40,6 @@ def schedule():
     t1 = data['t1']
     policy = data['policy']
 
-    # policy is a json string, so parse it now. The json
-    # has the form {"policy": "policy_name", "config": {...}}
-    try:
-        policy_dict = json.loads(policy)
-    except json.JSONDecodeError:
-        response = flask.jsonify({
-            'status': 'error',
-            'message': 'Invalid policy, needs to be a json string'
-        })
-        response.status_code = 400
-        return response 
-
-    policy_name = policy_dict.get('policy', 'dummy')
-    policy_config = policy_dict.get('config', {})
-
-    # check policy is supported
-    if policy_name not in SUPPORTED_POLICIES:
-        response = flask.jsonify({
-            'status': 'error',
-            'message': f'Invalid policy. Supported policies are: {SUPPORTED_POLICIES}'
-        })
-        response.status_code = 400
-        return response
-
     # parse into datetime objects
     try:
         t0 = datetime.fromisoformat(t0)
@@ -80,7 +57,46 @@ def schedule():
         response.status_code = 400
         return response
 
-    commands = POLICY_HANDLERS[policy](t0, t1, policy_config, app.config)
+    # policy is a json string, so parse it now. The json
+    # has the form {"policy": "policy_name", "config": {...}}
+    try:
+        policy_dict = json.loads(policy)
+    except json.JSONDecodeError:
+        response = flask.jsonify({
+            'status': 'error',
+            'message': 'Invalid policy, needs to be a json string'
+        })
+        response.status_code = 400
+        return response 
+
+    policy_name = policy_dict.get('policy', 'dummy')
+    user_policy_config = policy_dict.get('config', {})
+
+    # check policy is supported
+    if policy_name not in SUPPORTED_POLICIES:
+        response = flask.jsonify({
+            'status': 'error',
+            'message': f'Invalid policy. Supported policies are: {SUPPORTED_POLICIES}'
+        })
+        response.status_code = 400
+        return response
+
+    try:
+        # load default config for the selected policy
+        policy_config_file = app.config['policy_configs'][policy_name]
+        policy_config = utils.load_config(policy_config_file)
+
+        # merge user config with default config
+        utils.nested_update(policy_config, user_policy_config)
+        commands = POLICY_HANDLERS[policy](t0, t1, policy_config, app.config)
+    except Exception as e:
+        response = flask.jsonify({
+            'status': 'error',
+            'message': f'Error: {e}'
+        })
+        response.status_code = 500
+        app.logger.error(traceback.format_exc())
+        return response
 
     response = flask.jsonify({
         'status': 'ok',
@@ -91,10 +107,7 @@ def schedule():
     return response
 
 # load config
-default_config = Path(__file__).parent / 'config.yaml'
-config_file = os.environ.get('SCHEDULER_CONFIG', default_config)
-with open(config_file, 'r') as file:
-    config_data = yaml.safe_load(file)
-if config_data is None:
-    config_data = {}
-app.config.update(config_data)
+default_config_file = Path(__file__).parent / 'config.yaml'
+config_file = os.environ.get('SCHEDULER_CONFIG', default_config_file)
+config = utils.load_config(config_file)
+app.config.update(config)

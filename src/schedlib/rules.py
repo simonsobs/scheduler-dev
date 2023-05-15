@@ -42,6 +42,9 @@ class WeekDay(Rule):
     day : int. 0 is Monday, 6 is Sunday
     """
     day: int
+    def __post_init__(self):
+        if self.day not in range(7):
+            raise ValueError(f"day must be in range(7), got {self.day}") 
     def apply(self, blocks: core.Blocks) -> core.Blocks:
         filt = lambda b: b.t0.weekday() == self.day
         return core.seq_filter(filt, blocks)
@@ -55,6 +58,22 @@ class DriftMode(Rule):
     mode : str. drift mode ['rising', 'setting']
     """
     mode: str
+    def __post_init__(self):
+        if self.mode not in ['rising', 'setting']:
+            raise ValueError(f"mode must be 'rising' or 'setting', got {self.mode}") 
     def apply(self, blocks: core.Blocks) -> core.Blocks:
-        filt = lambda b: b.mode == self.mode
+        filt = lambda b: b if b.mode == self.mode else None
         return core.seq_map_when(core.block_isa(src.SourceBlock), filt, blocks)
+
+# global registry of rules
+RULES = {
+    'alt-range': AltRange,
+    'az-range': AzRange,
+    'weekday': WeekDay,
+    'drift-mode': DriftMode,
+}
+def get_rule(name: str) -> Rule:
+    return RULES[name]
+
+def make_rule(name: str, **kwargs) -> Rule:
+    return get_rule(name)(**kwargs)

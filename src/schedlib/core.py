@@ -1,4 +1,4 @@
-from typing import List, Union, Callable, Optional, Any
+from typing import List, Union, Callable, Optional, Any, TypeVar
 from chex import dataclass
 from abc import ABC, abstractmethod
 import datetime as dt
@@ -159,11 +159,25 @@ Rule = Union[BlocksTransformation, Callable[[Blocks], Blocks]]
 RuleSet = List[Rule]
 
 @dataclass(frozen=True)
-class Policy:
+class MultiRules(BlocksTransformation):
     rules: RuleSet
     def apply(self, blocks: Blocks) -> Blocks:
         """apply rules to blocks in first-to-last order"""
         return compose_left(*self.rules)(blocks)
+
+# a nested tree (dict, tuple, list) of blocks
+BlocksTree = TypeVar('BlocksTree')  # for readability
+
+@dataclass(frozen=True)
+class Policy(BlocksTransformation, ABC):
+    """
+    apply: apply policy to a tree of blocks
+    """
+    # initialize a tree of blocks
+    @abstractmethod
+    def init_seqs(self) -> BlocksTree: ...
+    @abstractmethod
+    def apply(self, blocks: BlocksTree) -> Blocks: ...
 
 # ===============================
 # Others convenience types alias
