@@ -3,9 +3,8 @@ from chex import dataclass
 from abc import ABC, abstractmethod
 import datetime as dt
 import numpy as np
+from toolz import compose_left
 import jax.tree_util as tu
-
-Array = np.ndarray
 
 @dataclass(frozen=True)
 class Block:
@@ -70,6 +69,10 @@ def block_isa(block_type:BlockType) -> Callable[[Block], bool]:
         return isinstance(block, block_type)
     return isa
 
+# =============================
+# Sequence / Blocks operations 
+# =============================
+
 def seq_is_nested(blocks: Blocks) -> bool:
     for block in blocks:
         if isinstance(block, list):
@@ -118,16 +121,9 @@ def seq_map_when(op_when: Callable[[Blocks], bool], op: Callable[[Block], Any], 
 def seq_trim(blocks: Blocks, t0: dt.datetime, t1: dt.datetime) -> Blocks:
     return seq_map(lambda b: block_trim(b, t0, t1), blocks)
 
-@dataclass(frozen=True)
-class Rule(ABC):
-    @abstractmethod
-    def apply(self, blocks:Blocks) -> Blocks: ...
-
-RuleSet = List[Rule]
-
-@dataclass(frozen=True)
-class Policy:
-    rules: RuleSet
+# =========================
+# Other useful Block types
+# =========================
 
 @dataclass(frozen=True)
 class ScanBlock(Block):
@@ -135,3 +131,31 @@ class ScanBlock(Block):
     alt: float
     throw: float
     patch: str
+
+# =========================
+# Rules and Policies
+# =========================
+
+@dataclass(frozen=True)
+class BlocksTransformation(ABC):
+    @abstractmethod
+    def apply(self, blocks: Blocks) -> Blocks: ...
+    def __call__(self, blocks: Blocks) -> Blocks:
+        """wrapper to make it compatible with callable functions"""
+        return self.apply(blocks)
+
+Rule = Union[BlocksTransformation, Callable[[Blocks], Blocks]]
+RuleSet = List[Rule]
+
+@dataclass(frozen=True)
+class Policy:
+    rules: RuleSet
+    def apply(self, blocks: Blocks) -> Blocks:
+        """apply rules to blocks in first-to-last order"""
+        return compose_left(*self.rules)(blocks)
+
+# ===============================
+# Others convenience types alias
+# ===============================
+
+Arr = np.ndarray

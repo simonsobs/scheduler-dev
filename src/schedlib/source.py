@@ -4,7 +4,7 @@
 from chex import dataclass
 import ephem
 import datetime as dt
-from typing import Union, Callable, NamedTuple, List, Tuple
+from typing import Union, Callable, NamedTuple, List, Tuple, Optional
 from scipy.interpolate import interp1d
 import numpy as np
 
@@ -77,7 +77,7 @@ class SourceBlock(core.Block):
         if not self.mode in ["rising", "setting"]:
             raise ValueError("mode must be rising or setting")
 
-def _source_get_blocks(name: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks:
+def source_get_blocks(name: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks:
     """Get altitude and azimuth for a source and save an interpolator.
     If interpolation functions are not available, build them."""
     # past is not as important as future
@@ -117,7 +117,7 @@ class PrecomputedSource(NamedTuple):
             # future is more important than past
             t0, t1 = t0, t1 + buf
             az_interp, alt_interp = _source_az_alt_interpolators(name, t0, t1, dt.timedelta(seconds=1))
-            blocks = _source_get_blocks(name, t0, t1)
+            blocks = source_get_blocks(name, t0, t1)
             PRECOMPUTED_SOURCES[name] = cls(t0, t1, az_interp, alt_interp, blocks)
         return PRECOMPUTED_SOURCES[name]
 
@@ -140,11 +140,19 @@ def source_block_get_az_alt(block: SourceBlock, time_step: dt.timedelta = dt.tim
     alt = source.interp_alt(ctimes)
     return times, az, alt
 
-def source_block_trim_by_alt_range(block: SourceBlock, alt_range:Tuple[float, float]) -> core.Blocks:
+def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tuple[float, float]]=None, alt_range:Optional[Tuple[float, float]]=None) -> core.Blocks:
     """alt_range: (alt_min, alt_max) in radians"""
-    times, _, alt = source_block_get_az_alt(block)
-    alt_min, alt_max = alt_range
-    mask = (alt_min <= alt) * (alt <= alt_max)
+    if az_range is None and alt_range is None:
+        # not sure why one would want to do this though
+        return [block]
+    times, az, alt = source_block_get_az_alt(block)
+    mask = np.ones_like(az, dtype=bool)
+    if az_range is not None:
+        az_min, az_max = az_range
+        mask *= (az_min <= az) * (az <= az_max)
+    if alt_range is not None:
+        alt_min, alt_max = alt_range
+        mask *= (alt_min <= alt) * (alt <= alt_max)
     if not mask.any():
         return []  # need blocks type
     blocks = []

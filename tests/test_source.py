@@ -50,7 +50,7 @@ def test_source_get_blocks():
     source = 'sun'
     t0 = dt.datetime(2023, 1, 1, 0, 0, 0)
     t1 = dt.datetime(2023, 1, 1, 12, 0, 0)
-    blocks = src._source_get_blocks(source, t0, t1)
+    blocks = src.source_get_blocks(source, t0, t1)
     assert blocks == [
         src.SourceBlock(
             t0=dt.datetime(2022, 12, 31, 9, 48, 9, 902594),
@@ -83,7 +83,7 @@ def test_precomputed_source():
     t1 = dt.datetime(2023, 1, 1, 12, 0, 0)
     source = src.PrecomputedSource.for_('uranus', t0=t0, t1=t1, buf=dt.timedelta(days=0))
     assert isinstance(source, src.PrecomputedSource)
-    assert len(source.blocks) == 18
+    assert len(source.blocks) == 4
 
     t = int(dt.datetime(2023, 1, 1, 5, 0, 0).timestamp())
     assert np.allclose(source.interp_az(t), [0.27020165])

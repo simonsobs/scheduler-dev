@@ -1,8 +1,9 @@
 from datetime import datetime
 from pathlib import Path
+
+import schedlib.utils
 from .utils import split_into_parts, rand_upto
-import numpy as np
-from schedlib.policy import BasicPolicy
+from schedlib.policies import BasicPolicy
 import random
 
 random.seed(int(datetime.now().timestamp()))
@@ -29,7 +30,7 @@ def basic_policy(t0, t1, policy_config={}, config={}):
 
     # get root path of the repo
     sat_schedule_ifile = policy.get("master_schedule", default_schedule)
-    seq = sl.parse_sequence_from_toast(sat_schedule_ifile)
+    seq = schedlib.utils.parse_sequence_from_toast(sat_schedule_ifile)
 
     # filter out the observations that are not in the time range
     seq = sl.seq_filter(lambda x: x.t1 > t0, seq)

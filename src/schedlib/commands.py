@@ -2,7 +2,6 @@ from typing import List
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from . import utils as u
 from .core import ScanBlock, Blocks
 
 @dataclass(frozen=True)
