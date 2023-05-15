@@ -133,7 +133,11 @@ def seq_trim(blocks: Blocks, t0: dt.datetime, t1: dt.datetime) -> Blocks:
 # =========================
 
 @dataclass(frozen=True)
-class ScanBlock(Block):
+class NamedBlock(Block):
+    name: str 
+
+@dataclass(frozen=True)
+class ScanBlock(NamedBlock):
     az: float
     alt: float
     throw: float

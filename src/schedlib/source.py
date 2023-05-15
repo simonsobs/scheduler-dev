@@ -70,8 +70,7 @@ def _source_az_alt_interpolators(source: str, t0: dt.datetime, t1: dt.datetime, 
     return interp_az, interp_alt
 
 @dataclass(frozen=True)
-class SourceBlock(core.Block):
-    source: str
+class SourceBlock(core.NamedBlock):
     mode: str
     def __post_init__(self):
         if not self.mode in ["rising", "setting"]:
@@ -86,14 +85,14 @@ def source_get_blocks(name: str, t0: dt.datetime, t1: dt.datetime) -> core.Block
     t_block_beg = site.at(t0).previous_rising(source).datetime()
     t_block_mid = site.at(t_block_beg).next_transit(source).datetime()
     t_block_end = site.at(t_block_mid).next_setting(source).datetime()
-    blocks = [SourceBlock(t0=t_block_beg, t1=t_block_mid, source=name, mode="rising"),
-              SourceBlock(t0=t_block_mid, t1=t_block_end, source=name, mode="setting")]
+    blocks = [SourceBlock(t0=t_block_beg, t1=t_block_mid, name=name, mode="rising"),
+              SourceBlock(t0=t_block_mid, t1=t_block_end, name=name, mode="setting")]
     while t_block_end < t1:
         t_block_beg = site.at(t_block_end).next_rising(source).datetime()
         t_block_mid = site.at(t_block_beg).next_transit(source).datetime()
         t_block_end = site.at(t_block_mid).next_setting(source).datetime()
-        blocks += [SourceBlock(t0=t_block_beg, t1=t_block_mid, source=name, mode="rising"),
-                   SourceBlock(t0=t_block_mid, t1=t_block_end, source=name, mode="setting")]
+        blocks += [SourceBlock(t0=t_block_beg, t1=t_block_mid, name=name, mode="rising"),
+                   SourceBlock(t0=t_block_mid, t1=t_block_end, name=name, mode="setting")]
     return blocks
 
 # global registry of precomputed sources
@@ -108,7 +107,7 @@ class PrecomputedSource(NamedTuple):
 
     @classmethod
     def for_(cls, name: str, t0: dt.datetime, t1: dt.datetime,
-             buf: dt.timedelta = dt.timedelta(days=7)):
+             buf: dt.timedelta = dt.timedelta(days=1)):
         reuse = False
         if name in PRECOMPUTED_SOURCES:
             precomputed = PRECOMPUTED_SOURCES[name]
@@ -122,8 +121,8 @@ class PrecomputedSource(NamedTuple):
         return PRECOMPUTED_SOURCES[name]
 
     @classmethod
-    def for_block(cls, block: SourceBlock):
-        return cls.for_(block.source, block.t0, block.t1)
+    def for_block(cls, block: SourceBlock, buf: dt.timedelta = dt.timedelta(days=1)):
+        return cls.for_(block.name, block.t0, block.t1, buf=buf)
 
 def source_gen_seq(source: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks:
     """Get source blocks for a given source and time interval."""
@@ -141,7 +140,8 @@ def source_block_get_az_alt(block: SourceBlock, time_step: dt.timedelta = dt.tim
     return times, az, alt
 
 def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tuple[float, float]]=None, alt_range:Optional[Tuple[float, float]]=None) -> core.Blocks:
-    """alt_range: (alt_min, alt_max) in radians"""
+    """alt_range: (alt_min, alt_max) in radians
+    az_range: (az_min, az_max) in radians"""
     if az_range is None and alt_range is None:
         # not sure why one would want to do this though
         return [block]
@@ -159,5 +159,5 @@ def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tupl
     for (i0, i1) in utils.mask2ranges(mask): 
         t0 = times[i0]
         t1 = times[i1-1]  # i1 is non-inclusive
-        blocks.append(SourceBlock(t0=t0, t1=t1, source=block.source, mode=block.mode))
+        blocks.append(block.replace(t0=t0, t1=t1))
     return blocks

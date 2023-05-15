@@ -55,25 +55,25 @@ def test_source_get_blocks():
         src.SourceBlock(
             t0=dt.datetime(2022, 12, 31, 9, 48, 9, 902594),
             t1=dt.datetime(2022, 12, 31, 16, 34, 11, 308130),
-            source='sun',
+            name='sun',
             mode='rising'
         ),
         src.SourceBlock(
             t0=dt.datetime(2022, 12, 31, 16, 34, 11, 308130),
             t1=dt.datetime(2022, 12, 31, 23, 20, 7, 342349),
-            source='sun',
+            name='sun',
             mode='setting'
         ),
         src.SourceBlock(
             t0=dt.datetime(2023, 1, 1, 9, 48, 48, 46182),
             t1=dt.datetime(2023, 1, 1, 16, 34, 39, 671616),
-            source='sun',
+            name='sun',
             mode='rising'
         ),
         src.SourceBlock(
             t0=dt.datetime(2023, 1, 1, 16, 34, 39, 671616),
             t1=dt.datetime(2023, 1, 1, 23, 20, 25, 379070),
-            source='sun',
+            name='sun',
             mode='setting'
         )
     ]
@@ -95,7 +95,7 @@ def test_source_block():
     srcblk = src.SourceBlock(
         t0=dt.datetime(2023, 1, 1, 0, 0, 0),
         t1=dt.datetime(2023, 1, 1, 12, 0, 0),
-        source='sun',
+        name='sun',
         mode='rising'
     )
     assert isinstance(srcblk, src.SourceBlock)
@@ -104,7 +104,7 @@ def test_source_block():
         srcblk = src.SourceBlock(
             t0=dt.datetime(2023, 1, 1, 0, 0, 0),
             t1=dt.datetime(2023, 1, 1, 12, 0, 0),
-            source='sun',
+            name='sun',
             mode='rise'
         )
 
@@ -114,13 +114,13 @@ def test_source_gen_seq():
         src.SourceBlock(
             t0=dt.datetime(2023, 1, 1, 0, 0),
             t1=dt.datetime(2023, 1, 1, 0, 40, 38, 505631),
-            source='uranus',
+            name='uranus',
             mode='rising'
         ),
         src.SourceBlock(
             t0=dt.datetime(2023, 1, 1, 0, 40, 38, 505631),
             t1=dt.datetime(2023, 1, 1, 6, 14, 17, 34179),
-            source='uranus',
+            name='uranus',
             mode='setting'
         )
     ]
@@ -129,7 +129,7 @@ def test_source_block_get_az_alt():
     srcblk = src.SourceBlock(
         t0=dt.datetime(2023, 1, 1, 0, 40, 38),
         t1=dt.datetime(2023, 1, 1, 1, 14, 17),
-        source='uranus',
+        name='uranus',
         mode='setting'        
     )
     times, az, alt = src.source_block_get_az_alt(srcblk)
