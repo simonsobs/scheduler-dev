@@ -87,8 +87,8 @@ def schedule():
         policy_config = utils.load_config(policy_config_file)
 
         # merge user config with default config
-        utils.nested_update(policy_config, user_policy_config)
-        commands = POLICY_HANDLERS[policy](t0, t1, policy_config, app.config)
+        utils.nested_update(policy_config, user_policy_config, new_keys_allowed=False)
+        commands = POLICY_HANDLERS[policy_name](t0, t1, policy_config, app.config)
     except Exception as e:
         response = flask.jsonify({
             'status': 'error',

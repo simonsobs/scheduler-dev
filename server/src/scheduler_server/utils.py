@@ -18,8 +18,9 @@ def rand_upto(x):
 def rand_between(x, y):
     return np.random.uniform(low=x, high=y)
 
-def load_config(config_file):
+def load_config(config_file=None):
     """yaml config file loader"""
+    if not config_file: return {}
     with open(config_file, 'r') as file:
         config_data = yaml.safe_load(file)
     if config_data is None:
