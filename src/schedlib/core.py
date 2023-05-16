@@ -74,10 +74,7 @@ def block_isa(block_type:BlockType) -> Callable[[Block], bool]:
 # =============================
 
 def seq_is_nested(blocks: Blocks) -> bool:
-    for block in blocks:
-        if isinstance(block, list):
-            return True
-    return False
+    return not tu.all_leaves(blocks, is_leaf=is_block)
 
 def seq_assert_not_nested(blocks: Blocks) -> None:
     assert not seq_is_nested(blocks), "seq has nested blocks"

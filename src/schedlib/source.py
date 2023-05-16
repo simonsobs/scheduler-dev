@@ -73,8 +73,8 @@ def _source_az_alt_interpolators(source: str, t0: dt.datetime, t1: dt.datetime, 
 class SourceBlock(core.NamedBlock):
     mode: str
     def __post_init__(self):
-        if not self.mode in ["rising", "setting"]:
-            raise ValueError("mode must be rising or setting")
+        if not self.mode in ["rising", "setting", "both"]:
+            raise ValueError("mode must be rising or setting or both")
     def get_az_alt(self, time_step: dt.timedelta = dt.timedelta(seconds=30)) -> Tuple[List[dt.datetime], core.Arr, core.Arr]:
         """Return times, az, alt for a source block at a given time step"""
         return source_block_get_az_alt(self, time_step)
@@ -87,7 +87,6 @@ class SourceBlock(core.NamedBlock):
 def source_get_blocks(name: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks:
     """Get altitude and azimuth for a source and save an interpolator.
     If interpolation functions are not available, build them."""
-    # past is not as important as future
     site = get_site()
     source = get_source(name)
     t_block_beg = site.at(t0).previous_rising(source).datetime()
@@ -169,3 +168,8 @@ def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tupl
         t1 = times[i1-1]  # i1 is non-inclusive
         blocks.append(block.replace(t0=t0, t1=t1))
     return blocks
+
+def block_get_matching_sun_block(block: core.Block) -> SourceBlock:
+    """get the corresponding sun block for a given block with
+    the same time bounds."""
+    return core.SourceBlock(t0=block.t0, t1=block.t1, name="sun", mode="both")

@@ -4,14 +4,14 @@ from chex import dataclass
 from functools import partial
 from abc import ABC
 
-from . import core, source as src
+from . import core, source as src, instrument as inst, utils
 
 @dataclass(frozen=True)
 class Rule(core.BlocksTransformation, ABC):
     """Guarantee that our rule preserves nested structure."""
     def __call__(self, blocks: core.BlocksTree) -> core.BlocksTree:
         out = self.apply(blocks)
-        core.seq_assert_same_structure(blocks, out)
+        assert core.seq_is_nested(out) == core.seq_is_nested(blocks), "Rule must preserve nested structure"
         return out
 
 @dataclass(frozen=True)

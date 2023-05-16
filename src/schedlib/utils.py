@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import pandas as pd
 import numpy as np
+from functools import reduce
 from . import core, utils as u, instrument as inst
 
 def str2ctime(time_str):
@@ -24,6 +25,25 @@ def mask2ranges(mask):
     bounds = np.concatenate(([0], bounds, [len(mask)]))  # 0 to n
     bounds = np.vstack((bounds[:-1], bounds[1:])).T # [[(0 to n-1), (1 to n)], ...]
     return bounds[mask[bounds[:, 0]] == 1]
+
+def ranges2mask(ranges, imax):
+    mask = np.zeros(imax, dtype=bool)
+    for i_left, i_right in ranges:
+        mask[i_left:i_right] = True
+    return mask
+
+def ranges_pad(ranges, pad, imax):
+    """pad each range and merge overlapping ranges"""
+    ranges = ranges + np.array([-pad, pad])
+    ranges = np.clip(ranges, 0, imax)
+    if len(ranges) < 2: return ranges
+    # merge overlapping ranges
+    return np.array(reduce(lambda l, r: l[:-1] + [[l[-1][0], r[1]]] if l[-1][-1] >= r[0] else l + [r],
+                           ranges[1:], [ranges[0]]))
+
+def ranges_complement(ranges, imax):
+    """return the complement ranges"""
+    return mask2ranges(~ranges2mask(ranges, imax))
 
 def parse_sequence_from_toast(ifile: str) -> core.Blocks:
     """

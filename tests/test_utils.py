@@ -57,3 +57,13 @@ def test_parse_sequence_from_toast():
     ifile = op.join(op.abspath(op.dirname(__file__)), "data/schedule_sat.txt")
     seq = parse_sequence_from_toast(ifile)
     assert len(seq) == 20
+
+def test_ranges_pad():
+    mask = np.array([False, False, True, True, False, False, False, True, True, True, False, False])
+    ranges = mask2ranges(mask)
+    ranges = ranges_pad(ranges, 1, len(mask))
+    assert np.alltrue(ranges == [[1, 5], [6, 11]])
+
+    ranges = mask2ranges(mask)
+    ranges = ranges_pad(ranges, 3, len(mask))
+    assert np.alltrue(ranges == [[0, 12]])
