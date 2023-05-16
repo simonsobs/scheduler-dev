@@ -4,6 +4,11 @@ import numpy as np
 from functools import reduce
 from . import core, utils as u, instrument as inst
 
+minute = 60 # second
+hour = 60 * minute
+day = 24 * hour
+sidereal_day = 0.997269566 * day
+
 def str2ctime(time_str):
     ctime = (pd.Timestamp(time_str) - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
     return ctime

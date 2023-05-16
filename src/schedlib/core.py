@@ -135,8 +135,8 @@ def seq_filter(op: Callable[[Block], bool], blocks: BlocksTree) -> BlocksTree:
 def seq_filter_out(op: Callable[[Block], bool], blocks: BlocksTree) -> BlocksTree:
     return tu.tree_map(lambda b: None if op(b) else b, blocks, is_leaf=is_block)
 
-def seq_map(op: Callable[[Block], Any], blocks: BlocksTree) -> List[Any]:
-    return tu.tree_map(op, blocks, is_leaf=is_block)
+def seq_map(op, *blocks: BlocksTree) -> List[Any]:
+    return tu.tree_map(op, *blocks, is_leaf=is_block)
 
 def seq_map_when(op_when: Callable[[Block], bool], op: Callable[[Block], Any], blocks: BlocksTree) -> List[Any]:
     return tu.tree_map(lambda b: op(b) if op_when(b) else b, blocks, is_leaf=is_block)

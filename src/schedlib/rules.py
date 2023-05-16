@@ -3,6 +3,7 @@ import numpy as np
 from chex import dataclass
 from functools import partial
 from abc import ABC
+import datetime as dt
 
 from . import core, source as src, instrument as inst, utils
 
@@ -30,18 +31,19 @@ class AltRange(Rule):
 @dataclass(frozen=True)
 class DayMod(Rule):
     """Restrict the blocks to a specific day of the week.
-    
-    Parameters
-    ----------
-    day : int. 0 is Monday, 6 is Sunday
+    (day, day_mod): (0, 1) means everyday, (4, 7) means every 4th day in a week, ...
     """
     day: int
+    day_mod: int
+    day_ref: dt.datetime
     def __post_init__(self):
         if self.day not in range(7):
             raise ValueError(f"day must be in range(7), got {self.day}") 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        filt = lambda b: b.t0.weekday() == self.day
+        filt = lambda block: self.get_day_index(block.t0) % self.day_mod == self.day
         return core.seq_filter(filt, blocks)
+    def get_day_index(self, t: dt.datetime) -> int:
+        return np.floor((t - self.day_ref).total_seconds() / src.sidereal_day).astype(int)
 
 @dataclass(frozen=True)
 class DriftMode(Rule):
@@ -75,12 +77,47 @@ class RephaseFirst(Rule):
         tgt = src.replace(t0=src.t0 + np.random.uniform(0, allowance))
         return core.seq_replace_block(blocks, src, tgt)
 
+@dataclass(frozen=True)
+class SunAvoidance(Rule):
+    """Avoid sources that are too close to the Sun.
+
+    Parameters
+    ----------
+    min_angle_az : float. minimum angle in deg
+    min_angle_alt: float. minimum angle in deg
+    buffer: int. number of time steps to buffer the sun mask
+    """
+    min_angle_az: float
+    min_angle_alt: float
+    buffer: int
+    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        sun_blocks = core.seq_map(src.block_get_matching_sun_block, blocks)
+        return core.seq_map(self._apply_block, blocks, sun_blocks)
+
+    def _apply_block(self, block: core.Block, sun_block: core.Block) -> core.Blocks:
+        """Calculate the distance between a block and a sun block."""
+        if isinstance(block, inst.ScanBlock):
+            _, az, alt = sun_block.get_az_alt()
+            az, alt = np.rad2deg(az), np.rad2deg(alt)
+            daz, dalt = ((block.az - az) + 180) % 360 - 180, block.alt - alt
+            daz, dalt = np.abs(daz) - block.throw, np.abs(dalt)
+            ok = np.logical_or(daz > self.min_angle_az, dalt > self.min_angle_alt)
+            safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.buffer, len(az)), len(az))
+            # if the whole block is safe, return it
+            if np.allclose(safe_intervals, [[0, len(az)]]): return block
+            # otherwise, split it up into safe intervals
+            return [block.replace(t0=t0, t1=t1) for t0, t1 in safe_intervals]
+        else:
+            # passthrough
+            return block
+
 # global registry of rules
 RULES = {
     'alt-range': AltRange,
     'day-mod': DayMod,
     'drift-mode': DriftMode,
     'rephase-first': RephaseFirst,
+    'sum-avoidance': SunAvoidance,
 }
 def get_rule(name: str) -> Rule:
     return RULES[name]

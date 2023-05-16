@@ -10,6 +10,7 @@ import numpy as np
 
 from . import core, utils
 
+
 class Location(NamedTuple):
     """Location given in degrees and meters"""
     lat: float
