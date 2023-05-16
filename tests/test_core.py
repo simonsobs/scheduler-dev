@@ -388,3 +388,37 @@ def test_seq_trim():
     trimmed_blocks = core.seq_trim(blocks, t0, t1)
     assert trimmed_blocks == [None, [None, None], [None], None]
     assert core.seq_flatten(trimmed_blocks) == []
+
+def test_seq_assert_same_structure():
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        None,
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+         None, core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))],
+        core.Block(t0=dt.datetime(2023, 1, 6), t1=dt.datetime(2023, 1, 7)),
+    ]
+    filtered_blocks = core.seq_filter(lambda b: b.t0 < dt.datetime(2023, 1, 4), blocks)
+    assert len(filtered_blocks) == 4
+    core.seq_assert_same_structure(filtered_blocks, blocks)
+    with pytest.raises(AssertionError):
+        core.seq_assert_same_structure(filtered_blocks, core.seq_flatten(blocks))
+
+def test_seq_replace_block():
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        None,
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+         None, core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))],
+        core.Block(t0=dt.datetime(2023, 1, 6), t1=dt.datetime(2023, 1, 7)),
+    ]
+    new_blocks = core.seq_replace_block(
+        blocks, core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+        core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 5))
+    )
+    assert new_blocks == [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        None,
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 5)),
+         None, core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))],
+        core.Block(t0=dt.datetime(2023, 1, 6), t1=dt.datetime(2023, 1, 7)),
+    ]

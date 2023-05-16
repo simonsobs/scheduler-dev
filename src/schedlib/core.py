@@ -82,10 +82,6 @@ def seq_is_nested(blocks: Blocks) -> bool:
 def seq_assert_not_nested(blocks: Blocks) -> None:
     assert not seq_is_nested(blocks), "seq has nested blocks"
 
-def seq_flatten(blocks: Blocks) -> Blocks:
-    """Flatten nested blocks into a single list of books and drop Nones"""
-    return tu.tree_leaves(blocks, is_leaf=is_block)
-
 def seq_sort(seq: Blocks, flatten=False) -> Blocks:
     if seq_is_nested(seq) and not flatten:
         raise ValueError("Cannot sort nested sequence, use flatten=True")
@@ -112,20 +108,46 @@ def seq_assert_sorted(blocks: Blocks) -> None:
 def seq_assert_no_overlap(seq: Blocks) -> None:
     assert not seq_has_overlap(seq), "Sequence has overlap"
 
-def seq_filter(op: Callable[[Blocks], bool], blocks: Blocks) -> Blocks:
+# =========================
+# Tree related
+# =========================
+
+# placeholder type var for readability: a nested tree (dict, tuple, list) of blocks
+BlocksTree = TypeVar('BlocksTree')
+
+def seq_treedef(blocks: BlocksTree, include_none=False) -> tu.PyTreeDef:
+    if not include_none:
+        return tu.tree_structure(blocks, is_leaf=is_block)
+    else:
+        return tu.tree_structure(blocks, is_leaf=lambda x: is_block(x) or x is None)
+
+def seq_flatten(blocks: BlocksTree) -> Blocks:
+    """Flatten nested blocks into a single list of books and drop Nones"""
+    return tu.tree_leaves(blocks, is_leaf=is_block)
+
+def seq_unflatten(treedef: tu.PyTreeDef, blocks: Blocks) -> BlocksTree:
+    return tu.tree_unflatten(treedef, blocks)
+
+def seq_assert_same_structure(*trees: BlocksTree) -> None:
+    treedefs = [seq_treedef(t, include_none=True) for t in trees]
+    assert all(t1 == t2 for t1, t2 in zip(treedefs, treedefs[1:])), "Trees have different structure"
+
+def seq_filter(op: Callable[[Block], bool], blocks: BlocksTree) -> BlocksTree:
     return tu.tree_map(lambda b: None if not op(b) else b, blocks, is_leaf=is_block)
 
-def seq_filter_out(op: Callable[[Blocks], bool], blocks: Blocks) -> Blocks:
+def seq_filter_out(op: Callable[[Block], bool], blocks: BlocksTree) -> BlocksTree:
     return tu.tree_map(lambda b: None if op(b) else b, blocks, is_leaf=is_block)
 
-def seq_map(op: Callable[[Blocks], Any], blocks: Blocks) -> List[Any]:
-    """preserves nesting and nones"""
+def seq_map(op: Callable[[Block], Any], blocks: BlocksTree) -> List[Any]:
     return tu.tree_map(op, blocks, is_leaf=is_block)
 
-def seq_map_when(op_when: Callable[[Blocks], bool], op: Callable[[Block], Any], blocks: Blocks) -> List[Any]:
+def seq_map_when(op_when: Callable[[Block], bool], op: Callable[[Block], Any], blocks: BlocksTree) -> List[Any]:
     return tu.tree_map(lambda b: op(b) if op_when(b) else b, blocks, is_leaf=is_block)
 
-def seq_trim(blocks: Blocks, t0: dt.datetime, t1: dt.datetime) -> Blocks:
+def seq_replace_block(blocks: BlocksTree, source: Block, target: Block) -> BlocksTree:
+    return seq_map_when(lambda b: b == source, lambda _: target, blocks)
+
+def seq_trim(blocks: BlocksTree, t0: dt.datetime, t1: dt.datetime) -> BlocksTree:
     return seq_map(lambda b: block_trim(b, t0, t1), blocks)
 
 # =========================
@@ -135,13 +157,6 @@ def seq_trim(blocks: Blocks, t0: dt.datetime, t1: dt.datetime) -> Blocks:
 @dataclass(frozen=True)
 class NamedBlock(Block):
     name: str 
-
-@dataclass(frozen=True)
-class ScanBlock(NamedBlock):
-    az: float
-    alt: float
-    throw: float
-    patch: str
 
 # =========================
 # Rules and Policies
@@ -165,14 +180,10 @@ class MultiRules(BlocksTransformation):
         """apply rules to blocks in first-to-last order"""
         return compose_left(*self.rules)(blocks)
 
-# a nested tree (dict, tuple, list) of blocks
-BlocksTree = TypeVar('BlocksTree')  # for readability
 
 @dataclass(frozen=True)
 class Policy(BlocksTransformation, ABC):
-    """
-    apply: apply policy to a tree of blocks
-    """
+    """apply: apply policy to a tree of blocks"""
     # initialize a tree of blocks
     @abstractmethod
     def init_seqs(self) -> BlocksTree: ...

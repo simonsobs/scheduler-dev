@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import pandas as pd
 import numpy as np
-from . import core, utils as u
+from . import core, utils as u, instrument as inst
 
 def str2ctime(time_str):
     ctime = (pd.Timestamp(time_str) - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
@@ -38,7 +38,7 @@ def parse_sequence_from_toast(ifile: str) -> core.Blocks:
                                (81,116), (116,126), (126,135),(135,144),(144,146)], names=columns)
     blocks = []
     for _, row in df.iterrows():
-        block = core.ScanBlock(
+        block = inst.ScanBlock(
             name="scan",
             t0=u.str2datetime(row['start_utc']),
             t1=u.str2datetime(row['stop_utc']),
