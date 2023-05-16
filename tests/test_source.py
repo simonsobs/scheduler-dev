@@ -81,8 +81,8 @@ def test_source_get_blocks():
 def test_precomputed_source():
     t0 = dt.datetime(2023, 1, 1, 0, 0, 0)
     t1 = dt.datetime(2023, 1, 1, 12, 0, 0)
-    source = src.PrecomputedSource.for_('uranus', t0=t0, t1=t1, buf=dt.timedelta(days=0))
-    assert isinstance(source, src.PrecomputedSource)
+    source = src._PrecomputedSource.for_('uranus', t0=t0, t1=t1, buf=dt.timedelta(days=0))
+    assert isinstance(source, src._PrecomputedSource)
     assert len(source.blocks) == 4
 
     t = int(dt.datetime(2023, 1, 1, 5, 0, 0).timestamp())
