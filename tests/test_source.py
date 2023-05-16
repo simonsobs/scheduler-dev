@@ -133,6 +133,6 @@ def test_source_block_get_az_alt():
         mode='setting'        
     )
     times, az, alt = src.source_block_get_az_alt(srcblk)
-    assert len(times) == 2019
-    assert np.allclose(az[:5], [0.89042902, 0.89042902, 0.89042902, 0.89042896, 0.89042896])
-    assert np.allclose(alt[:5], [5.63179383e-05, 6.28313017e+00, 6.28301907e+00, 6.28290749e+00, 6.28279591e+00])
+    assert len(times) == 67
+    assert np.allclose(az[:5], [0.89042834, 0.89042511, 0.89041517, 0.89039851, 0.8903751])
+    assert np.allclose(alt[:5], [1.67557241, 6.27990017, 6.27655862, 6.27321742, 6.26987635])
