@@ -36,9 +36,6 @@ class DayMod(Rule):
     day: int
     day_mod: int
     day_ref: dt.datetime
-    def __post_init__(self):
-        if self.day not in range(7):
-            raise ValueError(f"day must be in range(7), got {self.day}") 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
         filt = lambda block: self.get_day_index(block.t0) % self.day_mod == self.day
         return core.seq_filter(filt, blocks)
@@ -51,15 +48,23 @@ class DriftMode(Rule):
     
     Parameters
     ----------
-    mode : str. drift mode ['rising', 'setting']
+    mode : str. drift mode ['rising', 'setting', 'both']
     """
     mode: str
     def __post_init__(self):
-        if self.mode not in ['rising', 'setting']:
-            raise ValueError(f"mode must be 'rising' or 'setting', got {self.mode}") 
+        if self.mode not in ['rising', 'setting', 'both']:
+            raise ValueError(f"mode must be 'rising', 'setting' or 'both', got {self.mode}")
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
         filt = lambda b: b if b.mode == self.mode else None
         return core.seq_map_when(core.block_isa(src.SourceBlock), filt, blocks)
+
+@dataclass(frozen=True)
+class MinDuration(Rule):
+    """Restrict the minimum block size."""
+    min_duration: int  # in seconds
+    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        filt = lambda block: block.duration >= self.min_duration
+        return core.seq_filter(filt, blocks)
 
 @dataclass(frozen=True)
 class RephaseFirst(Rule):
@@ -85,11 +90,14 @@ class SunAvoidance(Rule):
     ----------
     min_angle_az : float. minimum angle in deg
     min_angle_alt: float. minimum angle in deg
-    buffer: int. number of time steps to buffer the sun mask
+    buffer_step: int. number of time steps to buffer the sun mask
+    time_step : int. time step in seconds
     """
     min_angle_az: float
     min_angle_alt: float
-    buffer: int
+    buffer_step: int
+    time_step: int
+
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
         sun_blocks = core.seq_map(src.block_get_matching_sun_block, blocks)
         return core.seq_map(self._apply_block, blocks, sun_blocks)
@@ -97,14 +105,14 @@ class SunAvoidance(Rule):
     def _apply_block(self, block: core.Block, sun_block: core.Block) -> core.Blocks:
         """Calculate the distance between a block and a sun block."""
         if isinstance(block, inst.ScanBlock):
-            _, az, alt = sun_block.get_az_alt()
+            _, az, alt = sun_block.get_az_alt(time_step = dt.timedelta(seconds=self.time_step))
             az, alt = np.rad2deg(az), np.rad2deg(alt)
             daz, dalt = ((block.az - az) + 180) % 360 - 180, block.alt - alt
             daz, dalt = np.abs(daz) - block.throw, np.abs(dalt)
             ok = np.logical_or(daz > self.min_angle_az, dalt > self.min_angle_alt)
-            safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.buffer, len(az)), len(az))
+            safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.buffer_step, len(az)), len(az))
             # if the whole block is safe, return it
-            if np.allclose(safe_intervals, [[0, len(az)]]): return block
+            if np.alltrue(safe_intervals == [[0, len(az)]]): return block
             # otherwise, split it up into safe intervals
             return [block.replace(t0=t0, t1=t1) for t0, t1 in safe_intervals]
         else:
@@ -116,8 +124,9 @@ RULES = {
     'alt-range': AltRange,
     'day-mod': DayMod,
     'drift-mode': DriftMode,
+    'min-duration': MinDuration,
     'rephase-first': RephaseFirst,
-    'sum-avoidance': SunAvoidance,
+    'sun-avoidance': SunAvoidance,
 }
 def get_rule(name: str) -> Rule:
     return RULES[name]

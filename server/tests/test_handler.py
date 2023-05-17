@@ -13,4 +13,4 @@ def test_basic():
     cmds = handler.basic_policy(t0, t1, {
         'master_schedule': op.dirname(__file__) + "/data/schedule_sat.txt"
     })
-    assert len(cmds) == 29
+    assert len(cmds) == 4197

@@ -34,7 +34,7 @@ def get_spec(specs: SpecsTree, query: List[str]):
     """return a reduced spec from all specs that match one of the queries."""
     is_leaf = lambda x: isinstance(x, dict) and 'pos' in x
     match_p = lambda key: any([p in key for p in query])
-    path2key = lambda path: ".".join([str(p_.key) for p_ in path])
+    path2key = lambda path: ".".join([str(p.key) for p in path])
     def reduce_fn(l, r):
         res = {'pos': np.array(l['pos'])+np.array(r['pos'])}
         for k in ['bounds_x', 'bounds_y']:
