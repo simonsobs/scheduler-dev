@@ -90,12 +90,12 @@ class SunAvoidance(Rule):
     ----------
     min_angle_az : float. minimum angle in deg
     min_angle_alt: float. minimum angle in deg
-    buffer_step: int. number of time steps to buffer the sun mask
+    n_buffer: int. number of time steps to buffer the sun mask
     time_step : int. time step in seconds
     """
     min_angle_az: float
     min_angle_alt: float
-    buffer_step: int
+    n_buffer: int
     time_step: int
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
@@ -110,7 +110,7 @@ class SunAvoidance(Rule):
             daz, dalt = ((block.az - az) + 180) % 360 - 180, block.alt - alt
             daz, dalt = np.abs(daz) - block.throw, np.abs(dalt)
             ok = np.logical_or(daz > self.min_angle_az, dalt > self.min_angle_alt)
-            safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.buffer_step, len(az)), len(az))
+            safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.n_buffer, len(az)), len(az))
             # if the whole block is safe, return it
             if np.alltrue(safe_intervals == [[0, len(az)]]): return block
             # otherwise, split it up into safe intervals

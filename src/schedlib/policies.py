@@ -8,9 +8,10 @@ from . import core, utils, commands as cmd, instrument as inst, rules as ru, sou
 
 class RuledBasedPolicy(core.Policy, ABC):
     rules: core.RuleSet
-    def make_rule(self, rule_name: str) -> core.Rule:
+    def make_rule(self, rule_name: str, **kwargs) -> core.Rule:
         assert rule_name in self.rules, f"Rule {rule_name} not found in rules config"
-        return ru.make_rule(rule_name, **self.rules[rule_name])
+        if not kwargs: kwargs = self.rules[rule_name]  # caller kwargs take precedence
+        return ru.make_rule(rule_name, **kwargs)
     def make_multi_rules(self, rule_names: List[str]) -> core.MultiRules:
         return core.MultiRules(rules=[self.make_rule(r) for r in rule_names])
 
