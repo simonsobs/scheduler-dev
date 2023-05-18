@@ -3,9 +3,9 @@ import pandas as pd
 import numpy as np
 from functools import reduce
 from contextlib import contextmanager
-from dataclasses import dataclass
-from typing import Optional
+from typing import Any, List
 from . import core, utils as u, instrument as inst
+from scipy import interpolate
 
 
 minute = 60 # second
@@ -81,6 +81,18 @@ def parse_sequence_from_toast(ifile: str) -> core.Blocks:
 
     return blocks
 
+# convenience wrapper for interpolation: numpy-like scipy interpolate
+def interp_extra(x_new, x, y):
+    """interpolate with extrapolation"""
+    return interpolate.interp1d(x, y, fill_value='extrapolate', bounds_error=False, kind='cubic', assume_sorted=False)(x_new)
+
+def interp_bounded(x_new, x, y):
+    """interpolate with bounded extrapolation"""
+    return interpolate.interp1d(x, y, fill_value=(y[0], y[-1]), bounds_error=False, kind='cubic', assume_sorted=False)(x_new)
+
+def within_bound(x: core.Arr[Any], bounds: List[float]) -> core.Arr[bool]:
+    """return a boolean mask indicating whether x is within the bound"""
+    return (x >= bounds[0]) * (x <= bounds[:, 1])
 # ====================
 # Random utilities
 # ====================
