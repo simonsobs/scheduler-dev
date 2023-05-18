@@ -2,12 +2,17 @@ from datetime import datetime, timezone
 import pandas as pd
 import numpy as np
 from functools import reduce
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import Optional
 from . import core, utils as u, instrument as inst
+
 
 minute = 60 # second
 hour = 60 * minute
 day = 24 * hour
 sidereal_day = 0.997269566 * day
+deg = np.pi / 180
 
 def str2ctime(time_str):
     ctime = (pd.Timestamp(time_str) - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
@@ -76,3 +81,38 @@ def parse_sequence_from_toast(ifile: str) -> core.Blocks:
 
     return blocks
 
+# ====================
+# Random utilities
+# ====================
+#
+# it's obvious where the inspirataion comes from
+
+class PNGKey:
+    """motivation: reduce side effects: same key should always produce same
+    result and not affect other keys"""
+    def __init__(self, key):
+        self.key = key  # need to be hashable
+        self.state = None
+
+    @contextmanager
+    def set_state(self):
+        old_state = np.random.get_state()
+        try:
+            if self.state is None:
+                seed = hash(self.key) % (2**32 - 1)
+                np.random.seed(seed)
+                self.state = np.random.get_state()
+            else:
+                np.random.set_state(self.state)
+            yield
+        finally:
+            np.random.set_state(old_state)
+
+    def split(self, n):
+        """split the key into n keys. Used tuple to avoid collisions"""
+        return [PNGKey(hash((self.key, i)) % (2**32 - 1)) for i in range(n)]
+
+# now we can make some wrappers for common numpy.random functions
+def uniform(key: PNGKey, low=0.0, high=1.0, size=None):
+    with key.set_state():
+        return np.random.uniform(low, high, size)

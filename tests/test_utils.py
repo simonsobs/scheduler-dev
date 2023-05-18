@@ -67,3 +67,22 @@ def test_ranges_pad():
     ranges = mask2ranges(mask)
     ranges = ranges_pad(ranges, 3, len(mask))
     assert np.alltrue(ranges == [[0, 12]])
+
+def test_pngkey():
+    key1 = PNGKey(42)
+    key2 = PNGKey(41)
+    # repeated calls should return the same value and not change
+    # the result of other calls
+    with key1.set_state():
+        assert np.isclose(np.random.uniform(0, 1), 0.374540)
+    with key2.set_state():
+        assert np.isclose(np.random.uniform(0, 1), 0.250923)
+    with key1.set_state():
+        assert np.isclose(np.random.uniform(0, 1), 0.374540)
+    with key2.set_state():
+        assert np.isclose(np.random.uniform(0, 1), 0.250923)
+
+def test_uniform():
+    key = PNGKey(42)
+    assert np.isclose(uniform(key, 0, 1), 0.374540)
+    assert np.isclose(uniform(key, 0, 1), 0.374540)
