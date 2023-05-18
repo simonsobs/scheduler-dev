@@ -13,6 +13,28 @@ class Block:
     @property
     def duration(self) -> dt.timedelta:
         return self.t1 - self.t0
+    def split(self, t: dt.datetime) -> List["Block"]:
+        return block_split(self, t)
+    def trim(self, t0: Optional[dt.datetime] = None, t1: Optional[dt.datetime] = None) -> List["Block"]:
+        return block_trim(self, t0, t1)
+    def shift(self, dt: dt.timedelta) -> "Block":
+        return block_shift(self, dt)
+    def extend(self, dt: dt.timedelta) -> "Block":
+        return block_extend(self, dt)
+    def extend_left(self, dt: dt.timedelta) -> "Block":
+        return block_extend_left(self, dt)
+    def extend_right(self, dt: dt.timedelta) -> "Block":
+        return block_extend_right(self, dt)
+    def shrink(self, dt: dt.timedelta) -> List["Block"]:
+        return block_shrink(self, dt)
+    def shrink_left(self, dt: dt.timedelta) -> List["Block"]:
+        return block_shrink_left(self, dt)
+    def shrink_right(self, dt: dt.timedelta) -> List["Block"]:
+        return block_shrink_right(self, dt)
+    def trim_left_to(self, t: dt.datetime) -> List["Block"]:
+        return block_trim_left_to(self, t)
+    def isa(self, block_type: "BlockType") -> bool:
+        return block_isa(block_type)(self)
 
 BlockType = type(Block)
 Blocks = List[Union[Block, None, "Blocks"]]  # maybe None, maybe nested
@@ -145,7 +167,7 @@ def seq_replace_block(blocks: BlocksTree, source: Block, target: Block) -> Block
     return seq_map_when(lambda b: b == source, lambda _: target, blocks)
 
 def seq_trim(blocks: BlocksTree, t0: dt.datetime, t1: dt.datetime) -> BlocksTree:
-    return seq_map(lambda b: block_trim(b, t0, t1), blocks)
+    return seq_map(lambda b: b.trim(t0, t1), blocks)
 
 # =========================
 # Other useful Block types
