@@ -69,8 +69,8 @@ def test_ranges_pad():
     assert np.alltrue(ranges == [[0, 12]])
 
 def test_pngkey():
-    key1 = PNGKey(42)
-    key2 = PNGKey(41)
+    key1 = PRNGKey(42)
+    key2 = PRNGKey(41)
     # repeated calls should return the same value and not change
     # the result of other calls
     with key1.set_state():
@@ -83,6 +83,14 @@ def test_pngkey():
         assert np.isclose(np.random.uniform(0, 1), 0.250923)
 
 def test_uniform():
-    key = PNGKey(42)
+    key = PRNGKey(42)
     assert np.isclose(uniform(key, 0, 1), 0.374540)
     assert np.isclose(uniform(key, 0, 1), 0.374540)
+    new_key, _ = key.split()
+    assert np.isclose(uniform(new_key, 0, 1), 0.500341)
+    assert np.isclose(uniform(key, 0, 1), 0.374540)
+
+def test_daily_static_key():
+    key = daily_static_key(datetime(2020, 1, 1))
+    v = uniform(key, 0, 1)
+    assert np.isclose(v, 0.373878)

@@ -84,10 +84,16 @@ def parse_sequence_from_toast(ifile: str) -> core.Blocks:
 # ====================
 # Random utilities
 # ====================
-#
-# it's obvious where the inspirataion comes from
+# In order to produce reproducible schedules, we need to be careful
+# about random number generator state, especially if the service runs
+# in a server setting, because the state of our random number will
+# then depends on the order of requests received which is not desirable
+# for reproducibility. We use the following pattern to ensure
+# reproducibility: always use these wrapper functions to generate
+# random numbers, and always pass a PRNGKey object to them.
+# It should be obvious where the inspirataion comes from.
 
-class PNGKey:
+class PRNGKey:
     """motivation: reduce side effects: same key should always produce same
     result and not affect other keys"""
     def __init__(self, key):
@@ -108,11 +114,14 @@ class PNGKey:
         finally:
             np.random.set_state(old_state)
 
-    def split(self, n):
+    def split(self, n=2):
         """split the key into n keys. Used tuple to avoid collisions"""
-        return [PNGKey(hash((self.key, i)) % (2**32 - 1)) for i in range(n)]
+        return [PRNGKey((self.key, i)) for i in range(n)]
 
 # now we can make some wrappers for common numpy.random functions
-def uniform(key: PNGKey, low=0.0, high=1.0, size=None):
+def uniform(key: PRNGKey, low=0.0, high=1.0, size=None):
     with key.set_state():
         return np.random.uniform(low, high, size)
+
+def daily_static_key(t: datetime):
+    return PRNGKey((t.year, t.month, t.day))
