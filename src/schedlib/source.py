@@ -13,6 +13,7 @@ from . import core, utils, instrument as inst
 
 UTC = dt.timezone.utc
 
+
 class Location(NamedTuple):
     """Location given in degrees and meters"""
     lat: float
@@ -89,6 +90,12 @@ class SourceBlock(core.NamedBlock):
                              time_step: dt.timedelta = dt.timedelta(seconds=30)):
         """Trim a source block by azimuth and altitude ranges"""
         return source_block_trim_by_az_alt_range(self, az_range, alt_range, time_step)
+    @property
+    def az(self):
+        return self.get_az_alt()[1]
+    @property
+    def alt(self):
+        return self.get_az_alt()[2]
 
 def source_get_blocks(name: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks:
     """Get altitude and azimuth for a source and save an interpolator.
@@ -178,10 +185,10 @@ def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tupl
 def block_get_matching_sun_block(block: core.Block) -> SourceBlock:
     """get the corresponding sun block for a given block with
     the same time bounds."""
-    return core.SourceBlock(t0=block.t0, t1=block.t1, name="sun", mode="both")
+    return SourceBlock(t0=block.t0, t1=block.t1, name="sun", mode="both")
 
 @dataclass(frozen=True)
-class ObservingWindow(core.NamedBlock):
+class ObservingWindow(SourceBlock):
     t_start: core.Arr[float]
     obs_length: core.Arr[float]
     az_bore: core.Arr[float]

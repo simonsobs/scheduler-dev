@@ -40,7 +40,7 @@ class DayMod(Rule):
         filt = lambda block: self.get_day_index(block.t0) % self.day_mod == self.day
         return core.seq_filter(filt, blocks)
     def get_day_index(self, t: dt.datetime) -> int:
-        return np.floor((t - self.day_ref).total_seconds() / src.sidereal_day).astype(int)
+        return np.floor((t - self.day_ref).total_seconds() / utils.sidereal_day).astype(int)
 
 @dataclass(frozen=True)
 class DriftMode(Rule):
@@ -63,7 +63,7 @@ class MinDuration(Rule):
     """Restrict the minimum block size."""
     min_duration: int  # in seconds
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        filt = lambda block: block.duration >= self.min_duration
+        filt = lambda block: block.duration >= dt.timedelta(seconds=self.min_duration)
         return core.seq_filter(filt, blocks)
 
 @dataclass(frozen=True)
@@ -78,13 +78,12 @@ class RephaseFirst(Rule):
         src = core.seq_sort(core.seq_flatten(blocks))[0]
         # randomize the phase of it but not too much
         allowance = min(self.max_fraction * src.duration,
-                        src.duration - self.min_block_size,
-                        0)
+                        max(src.duration - self.min_block_size, 0))
         tgt = src.replace(t0=src.t0 + utils.uniform(self.rng_key, 0, allowance))
         return core.seq_replace_block(blocks, src, tgt)
 
 @dataclass(frozen=True)
-class SourcePlan(Rule):
+class MakeSourcePlan(Rule):
     """Convert source blocks to scan blocks"""
     specs: List[Dict[str, List[float]]]
     spec_shape: str
@@ -163,7 +162,7 @@ class SourcePlan(Rule):
             blocks = []
             for i_l, i_r in ranges:
                 block = src.ObservingWindow(
-                    t0=t[i_l], t1=t[i_r-1], name=block.name,
+                    t0=t[i_l], t1=t[i_r-1], name=block.name, mode=block.mode,
                     t_start=t[i_l:i_r], obs_length=obs_length[i_l:i_r],
                     az_bore=az_bore[i_l:i_r], alt_bore=alt_bore[i_l:i_r],
                     az_throw=az_throw[i_l:i_r]
@@ -191,25 +190,34 @@ class SunAvoidance(Rule):
     time_step: int
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        sun_blocks = core.seq_map(src.block_get_matching_sun_block, blocks)
-        return core.seq_map(self._apply_block, blocks, sun_blocks)
+        return core.seq_map(self._apply_block, blocks)
 
-    def _apply_block(self, block: core.Block, sun_block: core.Block) -> core.Blocks:
+    def _apply_block(self, block: core.Block) -> core.Blocks:
         """Calculate the distance between a block and a sun block."""
-        if isinstance(block, inst.ScanBlock):
-            _, az, alt = sun_block.get_az_alt(time_step = dt.timedelta(seconds=self.time_step))
-            az, alt = np.rad2deg(az), np.rad2deg(alt)
-            daz, dalt = ((block.az - az) + 180) % 360 - 180, block.alt - alt
-            daz, dalt = np.abs(daz) - block.throw, np.abs(dalt)
-            ok = np.logical_or(daz > self.min_angle_az, dalt > self.min_angle_alt)
-            safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.n_buffer, len(az)), len(az))
-            # if the whole block is safe, return it
-            if np.alltrue(safe_intervals == [[0, len(az)]]): return block
-            # otherwise, split it up into safe intervals
-            return [block.replace(t0=t0, t1=t1) for t0, t1 in safe_intervals]
-        else:
-            # passthrough
+        if not self.applicable(block): 
+            print(f"block: {block} is not applicable, skipping") 
             return block
+
+        sun_block = src.block_get_matching_sun_block(block)
+        _, az_sun, alt_sun = sun_block.get_az_alt(time_step = dt.timedelta(seconds=self.time_step))
+        daz, dalt = ((block.az - az_sun) + 180) % 360 - 180, block.alt - alt_sun
+
+        if isinstance(block, inst.ScanBlock):
+            daz, dalt = np.abs(daz) - block.throw, np.abs(dalt)
+        elif isinstance(block, src.SourceBlock):  # no throw for source blocks
+            daz, dalt = np.abs(daz), np.abs(dalt)
+        else:
+            raise ValueError("Unknown block type")
+        ok = np.logical_or(daz > self.min_angle_az, dalt > self.min_angle_alt)
+        safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.n_buffer, len(az_sun)), len(az_sun))
+        # if the whole block is safe, return it
+        if len(safe_intervals) == 0: return None
+        if np.all(safe_intervals[0] == [0, len(az_sun)]): return block
+        # otherwise, split it up into safe intervals
+        return [block.replace(t0=t0, t1=t1) for t0, t1 in safe_intervals]
+
+    def applicable(self, block: core.Block) -> bool:
+        return isinstance(block, inst.ScanBlock) or isinstance(block, src.SourceBlock)
 
 @dataclass(frozen=True)
 class MakeSourceScan(Rule):
@@ -239,7 +247,7 @@ RULES = {
     'min-duration': MinDuration,
     'rephase-first': RephaseFirst,
     'sun-avoidance': SunAvoidance,
-    'source-plan': SourcePlan,
+    'make-source-plan': MakeSourcePlan,
     'make-source-scan': MakeSourceScan,
 }
 def get_rule(name: str) -> Rule:

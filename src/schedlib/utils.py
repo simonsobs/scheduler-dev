@@ -7,7 +7,6 @@ from typing import Any, List
 from . import core, utils as u, instrument as inst
 from scipy import interpolate
 
-
 minute = 60 # second
 hour = 60 * minute
 day = 24 * hour
@@ -136,3 +135,8 @@ def uniform(key: PRNGKey, low=0.0, high=1.0, size=None):
 
 def daily_static_key(t: datetime):
     return PRNGKey((t.year, t.month, t.day))
+
+def pprint(seq: core.BlocksTree):
+    """pretty print"""
+    from equinox import tree_pprint
+    tree_pprint(seq)

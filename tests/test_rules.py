@@ -1,8 +1,6 @@
-#%%
 import datetime as dt
-from schedlib import rules, source as src
-# from equinox import tree_pprint
-
+from schedlib import rules, source as src, core, utils
+import pytest
 
 def test_altrange():
     t0 = dt.datetime(2020, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
@@ -12,3 +10,61 @@ def test_altrange():
     )
     blocks = src.source_get_blocks('uranus', t0, t1)
     blocks = rule.apply(blocks)
+
+def test_day_mod():
+    t0 = dt.datetime(2020, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    t1 = dt.datetime(2020, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc)
+    rule = rules.DayMod(
+        day=1,
+        day_mod=2,
+        day_ref=dt.datetime(2014, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    )
+    blocks = src.source_get_blocks('uranus', t0, t1)
+    assert len(blocks) == 4
+    blocks = rule.apply(blocks)
+    assert len(core.seq_flatten(blocks)) == 2
+
+def test_drift_mode():
+    t0 = dt.datetime(2020, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    t1 = dt.datetime(2020, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc)
+    rule = rules.DriftMode(
+       mode='rising'
+    )
+    blocks = src.source_get_blocks('uranus', t0, t1)
+    assert len(blocks) == 4
+    blocks = rule.apply(blocks)
+    assert len(core.seq_flatten(blocks)) == 2
+    for block in core.seq_flatten(blocks):
+        assert block.mode == 'rising'
+
+    with pytest.raises(ValueError):
+        rule = rules.DriftMode(mode='something-else') 
+
+def test_min_duration():
+    t0 = dt.datetime(2020, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    blocks = [
+        core.Block(t0=t0,t1=t0+dt.timedelta(seconds=5)),
+        core.Block(t0=t0,t1=t0+dt.timedelta(seconds=15))]
+    rule = rules.MinDuration(
+        min_duration=10
+    )
+    blocks = rule.apply(blocks)
+    assert blocks == [
+        None,
+        blocks[1]
+    ]
+
+def test_sun_avoidance():
+    t0 = dt.datetime(2022, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    t1 = dt.datetime(2022, 1, 5, 0, 0, 0, tzinfo=dt.timezone.utc)
+    blocks = src.source_get_blocks('jupiter', t0, t1)
+    utils.pprint(blocks)
+    rule = rules.SunAvoidance(
+        min_angle_az = 3,
+        min_angle_alt = 3,
+        n_buffer = 0,
+        time_step = 30, 
+    )
+    assert len(blocks) == 10
+    blocks = core.seq_flatten(rule.apply(blocks))
+    assert len(blocks) == 7

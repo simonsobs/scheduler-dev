@@ -6,7 +6,8 @@ from abc import ABC
 from typing import List, Dict
 from . import core, utils, commands as cmd, instrument as inst, rules as ru, source as src
 
-class RuledBasedPolicy(core.Policy, ABC):
+@dataclass(frozen=True)
+class BasePolicy(core.Policy, ABC):
     rules: core.RuleSet
     def make_rule(self, rule_name: str, **kwargs) -> core.Rule:
         assert rule_name in self.rules, f"Rule {rule_name} not found in rules config"
@@ -16,10 +17,11 @@ class RuledBasedPolicy(core.Policy, ABC):
         return core.MultiRules(rules=[self.make_rule(r) for r in rule_names])
 
 @dataclass(frozen=True)
-class BasicPolicy(RuledBasedPolicy):
+class BasicPolicy(BasePolicy):
     master_schedule: str
     calibration_targets: List[str]
     soft_targets: List[str]
+
     def init_seqs(self, t0: dt.datetime, t1: dt.datetime) -> core.BlocksTree:
         master = utils.parse_sequence_from_toast(self.master_schedule)
         calibration = {k: src.source_gen_seq(k, t0, t1) for k in self.calibration_targets}
