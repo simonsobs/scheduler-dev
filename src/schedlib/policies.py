@@ -3,15 +3,16 @@
 from chex import dataclass
 import datetime as dt
 from abc import ABC
-from typing import List, Dict
+from typing import List
 from . import core, utils, commands as cmd, instrument as inst, rules as ru, source as src
 
 @dataclass(frozen=True)
 class BasePolicy(core.Policy, ABC):
     rules: core.RuleSet
     def make_rule(self, rule_name: str, **kwargs) -> core.Rule:
-        assert rule_name in self.rules, f"Rule {rule_name} not found in rules config"
-        if not kwargs: kwargs = self.rules[rule_name]  # caller kwargs take precedence
+        if not kwargs:
+            assert rule_name in self.rules, f"Rule {rule_name} not found in rules config"
+            kwargs = self.rules[rule_name]  # caller kwargs take precedence
         return ru.make_rule(rule_name, **kwargs)
     def make_multi_rules(self, rule_names: List[str]) -> core.MultiRules:
         return core.MultiRules(rules=[self.make_rule(r) for r in rule_names])
@@ -40,30 +41,33 @@ class BasicPolicy(BasePolicy):
         blocks = self.make_rule('sun-avoidance')(blocks)
 
         # plan for sources
-        blocks['sources'] = self.make_rule('source-plan')(blocks['sources'])
+        blocks['sources'] = self.make_rule('make-source-plan')(blocks['sources'])
 
         # add calibration targets
         cal_blocks = blocks['sources']['calibration']
-        cal_blocks = self.make_rule('day-mod')(cal_blocks)
-        cal_blocks = self.make_rule('drift-mode')(cal_blocks)
-        cal_blocks = self.make_rule(
-            'min-duration',
-            **self.config['min-duration-cal']
-        )(cal_blocks)
+        if 'day-mod' in self.rules:
+            cal_blocks = self.make_rule('day-mod')(cal_blocks)
+        if 'drift-mode' in self.rules:
+            cal_blocks = self.make_rule('drift-mode')(cal_blocks)
+        if 'min-duration-cal' in self.rules:
+            cal_blocks = self.make_rule(
+                'min-duration',
+                **self.rules['min-duration-cal']
+            )(cal_blocks)
 
         # actually turn observation windows into source scans: need some random
         # numbers to rephase each source scan in an observing window. we will
         # use a daily static key, producing exactly the same sequence of random
         # numbers when the date is the same
-        first_block = core.seq_sort(cal_blocks, flatten=True)[0]
-        keys = utils.daily_static_key(first_block.t0).split(len(cal_blocks))
-        for srcname, key in zip(cal_blocks, keys):
-            cal_blocks[srcname] = self.make_rule(
-                'make-source-scan',
-                rng_key=key,
-                **self.rules['make-soure-scan']
-            )(cal_blocks[srcname])
-
+        if len(core.seq_sort(cal_blocks, flatten=True)) > 0:
+            first_block = core.seq_sort(cal_blocks, flatten=True)[0]
+            keys = utils.daily_static_key(first_block.t0).split(len(cal_blocks))
+            for srcname, key in zip(cal_blocks, keys):
+                cal_blocks[srcname] = self.make_rule(
+                    'make-source-scan',
+                    rng_key=key,
+                    **self.rules['make-soure-scan']
+                )(cal_blocks[srcname])
         # merge all sources into main sequence
         blocks = core.seq_merge(blocks['master'], cal_blocks, flatten=True)
         return core.seq_sort(blocks)
