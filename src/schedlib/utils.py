@@ -34,6 +34,15 @@ def ct2dt(ctime):
         except TypeError:
             raise ValueError(f"ctime should be int, float or iterable, not {type(ctime)}")
 
+def dt2ct(dtime):
+    if isinstance(dtime, Iterable):
+        return np.array([int(d.timestamp()) for d in dtime])
+    else:
+        try:
+            return int(dtime.timestamp())
+        except TypeError:
+            raise ValueError(f"dtime should be datetime or iterable, not {type(dtime)}")
+
 def mask2ranges(mask):
     # handle a bunch of special cases first
     if len(mask) == 0: return np.empty((0, 2), dtype=int)

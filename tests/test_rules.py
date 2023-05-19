@@ -69,7 +69,7 @@ def test_sun_avoidance():
     blocks = core.seq_flatten(rule.apply(blocks))
     assert len(blocks) == 7
 
-def test_source_plan():
+def test_make_source():
     t0 = dt.datetime(2022, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
     t1 = dt.datetime(2022, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc)
     blocks = src.source_gen_seq('jupiter', t0, t1)
@@ -81,3 +81,9 @@ def test_source_plan():
     assert len(blocks) == 3
     new_blocks = core.seq_flatten(rule.apply(blocks))
     assert new_blocks != blocks
+    rule = rules.MakeSourceScan(
+        preferred_length = 1000,
+        rng_key = utils.PRNGKey(42)
+    )
+    new_blocks2 = core.seq_flatten(rule.apply(new_blocks))
+    assert new_blocks2 != new_blocks

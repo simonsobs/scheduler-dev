@@ -201,7 +201,7 @@ class ObservingWindow(SourceBlock):
         t_req = int(t0.timestamp())
         # if we start at t0, we can observe for at most obs_length
         obs_length = utils.interp_bounded(t_req, self.t_start, self.obs_length)
-        t1 = t0 + dt.timedelta(seconds=obs_length)
+        t1 = t0 + dt.timedelta(seconds=float(obs_length))
         # if we start at t0, we can observe with these parameters
         az = utils.interp_bounded(t_req, self.t_start, self.az_bore)
         alt = utils.interp_bounded(t_req, self.t_start, self.alt_bore)
