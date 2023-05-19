@@ -83,7 +83,6 @@ class RephaseFirst(Rule):
         tgt = src.replace(t0=src.t0 + utils.uniform(self.rng_key, 0, allowance))
         return core.seq_replace_block(blocks, src, tgt)
 
-
 @dataclass(frozen=True)
 class SourcePlan(Rule):
     """Convert source blocks to scan blocks"""
@@ -212,6 +211,26 @@ class SunAvoidance(Rule):
             # passthrough
             return block
 
+@dataclass(frozen=True)
+class MakeSourceScan(Rule):
+    """convert observing window to actual scan blocks and allow for
+    rephasing of the block. Applicable to only ObservingWindow blocks.
+    """
+    preferred_length: float  # seconds
+    rng_key: utils.PRNGKey
+    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        return core.seq_map(self._apply_block, blocks)
+    def _apply_block(self, block: core.Block) -> core.Block:
+        if isinstance(block, src.ObservingWindow):
+            duration = block.duration.total_seconds()
+            preferred_len = min(self.preferred_length, duration)
+            allowance = duration - preferred_len
+            offset = utils.uniform(self.rng_key, 0, allowance)
+            t0 = block.t0 + dt.timedelta(seconds=offset)
+            return block.get_scan_starting_at(t0)
+        else:
+            return block
+
 # global registry of rules
 RULES = {
     'alt-range': AltRange,
@@ -220,6 +239,8 @@ RULES = {
     'min-duration': MinDuration,
     'rephase-first': RephaseFirst,
     'sun-avoidance': SunAvoidance,
+    'source-plan': SourcePlan,
+    'make-source-scan': MakeSourceScan,
 }
 def get_rule(name: str) -> Rule:
     return RULES[name]
