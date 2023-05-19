@@ -87,7 +87,7 @@ class MakeSourcePlan(Rule):
     """Convert source blocks to scan blocks"""
     specs: List[Dict[str, List[float]]]
     spec_shape: str
-    max_obs_time: float
+    max_obs_length: float
     bounds_alt: Optional[Tuple[float, float]] = None
     bounds_az_throw: Optional[Tuple[float, float]] = None
 
@@ -105,7 +105,7 @@ class MakeSourcePlan(Rule):
             # we can scan any time in the observation window
             # suppose we start at time t, the source will be at:
             t, az, alt = block.get_az_alt()
-            _, az, alt = np.rad2deg(az), np.rad2deg(alt)
+            az, alt = np.rad2deg(az), np.rad2deg(alt)
 
             # require at least two samples to interpolate:
             if len(t) < 2: return None  # filtered
@@ -115,10 +115,9 @@ class MakeSourcePlan(Rule):
             alt_center = alt + sign*alt_height/2
             # we should stop scanning when the source is at this alt
             alt_stop = alt + sign*alt_height
-
             # total passage time
             obs_length = utils.interp_extra(alt_stop, alt, t) - t
-            assert obs_length >= 0, "passage time must be positive, something is wrong"
+            assert np.all(obs_length >= 0), "passage time must be positive, something is wrong"
 
             # this is where our boresight pointing should be to observe the passage.
             # this places our wafer set at the center of the source path, so the source
@@ -137,13 +136,13 @@ class MakeSourcePlan(Rule):
 
             # get the az bounds, since source is moving in a tilted path, we need to
             # find projected bounds (bounding box of the tilted path)
-            x_lo, x_hi = [
+            bounds_x = np.array([
                 inst.get_bounds_x_tilted(
-                shape=self.spec_shape,
-                phi_tilt=phi_tilt,
-                **spec) for spec in self.specs
-            ]
-            x_lo, x_hi = np.min(x_lo, axis=0), np.max(x_hi, axis=0)
+                    **spec,
+                    shape=self.spec_shape,
+                    phi_tilt=phi_tilt,
+                ) for spec in self.specs])
+            x_lo, x_hi = np.min(bounds_x[:, 0]), np.max(bounds_x[:, 1])
             # add back the projection effect to get the actual az bounds
             stretch = 1 / np.cos(np.deg2rad(alt_center))
             az_throw  = (x_hi - x_lo) * stretch  # diff by 2 from ACT convention
@@ -151,7 +150,7 @@ class MakeSourcePlan(Rule):
             az_bore   = az_center - az_offset
 
             # get validity ranges
-            ok = utils.within_bounds(alt_stop, [alt.min(), alt.max()])
+            ok = utils.within_bound(alt_stop, [alt.min(), alt.max()])
             if self.bounds_alt is not None:
                 ok *= utils.within_bound(alt_bore, self.bounds_alt)
             if self.bounds_az_throw is not None:
@@ -162,13 +161,14 @@ class MakeSourcePlan(Rule):
             blocks = []
             for i_l, i_r in ranges:
                 block = src.ObservingWindow(
-                    t0=t[i_l], t1=t[i_r-1], name=block.name, mode=block.mode,
+                    t0=utils.ct2dt(t[i_l]), t1=utils.ct2dt(t[i_r-1]), 
+                    name=block.name, mode=block.mode,
                     t_start=t[i_l:i_r], obs_length=obs_length[i_l:i_r],
                     az_bore=az_bore[i_l:i_r], alt_bore=alt_bore[i_l:i_r],
                     az_throw=az_throw[i_l:i_r]
                 )
                 blocks.append(block)
-            # probably the dominant mode
+            # probably the dominant mode of operation
             if len(blocks) == 1: return blocks[0]
         else:
             return block  # pass through rest
@@ -210,8 +210,8 @@ class SunAvoidance(Rule):
             raise ValueError("Unknown block type")
         ok = np.logical_or(daz > self.min_angle_az, dalt > self.min_angle_alt)
         safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.n_buffer, len(az_sun)), len(az_sun))
-        # if the whole block is safe, return it
         if len(safe_intervals) == 0: return None
+        # if the whole block is safe, return it
         if np.all(safe_intervals[0] == [0, len(az_sun)]): return block
         # otherwise, split it up into safe intervals
         return [block.replace(t0=t0, t1=t1) for t0, t1 in safe_intervals]

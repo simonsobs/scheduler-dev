@@ -94,3 +94,10 @@ def test_daily_static_key():
     key = daily_static_key(datetime(2020, 1, 1))
     v = uniform(key, 0, 1)
     assert np.isclose(v, 0.373878)
+
+def test_interp_extra():
+    x = np.array([1, 2, 3, 4, 5])[::-1]
+    y = np.array([1, 2, 3, 4, 5])[::-1]
+    c = np.array([1, 2, 4, 5, 6])
+    y_new = interp_extra(c, x, y)
+    assert np.allclose(y_new, np.array([1, 2, 4, 5, 6]))

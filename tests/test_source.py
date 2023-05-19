@@ -95,8 +95,8 @@ def test_precomputed_source():
     assert len(source.blocks) == 4
 
     t = int(dt.datetime(2023, 1, 1, 5, 0, 0, tzinfo=dt.timezone.utc).timestamp())
-    assert np.allclose(source.interp_az(t), [0.27020165])
-    assert np.allclose(source.interp_alt(t), [5.15476608])
+    assert np.allclose(source.interp_az(t), [5.15476608])
+    assert np.allclose(source.interp_alt(t), [0.27020165])
 
     assert 'uranus' in src.PRECOMPUTED_SOURCES
 
@@ -139,9 +139,9 @@ def test_source_block_get_az_alt():
         t0=dt.datetime(2023, 1, 1, 0, 40, 38, tzinfo=dt.timezone.utc),
         t1=dt.datetime(2023, 1, 1, 1, 14, 17, tzinfo=dt.timezone.utc),
         name='uranus',
-        mode='setting'        
+        mode='setting'
     )
     times, az, alt = src.source_block_get_az_alt(srcblk)
     assert len(times) == 67
-    assert np.allclose(az[:5], [0.89042834, 0.89042511, 0.89041517, 0.89039851, 0.8903751])
-    assert np.allclose(alt[:5], [1.67557241, 6.27990017, 6.27655862, 6.27321742, 6.26987635])
+    assert np.allclose(az[:5], [1.46569389, 6.90680633, 6.10857958, 6.31822725, 6.25781597])
+    assert np.allclose(alt[:5], [0.890429, 0.89042577, 0.89041582, 0.89039918, 0.89037575])

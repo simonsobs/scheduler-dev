@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from typing import Any, List
 from . import core, utils as u, instrument as inst
 from scipy import interpolate
+from collections.abc import Iterable
 
 minute = 60 # second
 hour = 60 * minute
@@ -23,6 +24,15 @@ def str2datetime(time_str):
 
 def datetime2str(dtime):
     return dtime.strftime('%Y-%m-%dT%H:%M:%S.%f%z')
+
+def ct2dt(ctime):
+    if isinstance(ctime, Iterable):
+        return [datetime.utcfromtimestamp(t).astimezone(timezone.utc) for t in ctime]
+    else:
+        try:
+            return datetime.utcfromtimestamp(ctime).astimezone(timezone.utc)
+        except TypeError:
+            raise ValueError(f"ctime should be int, float or iterable, not {type(ctime)}")
 
 def mask2ranges(mask):
     # handle a bunch of special cases first
@@ -90,7 +100,8 @@ def interp_bounded(x_new, x, y):
 
 def within_bound(x: core.Arr[Any], bounds: List[float]) -> core.Arr[bool]:
     """return a boolean mask indicating whether x is within the bound"""
-    return (x >= bounds[0]) * (x <= bounds[:, 1])
+    return (x >= bounds[0]) * (x <= bounds[1])
+
 # ====================
 # Random utilities
 # ====================
