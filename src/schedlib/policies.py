@@ -68,6 +68,7 @@ class BasicPolicy(BasePolicy):
                     rng_key=key,
                     **self.rules['make-soure-scan']
                 )(cal_blocks[srcname])
+
         # merge all sources into main sequence
         blocks = core.seq_merge(blocks['master'], cal_blocks, flatten=True)
         return core.seq_sort(blocks)
@@ -84,8 +85,6 @@ class BasicPolicy(BasePolicy):
                     cmd.BiasStep(),
                     "",
             ])
-        elif isinstance(block, inst.IVBlock):
-            return cmd.IV() 
 
     def seq2cmd(self, seq: core.Blocks):
         """map a scan to a command"""
