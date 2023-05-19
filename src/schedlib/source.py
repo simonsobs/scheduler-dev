@@ -3,6 +3,7 @@
 
 from chex import dataclass
 import ephem
+from ephem import to_timezone
 import datetime as dt
 from typing import Union, Callable, NamedTuple, List, Tuple, Optional
 from scipy.interpolate import interp1d
@@ -10,6 +11,7 @@ import numpy as np
 
 from . import core, utils, instrument as inst
 
+UTC = dt.timezone.utc
 
 class Location(NamedTuple):
     """Location given in degrees and meters"""
@@ -52,6 +54,9 @@ def get_source(name: str) -> Source:
 
 def _source_get_az_alt(source: str, times: List[dt.datetime]):
     """Get altitude and azimuth for a source in a given list of times"""
+    assert len(times) > 0, "Need at least one time"
+    if times[0].tzinfo is None:
+        raise ValueError("Need timezone-aware datetime")
     observer = get_site().at(times[0])
     source = get_source(source)
     az, alt = [], []
@@ -90,15 +95,15 @@ def source_get_blocks(name: str, t0: dt.datetime, t1: dt.datetime) -> core.Block
     If interpolation functions are not available, build them."""
     site = get_site()
     source = get_source(name)
-    t_block_beg = site.at(t0).previous_rising(source).datetime()
-    t_block_mid = site.at(t_block_beg).next_transit(source).datetime()
-    t_block_end = site.at(t_block_mid).next_setting(source).datetime()
+    t_block_beg = to_timezone(site.at(t0).previous_rising(source), UTC)
+    t_block_mid = to_timezone(site.at(t_block_beg).next_transit(source), UTC)
+    t_block_end = to_timezone(site.at(t_block_mid).next_setting(source), UTC)
     blocks = [SourceBlock(t0=t_block_beg, t1=t_block_mid, name=name, mode="rising"),
               SourceBlock(t0=t_block_mid, t1=t_block_end, name=name, mode="setting")]
     while t_block_end < t1:
-        t_block_beg = site.at(t_block_end).next_rising(source).datetime()
-        t_block_mid = site.at(t_block_beg).next_transit(source).datetime()
-        t_block_end = site.at(t_block_mid).next_setting(source).datetime()
+        t_block_beg = to_timezone(site.at(t_block_end).next_rising(source), UTC)
+        t_block_mid = to_timezone(site.at(t_block_beg).next_transit(source), UTC)
+        t_block_end = to_timezone(site.at(t_block_mid).next_setting(source), UTC)
         blocks += [SourceBlock(t0=t_block_beg, t1=t_block_mid, name=name, mode="rising"),
                    SourceBlock(t0=t_block_mid, t1=t_block_end, name=name, mode="setting")]
     return blocks
