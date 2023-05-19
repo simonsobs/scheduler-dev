@@ -10,20 +10,9 @@ class ScanBlock(core.NamedBlock):
     az: float     # deg
     alt: float    # deg
     throw: float  # deg
-    patch: str
-
-@dataclass(frozen=True)
-class TrackingBlock(core.NamedBlock):
-    t_start: core.Arr[float]
-    obs_length: core.Arr[float]
-    az_bore: core.Arr[float]
-    alt_bore: core.Arr[float]
-    az_throw: core.Arr[float]
 
 @dataclass(frozen=True)
 class IVBlock(core.NamedBlock): pass
-
-
 
 # dummy type variable for readability
 Spec = TypeVar('Spec')

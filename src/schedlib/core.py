@@ -33,6 +33,8 @@ class Block:
         return block_shrink_right(self, dt)
     def trim_left_to(self, t: dt.datetime) -> List["Block"]:
         return block_trim_left_to(self, t)
+    def trim_right_to(self, t: dt.datetime) -> List["Block"]:
+        return block_trim_right_to(self, t)
     def isa(self, block_type: "BlockType") -> bool:
         return block_isa(block_type)(self)
 
@@ -86,25 +88,47 @@ def block_trim_left_to(block: Block, t: dt.datetime) -> Blocks:
         return None
     return block.replace(t0=max(block.t0, t))
 
+def block_trim_right_to(block: Block, t: dt.datetime) -> Blocks:
+    if t <= block.t0:
+        return None
+    return block.replace(t1=min(block.t1, t))
+
 def block_isa(block_type:BlockType) -> Callable[[Block], bool]:
     def isa(block: Block) -> bool:
         return isinstance(block, block_type)
     return isa
+
+def block_overlap(block1: Block, block2: Block) -> bool:
+    return (block1.t0 - block2.t1).total_seconds() * (block1.t1 - block2.t0).total_seconds() < 0
+
+def block_merge(block1: Block, block2: Block) -> Blocks:
+    """merge block2 into block1. It will return a sorted seq"""
+    if not block_overlap(block1, block2):
+        return seq_sort([block1, block2])
+    else: # handle merge
+        if block2.t0 < block1.t0:
+            return seq_sort([block2, block1.trim_left_to(block2.t1)])
+        else:
+            return seq_sort([block1.trim_right_to(block2.t0), block2, block1.trim_left_to(block2.t1)])
 
 # =============================
 # Sequence / Blocks operations 
 # =============================
 
 def seq_is_nested(blocks: Blocks) -> bool:
-    return not tu.all_leaves(blocks, is_leaf=is_block)
+    is_leaf = lambda x: is_block(x) or x is None
+    return not tu.all_leaves(blocks, is_leaf=is_leaf)
 
 def seq_assert_not_nested(blocks: Blocks) -> None:
     assert not seq_is_nested(blocks), "seq has nested blocks"
 
-def seq_sort(seq: Blocks, flatten=False) -> Blocks:
+def seq_sort(seq: Blocks, flatten=False, key_fn=lambda b: b.t0) -> Blocks:
+    """sort is only implemented for flat seq. This function will flatten the seq
+    if flatten=True, it will raise error if seq is nested. The flatten option 
+    is to enforce that we should be explicit when nestedness is destroyed."""
     if seq_is_nested(seq) and not flatten:
         raise ValueError("Cannot sort nested sequence, use flatten=True")
-    return sorted(seq_flatten(seq), key=lambda b: b.t0)
+    return sorted(seq_flatten(seq), key=key_fn)
 
 def seq_has_overlap(blocks: Blocks) -> bool:
     blocks = seq_sort(blocks, flatten=True)
@@ -126,6 +150,46 @@ def seq_assert_sorted(blocks: Blocks) -> None:
 
 def seq_assert_no_overlap(seq: Blocks) -> None:
     assert not seq_has_overlap(seq), "Sequence has overlap"
+
+def seq_has_overlap_with_block(seq: Blocks, block: Block) -> bool:
+    for b in seq_flatten(seq):
+        if block_overlap(b, block):
+            return True
+    return False
+
+def seq_merge_block(seq: Blocks, block: Block, flatten=False) -> Blocks:
+    if not flatten and seq_is_nested(seq):
+        raise ValueError("Cannot merge block into nested sequence, use flatten=True")
+    if not seq: return [block]
+    if not seq_has_overlap_with_block(seq, block): return seq_sort(seq + [block])
+    return seq_drop_duplicates(
+        seq_map_when(
+            lambda b: block_overlap(b, block),
+            lambda b: block_merge(b, block), 
+            seq), 
+        flatten=True)
+
+def seq_drop_duplicates(seq: Blocks, flatten=False, sort=True) -> Blocks:
+    if not flatten and seq_is_nested(seq):
+        raise ValueError("Cannot drop duplicates in nested sequence, use flatten=True")
+    res = list(set(seq_flatten(seq)))
+    if sort: return seq_sort(res)
+    return res
+    
+def seq_merge(seq1: Blocks, seq2: Blocks, flatten=False) -> Blocks:
+    """merge seq2 into seq1. Both seqs will be flattened before merging,
+    and in the case of conflict, the seq2 will take precedence, and
+    seq1 blocks will be overwritten or splitted, whenever necessary."""
+    if not flatten and (seq_is_nested(seq1) or seq_is_nested(seq2)):
+        raise ValueError("Cannot merge nested sequence, use flatten=True")
+    # fixme: it's possible that seq1 and seq2 have overlap, need to consider that
+    seq1 = seq_flatten(seq1)
+    seq2 = seq_flatten(seq2)
+    seq = seq1
+    # lazy implementation for now
+    for block in seq2:
+        seq = seq_merge_block(seq, block)
+    return seq_sort(seq)
 
 # =========================
 # Tree related

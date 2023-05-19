@@ -38,12 +38,12 @@ class BasicPolicy(RuledBasedPolicy):
     def block2cmd(self, block: core.Block):
         if isinstance(block, inst.ScanBlock):
             return cmd.CompositeCommand([
-                    f"# {block.name}: {block.patch}",
+                    f"# {block.name}",
                     cmd.Goto(block.az, block.alt),
                     cmd.BiasDets(),
                     cmd.Wait(block.t0),
                     cmd.BiasStep(),
-                    cmd.Scan(block.patch, block.t1, block.throw),
+                    cmd.Scan(block.name, block.t1, block.throw),
                     cmd.BiasStep(),
                     "",
             ])

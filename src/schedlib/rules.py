@@ -85,7 +85,7 @@ class RephaseFirst(Rule):
 
 
 @dataclass(frozen=True)
-class SourceToTrackScan(Rule):
+class SourcePlan(Rule):
     """Convert source blocks to scan blocks"""
     specs: List[Dict[str, List[float]]]
     spec_shape: str
@@ -163,7 +163,7 @@ class SourceToTrackScan(Rule):
             ranges = utils.mask2ranges(ok)
             blocks = []
             for i_l, i_r in ranges:
-                block = inst.TrackingBlock(
+                block = src.ObservingWindow(
                     t0=t[i_l], t1=t[i_r-1], name=block.name,
                     t_start=t[i_l:i_r], obs_length=obs_length[i_l:i_r],
                     az_bore=az_bore[i_l:i_r], alt_bore=alt_bore[i_l:i_r],

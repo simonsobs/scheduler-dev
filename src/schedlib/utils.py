@@ -69,13 +69,12 @@ def parse_sequence_from_toast(ifile: str) -> core.Blocks:
     blocks = []
     for _, row in df.iterrows():
         block = inst.ScanBlock(
-            name="scan",
+            name=row['patch'],
             t0=u.str2datetime(row['start_utc']),
             t1=u.str2datetime(row['stop_utc']),
             alt=row['el'],
             az=row['az_min'],
             throw=np.abs(row['az_max'] - row['az_min']),
-            patch=row['patch'],
         )
         blocks.append(block)
 

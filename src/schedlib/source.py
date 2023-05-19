@@ -8,7 +8,7 @@ from typing import Union, Callable, NamedTuple, List, Tuple, Optional
 from scipy.interpolate import interp1d
 import numpy as np
 
-from . import core, utils
+from . import core, utils, instrument as inst
 
 
 class Location(NamedTuple):
@@ -174,3 +174,29 @@ def block_get_matching_sun_block(block: core.Block) -> SourceBlock:
     """get the corresponding sun block for a given block with
     the same time bounds."""
     return core.SourceBlock(t0=block.t0, t1=block.t1, name="sun", mode="both")
+
+@dataclass(frozen=True)
+class ObservingWindow(core.NamedBlock):
+    t_start: core.Arr[float]
+    obs_length: core.Arr[float]
+    az_bore: core.Arr[float]
+    alt_bore: core.Arr[float]
+    az_throw: core.Arr[float]
+    def get_scan_starting_at(self, t0: dt.datetime) -> inst.ScanBlock:
+        """get a possible scan starting at t0"""
+        t_req = int(t0.timestamp())
+        # if we start at t0, we can observe for at most obs_length
+        obs_length = utils.interp_bounded(t_req, self.t_start, self.obs_length)
+        t1 = t0 + dt.timedelta(seconds=obs_length)
+        # if we start at t0, we can observe with these parameters
+        az = utils.interp_bounded(t_req, self.t_start, self.az_bore)
+        alt = utils.interp_bounded(t_req, self.t_start, self.alt_bore)
+        az_throw = utils.interp_bounded(t_req, self.t_start, self.az_throw)
+        return inst.ScanBlock(
+            name=self.name,
+            t0=t0,
+            t1=t1,
+            az=az,
+            alt=alt,
+            throw=az_throw,
+        )
