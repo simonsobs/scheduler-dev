@@ -224,7 +224,7 @@ class SunAvoidance(MappableRule):
         # if the whole block is safe, return it
         if np.all(safe_intervals[0] == [0, len(az_sun)]): return block
         # otherwise, split it up into safe intervals
-        return [block.replace(t0=t0, t1=t1) for t0, t1 in safe_intervals]
+        return [block.replace(t0=utils.ct2dt(t[i0]), t1=utils.ct2dt(t[i1-1])) for i0, i1 in safe_intervals]
 
     def applicable(self, block: core.Block) -> bool:
         return isinstance(block, (inst.ScanBlock, src.SourceBlock))
