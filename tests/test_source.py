@@ -31,8 +31,8 @@ def test_source_get_az_alt():
     # Test case 1: Verify azimuth and altitude values for a single time
     source = 'sun'
     times = [dt.datetime(2023, 1, 1, tzinfo=dt.timezone.utc)]
-    expected_az = [4.19157791]
-    expected_alt = [-0.15743408]
+    expected_az = [240.15972382]
+    expected_alt = [-9.02030811]
     az, alt = src._source_get_az_alt(source, times)
     assert np.allclose(az, expected_az)
     assert np.allclose(alt, expected_alt)
@@ -49,8 +49,8 @@ def test_source_get_az_alt():
         dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
         dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.timezone.utc)
     ]
-    expected_az = [5.27258301, 5.25825977, 5.24444818]
-    expected_alt = [0.9176504,  0.90511781, 0.89251304]
+    expected_az = [302.09675348, 301.27609259, 300.48474687]
+    expected_alt = [52.57749508, 51.85943046, 51.13723016]
     az, alt = src._source_get_az_alt(source, times)
     assert np.allclose(az, expected_az)
     assert np.allclose(alt, expected_alt)
@@ -95,8 +95,8 @@ def test_precomputed_source():
     assert len(source.blocks) == 4
 
     t = int(dt.datetime(2023, 1, 1, 5, 0, 0, tzinfo=dt.timezone.utc).timestamp())
-    assert np.allclose(source.interp_az(t), [5.15476608])
-    assert np.allclose(source.interp_alt(t), [0.27020165])
+    assert np.allclose(source.interp_az(t), [295.34634092])
+    assert np.allclose(source.interp_alt(t), [15.48141435])
 
     assert 'uranus' in src.PRECOMPUTED_SOURCES
 
@@ -143,5 +143,5 @@ def test_source_block_get_az_alt():
     )
     times, az, alt = src.source_block_get_az_alt(srcblk)
     assert len(times) == 67
-    assert np.allclose(az[:5], [1.46569389, 6.90680633, 6.10857958, 6.31822725, 6.25781597])
-    assert np.allclose(alt[:5], [0.890429, 0.89042577, 0.89041582, 0.89039918, 0.89037575])
+    assert np.allclose(az[:5], [83.97807382, 395.73085271, 349.995829, 362.00775543, 358.54644389])
+    assert np.allclose(alt[:5], [51.01782363, 51.01763853, 51.01706878, 51.01611489, 51.01477258])

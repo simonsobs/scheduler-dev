@@ -49,10 +49,10 @@ class BasicPolicy(BasePolicy):
             cal_blocks = self.make_rule('day-mod')(cal_blocks)
         if 'drift-mode' in self.rules:
             cal_blocks = self.make_rule('drift-mode')(cal_blocks)
-        if 'min-duration-cal' in self.rules:
+        if 'calibration-min-duration' in self.rules:
             cal_blocks = self.make_rule(
                 'min-duration',
-                **self.rules['min-duration-cal']
+                **self.rules['calibration-min-duration']
             )(cal_blocks)
 
         # actually turn observation windows into source scans: need some random
@@ -66,7 +66,7 @@ class BasicPolicy(BasePolicy):
                 cal_blocks[srcname] = self.make_rule(
                     'make-source-scan',
                     rng_key=key,
-                    **self.rules['make-soure-scan']
+                    **self.rules['make-source-scan']
                 )(cal_blocks[srcname])
 
         # merge all sources into main sequence

@@ -3,6 +3,7 @@ import datetime as dt
 import os.path as op
 
 minute = 60
+
 def test_basic_policy():
     config = {
         'master_schedule': op.dirname(__file__) + '/data/schedule_sat.txt',
@@ -20,12 +21,12 @@ def test_basic_policy():
             'day-mod': {
                 'day': 0,
                 'day_mod': 1,
-                'day_ref': dt.datetime(2014, 1, 1, 0, 0, 0),
+                'day_ref': dt.datetime(2014, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
             },
             'drift-mode': {
                 'mode': 'rising'
             },
-            'min-duration-cal': {
+            'calibration-min-duration': {
                 'min_duration': 5 * minute,
             },
             'make-source-plan': {
@@ -45,4 +46,3 @@ def test_basic_policy():
         dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
         dt.datetime(2023, 1, 10, 1, 0, 0, tzinfo=dt.timezone.utc))
     policy.apply(seqs)
-

@@ -64,8 +64,8 @@ def _source_get_az_alt(source: str, times: List[dt.datetime]):
     for t in times:
         observer.date = ephem.date(t)
         source.compute(observer)
-        az.append(source.az)
-        alt.append(source.alt)
+        az.append(np.rad2deg(source.az))
+        alt.append(np.rad2deg(source.alt))
     return np.array(az), np.array(alt)
 
 def _source_az_alt_interpolators(source: str, t0: dt.datetime, t1: dt.datetime, time_step: dt.timedelta):
@@ -96,6 +96,9 @@ class SourceBlock(core.NamedBlock):
     @property
     def alt(self):
         return self.get_az_alt()[2]
+    def get_az_alt_interpolators(self):
+        source = _PrecomputedSource.for_block(self)
+        return source.interp_az, source.interp_alt
 
 def source_get_blocks(name: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks:
     """Get altitude and azimuth for a source and save an interpolator.
@@ -210,7 +213,7 @@ class ObservingWindow(SourceBlock):
             name=self.name,
             t0=t0,
             t1=t1,
-            az=az,
-            alt=alt,
-            throw=az_throw,
+            az=float(az),
+            alt=float(alt),
+            throw=float(az_throw),
         )

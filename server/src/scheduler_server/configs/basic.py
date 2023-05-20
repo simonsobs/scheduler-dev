@@ -8,17 +8,17 @@ config = {
     'master_schedule': op.dirname(__file__) + '/schedule_sat.txt',
     'rules': {
         'sun-avoidance': {
-            'min_angle_az': 6,
-            'min_angle_alt': 6,
-            'time_step': 30,   # sec
-            'n_buffer': 10, # 30 * 10 = 5 mins
+            'min_angle_az': 6,  # deg
+            'min_angle_alt': 6, # deg
+            'time_step': 10,    # sec
+            'n_buffer': 3,     # 30 * 1 = 0.5 mins
         },
         'day-mod': {
             'day': 0,
             'day_mod': 1,
             'day_ref': dt.datetime(2014, 1, 1, 0, 0, 0),
         },
-        'min-duration-cal': {
+        'calibration-min-duration': {
             'min_duration': 5 * minute,
         },
         'make-source-plan': {

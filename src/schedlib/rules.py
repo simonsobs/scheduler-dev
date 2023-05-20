@@ -105,7 +105,6 @@ class MakeSourcePlan(Rule):
             # we can scan any time in the observation window
             # suppose we start at time t, the source will be at:
             t, az, alt = block.get_az_alt()
-            az, alt = np.rad2deg(az), np.rad2deg(alt)
 
             # require at least two samples to interpolate:
             if len(t) < 2: return None  # filtered
@@ -199,12 +198,15 @@ class SunAvoidance(Rule):
             return block
 
         sun_block = src.block_get_matching_sun_block(block)
-        _, az_sun, alt_sun = sun_block.get_az_alt(time_step = dt.timedelta(seconds=self.time_step))
-        daz, dalt = ((block.az - az_sun) + 180) % 360 - 180, block.alt - alt_sun
+        t, az_sun, alt_sun = sun_block.get_az_alt(time_step = dt.timedelta(seconds=self.time_step))
 
         if isinstance(block, inst.ScanBlock):
+            daz, dalt = ((block.az - az_sun) + 180) % 360 - 180, block.alt - alt_sun
             daz, dalt = np.abs(daz) - block.throw, np.abs(dalt)
         elif isinstance(block, src.SourceBlock):  # no throw for source blocks
+            az_interp, alt_interp = block.get_az_alt_interpolators()
+            az, alt = az_interp(t), alt_interp(t)
+            daz, dalt = ((az - az_sun) + 180) % 360 - 180, alt - alt_sun
             daz, dalt = np.abs(daz), np.abs(dalt)
         else:
             raise ValueError("Unknown block type")
