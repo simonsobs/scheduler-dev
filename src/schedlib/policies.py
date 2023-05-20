@@ -2,7 +2,7 @@
 
 from chex import dataclass
 import datetime as dt
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import List
 from . import core, utils, commands as cmd, instrument as inst, rules as ru, source as src
 
@@ -10,12 +10,13 @@ from . import core, utils, commands as cmd, instrument as inst, rules as ru, sou
 class BasePolicy(core.Policy, ABC):
     rules: core.RuleSet
     def make_rule(self, rule_name: str, **kwargs) -> core.Rule:
+        # caller kwargs take precedence
         if not kwargs:
             assert rule_name in self.rules, f"Rule {rule_name} not found in rules config"
-            kwargs = self.rules[rule_name]  # caller kwargs take precedence
+            kwargs = self.rules[rule_name]  
         return ru.make_rule(rule_name, **kwargs)
-    def make_multi_rules(self, rule_names: List[str]) -> core.MultiRules:
-        return core.MultiRules(rules=[self.make_rule(r) for r in rule_names])
+    @abstractmethod
+    def seq2cmd(self, seq: core.Blocks) -> cmd.Command: ...
 
 @dataclass(frozen=True)
 class BasicPolicy(BasePolicy):

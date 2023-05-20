@@ -165,7 +165,7 @@ def source_block_get_az_alt(block: SourceBlock, time_step: dt.timedelta = dt.tim
     alt = source.interp_alt(ctimes)
     return ctimes, az, alt
 
-def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tuple[float, float]]=None, alt_range:Optional[Tuple[float, float]]=None) -> core.Blocks:
+def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tuple[float, float]]=None, alt_range:Optional[Tuple[float, float]]=None, time_step:dt.timedelta=dt.timedelta(seconds=30)) -> core.Blocks:
     """alt_range: (alt_min, alt_max) in radians
     az_range: (az_min, az_max) in radians"""
     if az_range is None and alt_range is None:
