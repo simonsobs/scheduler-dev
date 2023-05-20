@@ -1,12 +1,15 @@
+from __future__ import annotations
 from datetime import datetime, timezone
 import pandas as pd
 import numpy as np
 from functools import reduce
 from contextlib import contextmanager
 from typing import Any, List
-from . import core, utils as u, instrument as inst
 from scipy import interpolate
 from collections.abc import Iterable
+
+from . import core, utils as u, instrument as inst
+
 
 minute = 60 # second
 hour = 60 * minute

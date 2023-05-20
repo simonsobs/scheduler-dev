@@ -1,6 +1,6 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
 from chex import dataclass
 import ephem
 from ephem import to_timezone

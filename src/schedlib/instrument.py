@@ -1,9 +1,11 @@
-from . import core
+from __future__ import annotations
 from chex import dataclass
 from jax import tree_util as tu
 from typing import List, TypeVar, Union, Dict
 import numpy as np
 from functools import reduce
+
+from . import core
 
 @dataclass(frozen=True)
 class ScanBlock(core.NamedBlock):

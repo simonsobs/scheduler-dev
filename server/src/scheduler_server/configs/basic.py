@@ -18,9 +18,6 @@ config = {
             'day_mod': 1,
             'day_ref': dt.datetime(2014, 1, 1, 0, 0, 0),
         },
-        'drift-mode': {
-            'mode': 'rising'
-        },
         'min-duration-cal': {
             'min_duration': 5 * minute,
         },
