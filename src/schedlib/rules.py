@@ -2,21 +2,31 @@ from typing import Tuple, Dict, List, Optional
 import numpy as np
 from chex import dataclass
 from functools import partial
-from abc import ABC
+from abc import ABC, abstractmethod
 import datetime as dt
 
 from . import core, source as src, instrument as inst, utils
 
 @dataclass(frozen=True)
-class Rule(core.BlocksTransformation, ABC):
-    """Guarantee that our rule preserves nested structure."""
+class GreenRule(core.BlocksTransformation, ABC):
+    """GreenRule preserves trees"""
     def __call__(self, blocks: core.BlocksTree) -> core.BlocksTree:
         out = self.apply(blocks)
-        assert core.seq_is_nested(out) == core.seq_is_nested(blocks), "Rule must preserve nested structure"
+        assert core.seq_is_nested(out) == core.seq_is_nested(blocks), "GreenRule must preserve trees"
         return out
 
 @dataclass(frozen=True)
-class AltRange(Rule):
+class MappableRule(GreenRule, ABC):
+    """MappableRule preserves sequences"""
+    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        return core.seq_map_when(self.applicable, self.apply_block, blocks)
+    @abstractmethod
+    def apply_block(self, block) -> core.Blocks: ...
+    def applicable(self, block) -> bool: 
+        return True
+
+@dataclass(frozen=True)
+class AltRange(MappableRule):
     """Restrict the altitude range of source blocks. 
 
     Parameters
@@ -24,12 +34,15 @@ class AltRange(Rule):
     alt_range : Tuple[float, float]. min and max altitude in degrees 
     """
     alt_range: Tuple[float, float]
-    def apply(self, blocks:core.BlocksTree) -> core.BlocksTree:
-        filt = partial(src.source_block_trim_by_az_alt_range, alt_range=np.deg2rad(self.alt_range))
-        return core.seq_map_when(core.block_isa(src.SourceBlock), filt, blocks)
+
+    def apply_block(self, block:core.Block) -> core.Block:
+        return block.trim_by_az_alt_range(alt_range=self.alt_range)
+
+    def applicable(self, block:core.Block) -> bool:
+        return isinstance(block, src.SourceBlock)
 
 @dataclass(frozen=True)
-class DayMod(Rule):
+class DayMod(GreenRule):
     """Restrict the blocks to a specific day of the week.
     (day, day_mod): (0, 1) means everyday, (4, 7) means every 4th day in a week, ...
     """
@@ -43,7 +56,7 @@ class DayMod(Rule):
         return np.floor((t - self.day_ref).total_seconds() / utils.sidereal_day).astype(int)
 
 @dataclass(frozen=True)
-class DriftMode(Rule):
+class DriftMode(MappableRule):
     """Restrict the blocks to a specific drift mode.
     
     Parameters
@@ -54,12 +67,13 @@ class DriftMode(Rule):
     def __post_init__(self):
         if self.mode not in ['rising', 'setting', 'both']:
             raise ValueError(f"mode must be 'rising', 'setting' or 'both', got {self.mode}")
-    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        filt = lambda b: b if b.mode == self.mode else None
-        return core.seq_map_when(core.block_isa(src.SourceBlock), filt, blocks)
+    def apply_block(self, block: core.Block) -> core.Block:
+        return block if block.mode == self.mode else None
+    def applicable(self, block: core.Block) -> bool:
+        return isinstance(block, src.SourceBlock)
 
 @dataclass(frozen=True)
-class MinDuration(Rule):
+class MinDuration(GreenRule):
     """Restrict the minimum block size."""
     min_duration: int  # in seconds
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
@@ -67,7 +81,7 @@ class MinDuration(Rule):
         return core.seq_filter(filt, blocks)
 
 @dataclass(frozen=True)
-class RephaseFirst(Rule):
+class RephaseFirst(GreenRule):
     """Randomize the phase of the first block"""
     max_fraction: float
     min_block_size: float  # in seconds
@@ -83,7 +97,7 @@ class RephaseFirst(Rule):
         return core.seq_replace_block(blocks, src, tgt)
 
 @dataclass(frozen=True)
-class MakeSourcePlan(Rule):
+class MakeSourcePlan(MappableRule):
     """Convert source blocks to scan blocks"""
     specs: List[Dict[str, List[float]]]
     spec_shape: str
@@ -91,9 +105,7 @@ class MakeSourcePlan(Rule):
     bounds_alt: Optional[Tuple[float, float]] = None
     bounds_az_throw: Optional[Tuple[float, float]] = None
 
-    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        return core.seq_map(self._apply_block, blocks)
-    def _apply_block(self, block: core.Block):
+    def apply_block(self, block: core.Block):
         if isinstance(block, src.SourceBlock):
             if block.mode == "both": return block  # not relevant
             # get some shape parameters
@@ -172,8 +184,11 @@ class MakeSourcePlan(Rule):
         else:
             return block  # pass through rest
 
+    def applicable(self, block):
+        return isinstance(block, (src.SourceBlock, inst.ScanBlock))
+
 @dataclass(frozen=True)
-class SunAvoidance(Rule):
+class SunAvoidance(MappableRule):
     """Avoid sources that are too close to the Sun.
 
     Parameters
@@ -188,15 +203,8 @@ class SunAvoidance(Rule):
     n_buffer: int
     time_step: int
 
-    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        return core.seq_map(self._apply_block, blocks)
-
-    def _apply_block(self, block: core.Block) -> core.Blocks:
+    def apply_block(self, block: core.Block) -> core.Blocks:
         """Calculate the distance between a block and a sun block."""
-        if not self.applicable(block): 
-            print(f"block: {block} is not applicable, skipping") 
-            return block
-
         sun_block = src.block_get_matching_sun_block(block)
         t, az_sun, alt_sun = sun_block.get_az_alt(time_step = dt.timedelta(seconds=self.time_step))
 
@@ -219,27 +227,26 @@ class SunAvoidance(Rule):
         return [block.replace(t0=t0, t1=t1) for t0, t1 in safe_intervals]
 
     def applicable(self, block: core.Block) -> bool:
-        return isinstance(block, inst.ScanBlock) or isinstance(block, src.SourceBlock)
+        return isinstance(block, (inst.ScanBlock, src.SourceBlock))
 
 @dataclass(frozen=True)
-class MakeSourceScan(Rule):
+class MakeSourceScan(MappableRule):
     """convert observing window to actual scan blocks and allow for
     rephasing of the block. Applicable to only ObservingWindow blocks.
     """
     preferred_length: float  # seconds
     rng_key: utils.PRNGKey
-    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        return core.seq_map(self._apply_block, blocks)
-    def _apply_block(self, block: core.Block) -> core.Block:
-        if isinstance(block, src.ObservingWindow):
-            duration = block.duration.total_seconds()
-            preferred_len = min(self.preferred_length, duration)
-            allowance = duration - preferred_len
-            offset = utils.uniform(self.rng_key, 0, allowance)
-            t0 = block.t0 + dt.timedelta(seconds=offset)
-            return block.get_scan_starting_at(t0)
-        else:
-            return block
+
+    def apply_block(self, block: core.Block) -> core.Block:
+        duration = block.duration.total_seconds()
+        preferred_len = min(self.preferred_length, duration)
+        allowance = duration - preferred_len
+        offset = utils.uniform(self.rng_key, 0, allowance)
+        t0 = block.t0 + dt.timedelta(seconds=offset)
+        return block.get_scan_starting_at(t0)
+
+    def applicable(self, block: core.Block) -> bool:
+        return isinstance(block, src.ObservingWindow)
 
 # global registry of rules
 RULES = {
@@ -252,8 +259,8 @@ RULES = {
     'make-source-plan': MakeSourcePlan,
     'make-source-scan': MakeSourceScan,
 }
-def get_rule(name: str) -> Rule:
+def get_rule(name: str) -> core.Rule:
     return RULES[name]
 
-def make_rule(name: str, **kwargs) -> Rule:
+def make_rule(name: str, **kwargs) -> core.Rule:
     return get_rule(name)(**kwargs)
