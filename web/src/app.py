@@ -1,15 +1,16 @@
 import streamlit as st
 from streamlit_timeline import st_timeline
+from streamlit_ace import st_ace
+
 st.set_page_config(layout="wide")
 
+import yaml
 import datetime as dt
 from schedlib import policies, core
 from scheduler_server.configs import get_default_config
+from scheduler_server.utils import nested_update
 import utils
 
-
-config = get_default_config('basic')
-policy = policies.BasicPolicy(**config)
 
 # =================
 # streamlit web
@@ -18,6 +19,9 @@ policy = policies.BasicPolicy(**config)
 for k in ['data_orig', 'groups_orig', 'data_trans', 'groups_trans', 'data_merge', 'groups_merge']:
     if k not in st.session_state:
         st.session_state[k] = []
+
+if 'user_config' not in st.session_state:
+    st.session_state.user_config = {}
 
 def on_load_schedule():
     t0 = dt.datetime.combine(start_date, start_time).astimezone(dt.timezone.utc)
@@ -54,9 +58,18 @@ with st.sidebar:
 
     st.button("Load Schedule", on_click=on_load_schedule)
 
+config = get_default_config('basic')
+config = nested_update(config, st.session_state.user_config)
+policy = policies.BasicPolicy(**config)
+on_load_schedule()
+
 st.markdown("## Initial Sequences")
 timeline_orig = st_timeline(st.session_state.data_orig, st.session_state.groups_orig, key='orig')
 st.markdown("## Transformed Sequences")
 timeline_trans = st_timeline(st.session_state.data_trans, st.session_state.groups_trans, key='trans')
 st.markdown("## Output Schedule")
 timeline_merge = st_timeline(st.session_state.data_merge, key='merge')
+st.markdown("## Configuration")
+config = yaml.safe_load(st_ace(yaml.dump(config), language='yaml', key='config'))
+# put it in the session so next reload will use this config
+st.session_state.user_config = config
