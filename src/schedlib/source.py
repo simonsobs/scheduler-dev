@@ -76,6 +76,37 @@ def _source_az_alt_interpolators(source: str, t0: dt.datetime, t1: dt.datetime, 
     interp_alt = interp1d(times, alt, kind='cubic')
     return interp_az, interp_alt
 
+# global registry of precomputed sources
+PRECOMPUTED_SOURCES = {}
+
+class _PrecomputedSource(NamedTuple):
+    t0: dt.datetime
+    t1: dt.datetime
+    interp_az: Callable[[int], float]
+    interp_alt: Callable[[int], float]
+    blocks: core.Blocks
+
+    @classmethod
+    def for_(cls, name: str, t0: dt.datetime, t1: dt.datetime,
+             buf: dt.timedelta = dt.timedelta(days=1),
+             time_step: dt.timedelta = dt.timedelta(seconds=30)) -> Source:
+        reuse = False
+        if name in PRECOMPUTED_SOURCES:
+            precomputed = PRECOMPUTED_SOURCES[name]
+            reuse = precomputed.t0 <= t0 and precomputed.t1 >= t1
+        if not reuse:
+            # future is more important than past
+            t0, t1 = t0, t1 + buf
+            az_interp, alt_interp = _source_az_alt_interpolators(name, t0, t1, time_step)
+            blocks = source_get_blocks(name, t0, t1)
+            PRECOMPUTED_SOURCES[name] = cls(t0, t1, az_interp, alt_interp, blocks)
+        return PRECOMPUTED_SOURCES[name]
+
+    @classmethod
+    def for_block(cls, block: SourceBlock, buf: dt.timedelta = dt.timedelta(days=1),
+                  time_step: dt.timedelta = dt.timedelta(seconds=30)) -> Source:
+        return cls.for_(block.name, block.t0, block.t1, buf=buf, time_step=time_step)
+
 @dataclass(frozen=True)
 class SourceBlock(core.NamedBlock):
     mode: str
@@ -118,39 +149,9 @@ def source_get_blocks(name: str, t0: dt.datetime, t1: dt.datetime) -> core.Block
                    SourceBlock(t0=t_block_mid, t1=t_block_end, name=name, mode="setting")]
     return blocks
 
-# global registry of precomputed sources
-PRECOMPUTED_SOURCES = {}
-
-class _PrecomputedSource(NamedTuple):
-    t0: dt.datetime
-    t1: dt.datetime
-    interp_az: Callable[[int], float]
-    interp_alt: Callable[[int], float]
-    blocks: core.Blocks
-
-    @classmethod
-    def for_(cls, name: str, t0: dt.datetime, t1: dt.datetime,
-             buf: dt.timedelta = dt.timedelta(days=1),
-             time_step: dt.timedelta = dt.timedelta(seconds=30)) -> Source:
-        reuse = False
-        if name in PRECOMPUTED_SOURCES:
-            precomputed = PRECOMPUTED_SOURCES[name]
-            reuse = precomputed.t0 <= t0 and precomputed.t1 >= t1
-        if not reuse:
-            # future is more important than past
-            t0, t1 = t0, t1 + buf
-            az_interp, alt_interp = _source_az_alt_interpolators(name, t0, t1, time_step)
-            blocks = source_get_blocks(name, t0, t1)
-            PRECOMPUTED_SOURCES[name] = cls(t0, t1, az_interp, alt_interp, blocks)
-        return PRECOMPUTED_SOURCES[name]
-
-    @classmethod
-    def for_block(cls, block: SourceBlock, buf: dt.timedelta = dt.timedelta(days=1),
-                  time_step: dt.timedelta = dt.timedelta(seconds=30)) -> Source:
-        return cls.for_(block.name, block.t0, block.t1, buf=buf, time_step=time_step)
-
 def source_gen_seq(source: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks:
-    """Get source blocks for a given source and time interval."""
+    """similar to source_get_blocks but it will try loading from cache first and will
+    return a trimmed sequence of blocks."""
     blocks = _PrecomputedSource.for_(source, t0, t1).blocks
     return core.seq_flatten(core.seq_trim(blocks, t0, t1))
 

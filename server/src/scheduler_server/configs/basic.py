@@ -16,7 +16,7 @@ config = {
         'day-mod': {
             'day': 0,
             'day_mod': 1,
-            'day_ref': dt.datetime(2014, 1, 1, 0, 0, 0),
+            'day_ref': dt.datetime(2014, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
         },
         'calibration-min-duration': {
             'min_duration': 5 * minute,
@@ -30,6 +30,6 @@ config = {
             'preferred_length': 1800,
         }
     },
-    'calibration_targets': ["uranus"],
-    'soft_targets': ["saturn"]
+    'calibration_targets': ["uranus", "saturn"],
+    'soft_targets': []
 }
