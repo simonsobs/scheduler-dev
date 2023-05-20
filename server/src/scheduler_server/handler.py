@@ -24,10 +24,7 @@ def dummy_policy(t0, t1, policy_config={}, app_config={}):
 
 def basic_policy(t0, t1, policy_config, app_config={}):
     policy = BasicPolicy(**policy_config)
-
     seq = policy.init_seqs(t0, t1)
     seq = policy.apply(seq)
-
-    # convert to commands
-    cmd = sl.seq2cmd(seq)
+    cmd = policy.seq2cmd(seq)
     return str(cmd)

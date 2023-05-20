@@ -2,7 +2,7 @@ from typing import List
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from .core import ScanBlock, Blocks
+from . import core, instrument as inst
 
 @dataclass(frozen=True)
 class Command:
@@ -17,7 +17,7 @@ class Goto(Command):
 
 @dataclass(frozen=True)
 class Scan(Command):
-    field: str    
+    field: str
     stop: datetime
     width: float
     def __str__(self):
@@ -49,7 +49,7 @@ class CompositeCommand(Command):
 @dataclass(frozen=True)
 class IVCurve(Command):
     def __str__(self):
-        return "smurf.bias_step()"
+        return "smurf.iv_curve()"
 
 @dataclass(frozen=True)
 class BiasDets(Command):
@@ -70,33 +70,9 @@ class Preamble(CompositeCommand):
         "from nextline import disable_trace",
         "",
         "with disable_trace():",
-        "\tinitialize(test_mode=True)",
+        "    initialize(test_mode=True)",
         "",
         "smurf.uxm_setup()",
         "smurf.iv_curve()",
         ""
     ])
-
-def seq2cmd(seq: Blocks):
-    """map a scan to a command"""
-    commands = [Preamble()]
-    for block in seq:
-        if block is None: 
-            raise ValueError("None block in sequence")
-        if isinstance(block, ScanBlock):
-            command = CompositeCommand([
-                f"# {block.patch}",
-                Goto(block.az, block.alt),
-                BiasDets(),
-                Wait(block.t0),
-                BiasStep(),
-                # Stream('on'),
-                Scan(block.patch, block.t1, block.throw),
-                # Stream('off'),
-                BiasStep(),
-                "",  # line break
-            ])
-        else: 
-            raise ValueError(f"Unknown block type {type(block)}")
-        commands.append(command)
-    return CompositeCommand(commands)

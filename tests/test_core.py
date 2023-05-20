@@ -388,3 +388,174 @@ def test_seq_trim():
     trimmed_blocks = core.seq_trim(blocks, t0, t1)
     assert trimmed_blocks == [None, [None, None], [None], None]
     assert core.seq_flatten(trimmed_blocks) == []
+
+def test_seq_assert_same_structure():
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        None,
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+         None, core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))],
+        core.Block(t0=dt.datetime(2023, 1, 6), t1=dt.datetime(2023, 1, 7)),
+    ]
+    filtered_blocks = core.seq_filter(lambda b: b.t0 < dt.datetime(2023, 1, 4), blocks)
+    assert len(filtered_blocks) == 4
+    core.seq_assert_same_structure(filtered_blocks, blocks)
+    with pytest.raises(AssertionError):
+        core.seq_assert_same_structure(filtered_blocks, core.seq_flatten(blocks))
+
+def test_seq_replace_block():
+    blocks = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        None,
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+         None, core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))],
+        core.Block(t0=dt.datetime(2023, 1, 6), t1=dt.datetime(2023, 1, 7)),
+    ]
+    new_blocks = core.seq_replace_block(
+        blocks, core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+        core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 5))
+    )
+    assert new_blocks == [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        None,
+        [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 5)),
+         None, core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))],
+        core.Block(t0=dt.datetime(2023, 1, 6), t1=dt.datetime(2023, 1, 7)),
+    ]
+
+def test_block_overlap():
+    block1 = core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2))
+    block2 = core.Block(t0=dt.datetime(2023, 1, 1, 12), t1=dt.datetime(2023, 1, 2))
+    block3 = core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3))
+    block4 = core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 4))
+    block5 = core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 4))
+    assert core.block_overlap(block1, block2)
+    assert core.block_overlap(block2, block1)
+    assert not core.block_overlap(block1, block3)
+    assert core.block_overlap(block3, block4)
+    assert core.block_overlap(block3, block5)
+
+def test_block_merge():
+    # no overlap
+    block1 = core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2))
+    block2 = core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))
+    merged_blocks = core.block_merge(block1, block2)
+    assert len(merged_blocks) == 2
+    assert merged_blocks[0] == block1
+    assert merged_blocks[1] == block2
+
+    # order should be preserved
+    merged_blocks = core.block_merge(block2, block1)
+    assert len(merged_blocks) == 2
+    assert merged_blocks[0] == block1
+    assert merged_blocks[1] == block2
+
+    block1 = core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 3))
+    block2 = core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 4))
+    merged_blocks = core.block_merge(block1, block2)
+    assert len(merged_blocks) == 2
+    assert merged_blocks[0].t0 == block1.t0
+    assert merged_blocks[0].t1 == block2.t0
+    assert merged_blocks[1].t0 == block2.t0
+    assert merged_blocks[1].t1 == block2.t1
+
+    block1 = core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 4))
+    block2 = core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3))
+    merged_blocks = core.block_merge(block1, block2)
+    assert len(merged_blocks) == 3
+    assert merged_blocks[0].t0 == block1.t0
+    assert merged_blocks[0].t1 == block2.t0
+    assert merged_blocks[1] == block2
+    assert merged_blocks[2].t0 == block2.t1
+    assert merged_blocks[2].t1 == block1.t1
+
+def seq_drop_duplicates(seq: core.Blocks, flatten=False) -> core.Blocks:
+    if not flatten and core.seq_is_nested(seq):
+        raise ValueError("Cannot drop duplicates in nested sequence, use flatten=True")
+    return core.seq_sort(list(set(core.seq_flatten(seq))))
+
+def test_seq_drop_duplicates():
+    # Test case for non-nested sequence
+    seq1 = [core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+            core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3)),
+            core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2))]
+    expected_result1 = [core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+                        core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3))]
+    assert core.seq_drop_duplicates(seq1) == expected_result1
+
+    # Test case for nested sequence
+    seq2 = [[core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+             core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3))],
+            [core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+             core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3))]]
+    expected_result2 = [core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+                        core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3))]
+    assert core.seq_drop_duplicates(seq2, flatten=True) == expected_result2
+
+    # Test case for nested sequence without flatten=True
+    seq3 = [[core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+             core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3))],
+            [core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+             core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3))]]
+
+    with pytest.raises(ValueError):
+        core.seq_drop_duplicates(seq3)
+
+def test_seq_merge_block():
+    # Test case for non-nested sequence
+    seq1 = [core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+            core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))]
+    block1 = core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3))
+    expected_result1 = [seq1[0], block1, seq1[1]]
+    result = core.seq_merge_block(seq1, block1)
+    assert core.seq_merge_block(seq1, block1) == expected_result1
+
+    # Test case for nested sequence
+    seq2 = [[core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+             core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))],
+            [core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))]]
+    block2 = core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 5))
+    expected_result2 = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 5)),
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+    ]
+    assert core.seq_merge_block(seq2, block2, flatten=True) == expected_result2
+
+    # Test case for nested sequence without flatten=True
+    with pytest.raises(ValueError):
+        core.seq_merge_block(seq2, block2)
+
+def test_seq_merge():
+    # Test case for non-nested sequences
+    seq1 = [core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+            core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))]
+    seq2 = [core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3)),
+            core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))]
+    expected_result1 = [seq1[0], seq2[0], seq1[1], seq2[1]]
+    assert core.seq_merge(seq1, seq2) == expected_result1
+
+    # Test case for nested sequences with flatten=True
+    seq3 = [[core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+             core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))],
+            [core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))]]
+    seq4 = [[core.Block(t0=dt.datetime(2023, 1, 2), t1=dt.datetime(2023, 1, 3)),
+             core.Block(t0=dt.datetime(2023, 1, 4), t1=dt.datetime(2023, 1, 5))],
+            [core.Block(t0=dt.datetime(2023, 1, 7), t1=dt.datetime(2023, 1, 8))]]
+    expected_result2 = [seq3[0][0], seq4[0][0], seq3[0][1], seq4[0][1],
+                        seq3[1][0], seq4[1][0]]
+    assert core.seq_merge(seq3, seq4, flatten=True) == expected_result2
+    with pytest.raises(ValueError):
+        core.seq_merge(seq3, seq4)
+
+    seq5 = [[core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+             core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4))],
+            [core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))]]
+    seq6 = [[core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 4)),
+             core.Block(t0=dt.datetime(2023, 1, 4), t1=dt.datetime(2023, 1, 5))]]
+    expected_result3 = [
+        core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 4)),
+        core.Block(t0=dt.datetime(2023, 1, 4), t1=dt.datetime(2023, 1, 5)),
+        core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6))
+    ]
+    assert core.seq_merge(seq5, seq6, flatten=True) == expected_result3

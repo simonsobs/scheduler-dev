@@ -57,3 +57,47 @@ def test_parse_sequence_from_toast():
     ifile = op.join(op.abspath(op.dirname(__file__)), "data/schedule_sat.txt")
     seq = parse_sequence_from_toast(ifile)
     assert len(seq) == 20
+
+def test_ranges_pad():
+    mask = np.array([False, False, True, True, False, False, False, True, True, True, False, False])
+    ranges = mask2ranges(mask)
+    ranges = ranges_pad(ranges, 1, len(mask))
+    assert np.alltrue(ranges == [[1, 5], [6, 11]])
+
+    ranges = mask2ranges(mask)
+    ranges = ranges_pad(ranges, 3, len(mask))
+    assert np.alltrue(ranges == [[0, 12]])
+
+def test_pngkey():
+    key1 = PRNGKey(42)
+    key2 = PRNGKey(41)
+    # repeated calls should return the same value and not change
+    # the result of other calls
+    with key1.set_state():
+        assert np.isclose(np.random.uniform(0, 1), 0.374540)
+    with key2.set_state():
+        assert np.isclose(np.random.uniform(0, 1), 0.250923)
+    with key1.set_state():
+        assert np.isclose(np.random.uniform(0, 1), 0.374540)
+    with key2.set_state():
+        assert np.isclose(np.random.uniform(0, 1), 0.250923)
+
+def test_uniform():
+    key = PRNGKey(42)
+    assert np.isclose(uniform(key, 0, 1), 0.374540)
+    assert np.isclose(uniform(key, 0, 1), 0.374540)
+    new_key, _ = key.split()
+    assert np.isclose(uniform(new_key, 0, 1), 0.500341)
+    assert np.isclose(uniform(key, 0, 1), 0.374540)
+
+def test_daily_static_key():
+    key = daily_static_key(datetime(2020, 1, 1))
+    v = uniform(key, 0, 1)
+    assert np.isclose(v, 0.373878)
+
+def test_interp_extra():
+    x = np.array([1, 2, 3, 4, 5])[::-1]
+    y = np.array([1, 2, 3, 4, 5])[::-1]
+    c = np.array([1, 2, 4, 5, 6])
+    y_new = interp_extra(c, x, y)
+    assert np.allclose(y_new, np.array([1, 2, 4, 5, 6]))

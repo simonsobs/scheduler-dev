@@ -1,6 +1,5 @@
-from scheduler_server import handler
+from scheduler_server import handler, configs
 from datetime import datetime, timezone
-import os.path as op
 
 def test_dummy():
     t0 = datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
@@ -10,7 +9,5 @@ def test_dummy():
 def test_basic():
     t0 = datetime(2023, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     t1 = datetime(2023, 1, 2, 0, 0, 10, tzinfo=timezone.utc)
-    cmds = handler.basic_policy(t0, t1, {
-        'master_schedule': op.dirname(__file__) + "/data/schedule_sat.txt"
-    })
-    assert len(cmds) == 29
+    cmds = handler.basic_policy(t0, t1, configs.get_default_config('basic'))
+    assert len(cmds) == 5912
