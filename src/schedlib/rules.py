@@ -106,86 +106,83 @@ class MakeSourcePlan(MappableRule):
     bounds_az_throw: Optional[Tuple[float, float]] = None
 
     def apply_block(self, block: core.Block):
-        if isinstance(block, src.SourceBlock):
-            if block.mode == "both": return block  # not relevant
-            # get some shape parameters
-            pos_hi = max([spec['bounds_y'][1] for spec in self.specs])
-            pos_lo = min([spec['bounds_y'][0] for spec in self.specs])
-            alt_offset = (pos_hi + pos_lo) / 2  # offset from boresight
-            alt_height = pos_hi - pos_lo
+        if block.mode == "both": return block  # not relevant
+        # get some shape parameters
+        pos_hi = max([spec['bounds_y'][1] for spec in self.specs])
+        pos_lo = min([spec['bounds_y'][0] for spec in self.specs])
+        alt_offset = (pos_hi + pos_lo) / 2  # offset from boresight
+        alt_height = pos_hi - pos_lo
 
-            # we can scan any time in the observation window
-            # suppose we start at time t, the source will be at:
-            t, az, alt = block.get_az_alt()
+        # we can scan any time in the observation window
+        # suppose we start at time t, the source will be at:
+        t, az, alt = block.get_az_alt()
 
-            # require at least two samples to interpolate:
-            if len(t) < 2: return None  # filtered
+        # require at least two samples to interpolate:
+        if len(t) < 2: return None  # filtered
 
-            sign = {"rising": 1, "setting": -1}[block.mode]
-            # the center of wafer set should be at this alt
-            alt_center = alt + sign*alt_height/2
-            # we should stop scanning when the source is at this alt
-            alt_stop = alt + sign*alt_height
-            # total passage time
-            obs_length = utils.interp_extra(alt_stop, alt, t) - t
-            assert np.all(obs_length >= 0), "passage time must be positive, something is wrong"
+        sign = {"rising": 1, "setting": -1}[block.mode]
+        # the center of wafer set should be at this alt
+        alt_center = alt + sign*alt_height/2
+        # we should stop scanning when the source is at this alt
+        alt_stop = alt + sign*alt_height
+        # total passage time
+        obs_length = utils.interp_extra(alt_stop, alt, t) - t
+        assert np.all(obs_length >= 0), "passage time must be positive, something is wrong"
 
-            # this is where our boresight pointing should be to observe the passage.
-            # this places our wafer set at the center of the source path, so the source
-            # start at the edge of the array set and ends at the other edge.
-            # note: bore + offset = array set center
-            alt_bore = alt_center - alt_offset
+        # this is where our boresight pointing should be to observe the passage.
+        # this places our wafer set at the center of the source path, so the source
+        # start at the edge of the array set and ends at the other edge.
+        # note: bore + offset = array set center
+        alt_bore = alt_center - alt_offset
 
-            # get the time for source to reach the center
-            # and use it as a reference to compute the scan direction phi_tilt
-            t_center = utils.interp_extra(alt_center, alt, t)
-            az_center = utils.interp_extra(t_center, t, az)
-            daz_center = utils.interp_extra(t_center, t[1:], np.diff(az))
-            dalt_center = utils.interp_extra(t_center, t[1:], np.diff(alt))
-            # cos factor undo the projection effect
-            phi_tilt = np.arctan2(daz_center * np.cos(np.deg2rad(alt_center)), dalt_center)
+        # get the time for source to reach the center
+        # and use it as a reference to compute the scan direction phi_tilt
+        t_center = utils.interp_extra(alt_center, alt, t)
+        az_center = utils.interp_extra(t_center, t, az)
+        daz_center = utils.interp_extra(t_center, t[1:], np.diff(az))
+        dalt_center = utils.interp_extra(t_center, t[1:], np.diff(alt))
+        # cos factor undo the projection effect
+        phi_tilt = np.arctan2(daz_center * np.cos(np.deg2rad(alt_center)), dalt_center)
 
-            # get the az bounds, since source is moving in a tilted path, we need to
-            # find projected bounds (bounding box of the tilted path)
-            bounds_x = np.array([
-                inst.get_bounds_x_tilted(
-                    **spec,
-                    shape=self.spec_shape,
-                    phi_tilt=phi_tilt,
-                ) for spec in self.specs])
-            x_lo, x_hi = np.min(bounds_x[:, 0]), np.max(bounds_x[:, 1])
-            # add back the projection effect to get the actual az bounds
-            stretch = 1 / np.cos(np.deg2rad(alt_center))
-            az_throw  = (x_hi - x_lo) * stretch  # diff by 2 from ACT convention
-            az_offset = (x_hi + x_lo) / 2 * stretch
-            az_bore   = az_center - az_offset
+        # get the az bounds, since source is moving in a tilted path, we need to
+        # find projected bounds (bounding box of the tilted path)
+        bounds_x = np.array([
+            inst.get_bounds_x_tilted(
+                **spec,
+                shape=self.spec_shape,
+                phi_tilt=phi_tilt,
+            ) for spec in self.specs])
+        x_lo, x_hi = np.min(bounds_x[:, 0]), np.max(bounds_x[:, 1])
+        # add back the projection effect to get the actual az bounds
+        stretch = 1 / np.cos(np.deg2rad(alt_center))
+        az_throw  = (x_hi - x_lo) * stretch  # diff by 2 from ACT convention
+        az_offset = (x_hi + x_lo) / 2 * stretch
+        az_bore   = az_center - az_offset
 
-            # get validity ranges
-            ok = utils.within_bound(alt_stop, [alt.min(), alt.max()])
-            if self.bounds_alt is not None:
-                ok *= utils.within_bound(alt_bore, self.bounds_alt)
-            if self.bounds_az_throw is not None:
-                ok *= utils.within_bound(az_throw, self.bounds_az_throw)
-            if self.max_obs_length is not None:
-                ok *= (obs_length <= self.max_obs_length)
-            ranges = utils.mask2ranges(ok)
-            blocks = []
-            for i_l, i_r in ranges:
-                block = src.ObservingWindow(
-                    t0=utils.ct2dt(t[i_l]), t1=utils.ct2dt(t[i_r-1]), 
-                    name=block.name, mode=block.mode,
-                    t_start=t[i_l:i_r], obs_length=obs_length[i_l:i_r],
-                    az_bore=az_bore[i_l:i_r], alt_bore=alt_bore[i_l:i_r],
-                    az_throw=az_throw[i_l:i_r]
-                )
-                blocks.append(block)
-            # probably the dominant mode of operation
-            if len(blocks) == 1: return blocks[0]
-        else:
-            return block  # pass through rest
+        # get validity ranges
+        ok = utils.within_bound(alt_stop, [alt.min(), alt.max()])
+        if self.bounds_alt is not None:
+            ok *= utils.within_bound(alt_bore, self.bounds_alt)
+        if self.bounds_az_throw is not None:
+            ok *= utils.within_bound(az_throw, self.bounds_az_throw)
+        if self.max_obs_length is not None:
+            ok *= (obs_length <= self.max_obs_length)
+        ranges = utils.mask2ranges(ok)
+        blocks = []
+        for i_l, i_r in ranges:
+            block = src.ObservingWindow(
+                t0=utils.ct2dt(t[i_l]), t1=utils.ct2dt(t[i_r-1]), 
+                name=block.name, mode=block.mode,
+                t_start=t[i_l:i_r], obs_length=obs_length[i_l:i_r],
+                az_bore=az_bore[i_l:i_r], alt_bore=alt_bore[i_l:i_r],
+                az_throw=az_throw[i_l:i_r]
+            )
+            blocks.append(block)
+        # probably the dominant mode of operation
+        if len(blocks) == 1: return blocks[0]
 
     def applicable(self, block):
-        return isinstance(block, (src.SourceBlock, inst.ScanBlock))
+        return isinstance(block, src.SourceBlock)
 
 @dataclass(frozen=True)
 class SunAvoidance(MappableRule):
