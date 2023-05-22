@@ -77,12 +77,14 @@ class BasicPolicy(BasePolicy):
                 'min-duration',
                 **self.rules['calibration-min-duration']
             )(cal_blocks)
+        if 'alt-range' in self.rules:
+            cal_blocks = self.make_rule('alt-range')(cal_blocks)
 
         # actually turn observation windows into source scans: need some random
         # numbers to rephase each source scan in an observing window. we will
         # use a daily static key, producing exactly the same sequence of random
         # numbers when the date is the same
-        if len(core.seq_sort(cal_blocks, flatten=True)) > 0:
+        if len(core.seq_flatten(cal_blocks)) > 0:
             first_block = core.seq_sort(cal_blocks, flatten=True)[0]
             keys = utils.daily_static_key(first_block.t0).split(len(cal_blocks))
             for srcname, key in zip(cal_blocks, keys):

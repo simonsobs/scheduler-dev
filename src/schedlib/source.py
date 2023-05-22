@@ -183,8 +183,8 @@ def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tupl
         return []  # need blocks type
     blocks = []
     for (i0, i1) in utils.mask2ranges(mask): 
-        t0 = times[i0]
-        t1 = times[i1-1]  # i1 is non-inclusive
+        t0 = utils.ct2dt(times[i0])
+        t1 = utils.ct2dt(times[i1-1])  # i1 is non-inclusive
         blocks.append(block.replace(t0=t0, t1=t1))
     return blocks
 
