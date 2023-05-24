@@ -99,6 +99,8 @@ class BasicPolicy(BasePolicy):
     def merge(self, blocks: core.BlocksTree) -> core.Blocks:
         # merge all calibration sources into main sequence
         blocks = core.seq_merge(blocks['master'], blocks['sources']['calibration'], flatten=True)
+        if 'min-duration' in self.rules:
+            blocks = self.make_rule('min-duration')(blocks)
         return core.seq_sort(blocks)
 
     def block2cmd(self, block: core.Block):

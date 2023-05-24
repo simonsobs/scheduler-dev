@@ -21,6 +21,9 @@ config = {
         'calibration-min-duration': {
             'min_duration': 5 * minute,
         },
+        'min-duration': {
+            'min_duration': 5 * minute,
+        },
         'alt-range': {
             'alt_range': [20, 90]
         },
