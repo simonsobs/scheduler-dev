@@ -1,1 +1,0 @@
-../../server/src/scheduler_server/configs/schedule_sat.txt
