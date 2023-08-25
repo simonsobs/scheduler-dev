@@ -1,0 +1,13 @@
+#Site           |Telescope       |Latitude [deg]|Longitude [deg]  |Elevation [m]
+ Atacama        |SAT             |       -22.958|        -67.786|         5200.0
+#      Start time UTC       |Stop time UTC|Rotation|Patch name                           |Az min  |Az max      |El |Pass|Sub
+  2023-08-19 00:00:00| 2023-08-19 01:05:00|    0.00|Constant elevation scans             |275.00|  295.00|   50.00|    0|   0
+  2023-08-19 01:05:00| 2023-08-19 02:10:00|    0.00|Constant elevation scans             |110.00|  130.00|   50.00|    0|   1
+  2023-08-19 02:10:00| 2023-08-19 03:15:00|    0.00|Constant elevation scans             |110.00|  130.00|   50.00|    0|   2
+  2023-08-19 03:15:00| 2023-08-19 04:20:00|    0.00|Constant elevation scans             |110.00|  130.00|   50.00|    0|   3
+  2023-08-19 04:20:00| 2023-08-19 05:25:00|    0.00|Constant elevation scans             |110.00|  130.00|   50.00|    0|   4
+  2023-08-19 05:25:00| 2023-08-19 06:30:00|    0.00|Constant elevation scans             |110.00|  130.00|   50.00|    0|   5
+  2023-08-19 06:30:00| 2023-08-19 07:35:00|    0.00|Constant elevation scans             |230.00|  250.00|   50.00|    0|   6
+  2023-08-19 07:35:00| 2023-08-19 08:40:00|    0.00|Constant elevation scans             |230.00|  250.00|   50.00|    0|   7
+  2023-08-19 08:40:00| 2023-08-19 09:45:00|    0.00|Constant elevation scans             |230.00|  250.00|   50.00|    0|   8
+  2023-08-19 09:45:00| 2023-08-19 10:50:00|    0.00|Constant elevation scans             |230.00|  250.00|   50.00|    0|   9

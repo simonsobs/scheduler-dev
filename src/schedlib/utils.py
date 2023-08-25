@@ -76,28 +76,18 @@ def ranges_complement(ranges, imax):
     """return the complement ranges"""
     return mask2ranges(~ranges2mask(ranges, imax))
 
-def parse_sequence_from_toast(ifile: str, verbose=False) -> core.Blocks:
+def parse_sequence_from_toast(ifile: str) -> core.Blocks:
     """
     Parameters
     ----------
     ifile: input master schedule from toast
-    verbose: whether toast schedule is produced from verbose mode
     """
-    if verbose:
-        columns = ["start_utc", "stop_utc", "start_mjd", "stop_mjd",
-                   "rotation", "patch", "az_min", "az_max", "el", "mode"]
-        df = pd.read_fwf(ifile, skiprows=3, header=None, index_col=None,
-                         colspecs=[(0,20),(20,41),(41,57),(57,72),(72,81),
-                                   (81,116), (116,126), (126,135),(135,144),(144,146)], names=columns)
-    else:
-        columns = ["start_utc", "stop_utc", "rotation", "patch", "az_min", "az_max", "el", "pass", "sub"]
-        df = pd.read_fwf(ifile, skiprows=3, header=None, index_col=None,
-                         colspecs=[(0,21),(21,42),(42,51),(51,89),(89,96),
-                                   (96,105), (105,114), (114,120),(120,125)], names=columns)
+    columns = ["start_utc", "stop_utc", "rotation", "patch", "az_min", "az_max", "el", "pass", "sub"]
+    df = pd.read_csv(ifile, skiprows=3, delimiter="|", names=columns)
     blocks = []
     for _, row in df.iterrows():
         block = inst.ScanBlock(
-            name=row['patch'],
+            name=row['patch'].strip(),
             t0=u.str2datetime(row['start_utc']),
             t1=u.str2datetime(row['stop_utc']),
             alt=row['el'],
@@ -105,7 +95,6 @@ def parse_sequence_from_toast(ifile: str, verbose=False) -> core.Blocks:
             throw=np.abs(row['az_max'] - row['az_min']),
         )
         blocks.append(block)
-
     return blocks
 
 # convenience wrapper for interpolation: numpy-like scipy interpolate

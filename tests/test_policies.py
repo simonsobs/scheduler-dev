@@ -6,7 +6,7 @@ minute = 60
 
 def test_basic_policy():
     config = {
-        'master_schedule': op.dirname(__file__) + '/data/schedule_short.txt',
+        'master_schedule': op.dirname(__file__) + '/data/schedule_test.txt',
         'rules': {
             'rephase-first': {
                 'max_fraction': 0.1,
