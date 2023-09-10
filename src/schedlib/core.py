@@ -1,10 +1,9 @@
 from typing import List, Union, Callable, Optional, Any, TypeVar
-from chex import dataclass
 from abc import ABC, abstractmethod
 import datetime as dt
 import numpy as np
-from toolz import compose_left
 import jax.tree_util as tu
+from dataclasses import dataclass, replace as dc_replace
 
 @dataclass(frozen=True)
 class Block:
@@ -37,6 +36,8 @@ class Block:
         return block_trim_right_to(self, t)
     def isa(self, block_type: "BlockType") -> bool:
         return block_isa(block_type)(self)
+    def replace(self, **kwargs) -> "Block":
+        return dc_replace(self, **kwargs)
 
 BlockType = type(Block)
 Blocks = List[Union[Block, None, "Blocks"]]  # maybe None, maybe nested
@@ -255,14 +256,6 @@ class BlocksTransformation(ABC):
 
 Rule = Union[BlocksTransformation, Callable[[Blocks], Blocks]]
 RuleSet = List[Rule]
-
-@dataclass(frozen=True)
-class MultiRules(BlocksTransformation):
-    rules: RuleSet
-    def apply(self, blocks: Blocks) -> Blocks:
-        """apply rules to blocks in first-to-last order"""
-        return compose_left(*self.rules)(blocks)
-
 
 @dataclass(frozen=True)
 class Policy(BlocksTransformation, ABC):
