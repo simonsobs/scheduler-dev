@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from typing import Any, List
 from scipy import interpolate
 from collections.abc import Iterable
+from jax.tree_util import SequenceKey, DictKey
 
 from . import core, utils as u, instrument as inst
 
@@ -159,3 +160,19 @@ def pprint(seq: core.BlocksTree):
     """pretty print"""
     from equinox import tree_pprint
     tree_pprint(seq)
+
+# ====================
+# path related
+# ====================
+
+def path2key(path):
+    """convert a path (used in tree_util.tree_map_with_path) to a dot-separated key"""
+    keys = []
+    for p in path:
+        if isinstance(p, SequenceKey):
+            keys.append(p.idx)
+        elif isinstance(p, DictKey):
+            keys.append(p.key)
+        else:
+            raise ValueError(f"unknown path type {type(p)}")
+    return ".".join([str(k) for k in keys])

@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 import datetime as dt
 import numpy as np
 import jax.tree_util as tu
+import equinox
 from dataclasses import dataclass, replace as dc_replace
 
 @dataclass(frozen=True)
@@ -233,6 +234,28 @@ def seq_replace_block(blocks: BlocksTree, source: Block, target: Block) -> Block
 
 def seq_trim(blocks: BlocksTree, t0: dt.datetime, t1: dt.datetime) -> BlocksTree:
     return seq_map(lambda b: b.trim(t0, t1), blocks)
+
+def seq_partition(op, blocks: BlocksTree) -> List[Any]:
+    """partition a blockstree into two trees, one for blocks that satisfy the predicate,
+    which is specified through a function that takes a block as input and returns
+    a boolean, and the second return is for blocks that don't match the predicate. Unmatched
+    values will be left as None."""
+    filter_spec = tu.tree_map(op, blocks, is_leaf=is_block)
+    return equinox.partition(blocks, filter_spec)
+
+def seq_partition_with_path(op, blocks: BlocksTree, **kwargs) -> List[Any]:
+    """partition a blockstree into two trees, one for blocks that satisfy the predicate,
+    which is specified through a function that takes a block and path as input and returns
+    a boolean, and the second return is for blocks that don't match the predicate. Unmatched
+    values will be left as None."""
+    filter_spec = tu.tree_map_with_path(op, blocks, is_leaf=is_block)
+    return equinox.partition(blocks, filter_spec, **kwargs)
+
+def seq_combine(*blocks: BlocksTree) -> BlocksTree:
+    """combine blocks from multiple trees into a single tree, where the blocks are
+    combined in a list. The trees must have the same structure."""
+    seq_assert_same_structure(*blocks)
+    return equinox.combine(*blocks, is_leaf=is_block)
 
 # =========================
 # Other useful Block types

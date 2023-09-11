@@ -5,7 +5,7 @@ import numpy as np
 from functools import reduce
 from dataclasses import dataclass
 
-from . import core
+from . import core, utils
 
 @dataclass(frozen=True)
 class ScanBlock(core.NamedBlock):
@@ -35,14 +35,13 @@ def get_spec(specs: SpecsTree, query: List[str], merge=True) -> Union[Spec, Spec
     one of the queries. return all matches if merge=False"""
     is_leaf = lambda x: isinstance(x, dict) and 'bounds_x' in x
     match_p = lambda key: any([p in key for p in query])
-    path2key = lambda path: ".".join([str(p.key) for p in path])
     def reduce_fn(l, r):
         res = {}
         for k in ['bounds_x', 'bounds_y']:
             res[k] = [min(l[k][0], r[k][0]), max(l[k][1], r[k][1])]
         return res
     all_matches = tu.tree_leaves(
-        tu.tree_map_with_path(lambda path, x: x if match_p(path2key(path)) else None, specs, is_leaf=is_leaf), 
+        tu.tree_map_with_path(lambda path, x: x if match_p(utils.path2key(path)) else None, specs, is_leaf=is_leaf), 
         is_leaf=is_leaf
     )  # None is not a leaf, so it will be filtered out
     if not merge: return all_matches
