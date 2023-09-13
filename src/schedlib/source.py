@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
-from chex import dataclass
+from dataclasses import dataclass
 import ephem
 from ephem import to_timezone
 import datetime as dt
@@ -12,7 +12,6 @@ import numpy as np
 from . import core, utils, instrument as inst
 
 UTC = dt.timezone.utc
-
 
 class Location(NamedTuple):
     """Location given in degrees and meters"""

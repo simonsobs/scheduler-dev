@@ -1,8 +1,8 @@
 from typing import Tuple, Dict, List, Optional
 import numpy as np
-from chex import dataclass
 from abc import ABC, abstractmethod
 import datetime as dt
+from dataclasses import dataclass
 
 from . import core, source as src, instrument as inst, utils
 
