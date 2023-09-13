@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 
-from chex import dataclass
 import datetime as dt
 from abc import ABC, abstractmethod
-from typing import List
-from . import core, utils, commands as cmd, instrument as inst, rules as ru, source as src
+from typing import List 
+from dataclasses import dataclass
+from .. import core, utils, commands as cmd, instrument as inst, rules as ru, source as src, config as cfg
+
 
 @dataclass(frozen=True)
 class BasePolicy(core.Policy, ABC):
@@ -14,15 +15,6 @@ class BasePolicy(core.Policy, ABC):
     sequence. This is mostly for visualization purposes, so that we
     preserve the nested structure for the user to see, but we can
     also flatten the structure for the scheduler to consume."""
-
-    rules: core.RuleSet
-
-    def make_rule(self, rule_name: str, **kwargs) -> core.Rule:
-        # caller kwargs take precedence
-        if not kwargs:
-            assert rule_name in self.rules, f"Rule {rule_name} not found in rules config"
-            kwargs = self.rules[rule_name]  
-        return ru.make_rule(rule_name, **kwargs)
 
     @abstractmethod
     def transform(self, blocks: core.BlocksTree) -> core.BlocksTree: ...
@@ -39,12 +31,21 @@ class BasePolicy(core.Policy, ABC):
     @abstractmethod
     def seq2cmd(self, seq: core.Blocks) -> cmd.Command: ...
 
+
 @dataclass(frozen=True)
 class BasicPolicy(BasePolicy):
-
+    rules: core.RuleSet
     master_schedule: str
     calibration_targets: List[str]
     soft_targets: List[str]
+
+    def make_rule(self, rule_name: str, **kwargs) -> core.Rule:
+        # caller kwargs take precedence
+        print(self.rules)
+        if not kwargs:
+            assert rule_name in self.rules, f"Rule {rule_name} not found in rules config"
+            kwargs = self.rules[rule_name]  
+        return ru.make_rule(rule_name, **kwargs)
 
     def init_seqs(self, t0: dt.datetime, t1: dt.datetime) -> core.BlocksTree:
         master = utils.parse_sequence_from_toast(self.master_schedule)
