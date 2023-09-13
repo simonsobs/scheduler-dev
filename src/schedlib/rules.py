@@ -90,9 +90,9 @@ class RephaseFirst(GreenRule):
         # identify the first block as the first in the sorted list
         src = core.seq_sort(core.seq_flatten(blocks))[0]
         # randomize the phase of it but not too much
-        allowance = min(self.max_fraction * src.duration,
-                        max(src.duration - self.min_block_size, 0))
-        tgt = src.replace(t0=src.t0 + utils.uniform(self.rng_key, 0, allowance))
+        allowance = min(self.max_fraction * src.duration.total_seconds(),
+                        max(src.duration.total_seconds() - self.min_block_size, 0))
+        tgt = src.replace(t0=src.t0 + dt.timedelta(seconds=utils.uniform(self.rng_key, 0, allowance)))
         return core.seq_replace_block(blocks, src, tgt)
 
 @dataclass(frozen=True)
