@@ -9,7 +9,7 @@ from scipy import interpolate
 from collections.abc import Iterable
 from jax.tree_util import SequenceKey, DictKey
 
-from . import core, utils as u, instrument as inst
+from . import core, instrument as inst
 
 
 minute = 60 # second
@@ -89,8 +89,8 @@ def parse_sequence_from_toast(ifile: str) -> core.Blocks:
     for _, row in df.iterrows():
         block = inst.ScanBlock(
             name=row['patch'].strip(),
-            t0=u.str2datetime(row['start_utc']),
-            t1=u.str2datetime(row['stop_utc']),
+            t0=str2datetime(row['start_utc']),
+            t1=str2datetime(row['stop_utc']),
             alt=row['el'],
             az=row['az_min'],
             throw=np.abs(row['az_max'] - row['az_min']),
