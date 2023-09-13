@@ -25,6 +25,17 @@ class MappableRule(GreenRule, ABC):
         return True
 
 @dataclass(frozen=True)
+class ConstrainedRule(GreenRule):
+    """ConstrainedRule applies a rule to a subset of blocks. Here
+    constraint is a fnmatch pattern that matches to the `key` of a
+    block."""
+    rule: core.Rule
+    constraint: str
+    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        matched, unmatched = core.seq_partition_wth_query(self.constraint, blocks)
+        return core.seq_combine(self.rule(matched), unmatched)
+
+@dataclass(frozen=True)
 class AltRange(MappableRule):
     """Restrict the altitude range of source blocks. 
 
@@ -259,4 +270,5 @@ def get_rule(name: str) -> core.Rule:
     return RULES[name]
 
 def make_rule(name: str, **kwargs) -> core.Rule:
+    assert name in RULES, f"unknown rule {name}"
     return get_rule(name)(**kwargs)
