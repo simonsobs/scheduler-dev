@@ -620,3 +620,42 @@ def test_seq_partition_with_path():
     assert unmatched['C'] == core.Block(t0=dt.datetime(2023, 1, 5, 0, 0), t1=dt.datetime(2023, 1, 6, 0, 0))
 
     assert core.seq_combine(matched, unmatched) == blocks
+
+def test_seq_partition_with_query():
+    blocks = {
+        "A": core.Block(t0=dt.datetime(2023, 1, 1), t1=dt.datetime(2023, 1, 2)),
+        "B": [core.Block(t0=dt.datetime(2023, 1, 3), t1=dt.datetime(2023, 1, 4)),
+              core.Block(t0=dt.datetime(2023, 1, 4), t1=dt.datetime(2023, 1, 5))],
+        "C": core.Block(t0=dt.datetime(2023, 1, 5), t1=dt.datetime(2023, 1, 6)),
+    }
+
+    matched, unmatched = core.seq_partition_with_query("B.*", blocks)
+
+    # Now validate individual blocks
+    assert matched['A'] == None
+    assert matched['B'][0] == core.Block(t0=dt.datetime(2023, 1, 3, 0, 0), t1=dt.datetime(2023, 1, 4, 0, 0))
+    assert matched['B'][1] == core.Block(t0=dt.datetime(2023, 1, 4), t1=dt.datetime(2023, 1, 5))
+    assert matched['C'] == None
+
+    assert unmatched['A'] == core.Block(t0=dt.datetime(2023, 1, 1, 0, 0), t1=dt.datetime(2023, 1, 2, 0, 0))
+    assert unmatched['B'][0] == None
+    assert unmatched['B'][1] == None
+    assert unmatched['C'] == core.Block(t0=dt.datetime(2023, 1, 5, 0, 0), t1=dt.datetime(2023, 1, 6, 0, 0))
+
+    assert core.seq_combine(matched, unmatched) == blocks
+
+    # case 2:
+    matched, unmatched = core.seq_partition_with_query("B.1", blocks)
+    # Now validate individual blocks
+    # assert matched['A'] == core.Block(t0=dt.datetime(2023, 1, 1, 0, 0), t1=dt.datetime(2023, 1, 2, 0, 0))
+    assert matched['A'] == None
+    assert matched['B'][0] == None
+    assert matched['B'][1] == core.Block(t0=dt.datetime(2023, 1, 4), t1=dt.datetime(2023, 1, 5))
+    assert matched['C'] == None
+
+    assert unmatched['A'] == core.Block(t0=dt.datetime(2023, 1, 1, 0, 0), t1=dt.datetime(2023, 1, 2, 0, 0))
+    assert unmatched['B'][0] == core.Block(t0=dt.datetime(2023, 1, 3, 0, 0), t1=dt.datetime(2023, 1, 4, 0, 0))
+    assert unmatched['B'][1] == None
+    assert unmatched['C'] == core.Block(t0=dt.datetime(2023, 1, 5, 0, 0), t1=dt.datetime(2023, 1, 6, 0, 0))
+
+    assert core.seq_combine(matched, unmatched) == blocks

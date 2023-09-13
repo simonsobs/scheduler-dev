@@ -5,6 +5,7 @@ import numpy as np
 import jax.tree_util as tu
 import equinox
 from dataclasses import dataclass, replace as dc_replace
+import fnmatch
 
 @dataclass(frozen=True)
 class Block:
@@ -226,6 +227,9 @@ def seq_filter_out(op: Callable[[Block], bool], blocks: BlocksTree) -> BlocksTre
 def seq_map(op, *blocks: BlocksTree) -> List[Any]:
     return tu.tree_map(op, *blocks, is_leaf=is_block)
 
+def seq_map_with_path(op, *blocks: BlocksTree) -> List[Any]:
+    return tu.tree_map_with_path(op, *blocks, is_leaf=is_block)
+
 def seq_map_when(op_when: Callable[[Block], bool], op: Callable[[Block], Any], blocks: BlocksTree) -> List[Any]:
     return tu.tree_map(lambda b: op(b) if op_when(b) else b, blocks, is_leaf=is_block)
 
@@ -250,6 +254,27 @@ def seq_partition_with_path(op, blocks: BlocksTree, **kwargs) -> List[Any]:
     values will be left as None."""
     filter_spec = tu.tree_map_with_path(op, blocks, is_leaf=is_block)
     return equinox.partition(blocks, filter_spec, **kwargs)
+
+def seq_partition_with_query(query, blocks: BlocksTree):
+    def path2key(path):
+        """convert a path (used in tree_util.tree_map_with_path) to a dot-separated key"""
+        keys = []
+        for p in path:
+            if isinstance(p, tu.SequenceKey):
+                keys.append(p.idx)
+            elif isinstance(p, tu.DictKey):
+                keys.append(p.key)
+            else:
+                raise ValueError(f"unknown path type {type(p)}")
+        return ".".join([str(k) for k in keys])
+    # TODO: support comma separated list of queries
+    def match_query(path, block):
+        key = path2key(path)
+        # first match the constraint to key
+        if query in key: return True
+        # then match based on fnmatch pattern
+        return fnmatch.fnmatch(path2key(path), query)
+    return seq_partition_with_path(match_query, blocks)
 
 def seq_combine(*blocks: BlocksTree) -> BlocksTree:
     """combine blocks from multiple trees into a single tree, where the blocks are
