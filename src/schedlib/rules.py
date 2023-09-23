@@ -136,8 +136,9 @@ class MakeSourcePlan(MappableRule):
         # we should stop scanning when the source is at this alt
         alt_stop = alt + sign*alt_height
         # total passage time
-        obs_length = utils.interp_extra(alt_stop, alt, t) - t
-        assert np.all(obs_length >= 0), "passage time must be positive, something is wrong"
+        obs_length = utils.interp_extra(alt_stop, alt, t, fill_value=np.nan) - t
+        ok = np.logical_not(np.isnan(obs_length))
+        assert np.all(obs_length[ok] >= 0), "passage time must be positive, something is wrong"
 
         # this is where our boresight pointing should be to observe the passage.
         # this places our wafer set at the center of the source path, so the source
@@ -170,7 +171,7 @@ class MakeSourcePlan(MappableRule):
         az_bore   = az_center - az_offset
 
         # get validity ranges
-        ok = utils.within_bound(alt_stop, [alt.min(), alt.max()])
+        ok *= utils.within_bound(alt_stop, [alt.min(), alt.max()])
         if self.bounds_alt is not None:
             ok *= utils.within_bound(alt_bore, self.bounds_alt)
         if self.bounds_az_throw is not None:

@@ -99,9 +99,9 @@ def parse_sequence_from_toast(ifile: str) -> core.Blocks:
     return blocks
 
 # convenience wrapper for interpolation: numpy-like scipy interpolate
-def interp_extra(x_new, x, y):
+def interp_extra(x_new, x, y, fill_value='extrapolate'):
     """interpolate with extrapolation"""
-    return interpolate.interp1d(x, y, fill_value='extrapolate', bounds_error=False, kind='cubic', assume_sorted=False)(x_new)
+    return interpolate.interp1d(x, y, fill_value=fill_value, bounds_error=False, kind='cubic', assume_sorted=False)(x_new)
 
 def interp_bounded(x_new, x, y):
     """interpolate with bounded extrapolation"""
