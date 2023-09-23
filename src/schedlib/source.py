@@ -65,7 +65,9 @@ def _source_get_az_alt(source: str, times: List[dt.datetime]):
         source.compute(observer)
         az.append(np.rad2deg(source.az))
         alt.append(np.rad2deg(source.alt))
-    return np.array(az), np.array(alt)
+    az = np.unwrap(np.array(az), period=360)
+    alt = np.array(alt)
+    return az, alt
 
 def _source_az_alt_interpolators(source: str, t0: dt.datetime, t1: dt.datetime, time_step: dt.timedelta):
     times = [t0 + i * time_step for i in range(int((t1 - t0) / time_step))]
