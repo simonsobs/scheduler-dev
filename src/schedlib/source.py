@@ -219,3 +219,7 @@ class ObservingWindow(SourceBlock):
             alt=float(alt),
             throw=float(az_throw),
         )
+    def get_scan_at_alt(self, alt: float) -> inst.ScanBlock:
+        """get a possible scan at a given altitude"""
+        t0 = utils.interp_bounded(alt, self.alt_bore, self.t_start)
+        return self.get_scan_starting_at(t0)

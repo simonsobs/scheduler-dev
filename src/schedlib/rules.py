@@ -242,16 +242,25 @@ class MakeSourceScan(MappableRule):
     """convert observing window to actual scan blocks and allow for
     rephasing of the block. Applicable to only ObservingWindow blocks.
     """
-    preferred_length: float  # seconds
     rng_key: utils.PRNGKey
+    preferred_length: Optional[float] = None  # seconds
+    fixed_alt: Optional[float] = None
 
     def apply_block(self, block: core.Block) -> core.Block:
         duration = block.duration.total_seconds()
-        preferred_len = min(self.preferred_length, duration)
-        allowance = duration - preferred_len
-        offset = utils.uniform(self.rng_key, 0, allowance)
-        t0 = block.t0 + dt.timedelta(seconds=offset)
-        return block.get_scan_starting_at(t0)
+        # make sure preferred length and fixed_alt are not both set
+        assert not (self.preferred_length is not None and self.fixed_alt is not None)
+        if self.preferred_length is not None:
+            preferred_len = min(self.preferred_length, duration)
+            allowance = duration - preferred_len
+            offset = utils.uniform(self.rng_key, 0, allowance)
+            t0 = block.t0 + dt.timedelta(seconds=offset)
+            scan = block.get_scan_starting_at(t0)
+        elif self.fixed_alt is not None:
+            scan = block.get_scan_at_alt(self.fixed_alt)
+        else:
+            scan = block
+        return scan
 
     def applicable(self, block: core.Block) -> bool:
         return isinstance(block, src.ObservingWindow)
