@@ -201,7 +201,7 @@ class ObservingWindow(SourceBlock):
     az_bore: core.Arr[float]
     alt_bore: core.Arr[float]
     az_throw: core.Arr[float]
-    def get_scan_starting_at(self, t0: dt.datetime) -> inst.ScanBlock:
+    def get_scan_at_t0(self, t0: dt.datetime) -> inst.ScanBlock:
         """get a possible scan starting at t0"""
         t_req = int(t0.timestamp())
         # if we start at t0, we can observe for at most obs_length
@@ -222,4 +222,4 @@ class ObservingWindow(SourceBlock):
     def get_scan_at_alt(self, alt: float) -> inst.ScanBlock:
         """get a possible scan at a given altitude"""
         t0 = utils.interp_bounded(alt, self.alt_bore, self.t_start)
-        return self.get_scan_starting_at(t0)
+        return self.get_scan_at_t0(t0)

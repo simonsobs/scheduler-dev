@@ -255,7 +255,7 @@ class MakeSourceScan(MappableRule):
             allowance = duration - preferred_len
             offset = utils.uniform(self.rng_key, 0, allowance)
             t0 = block.t0 + dt.timedelta(seconds=offset)
-            scan = block.get_scan_starting_at(t0)
+            scan = block.get_scan_at_t0(t0)
         elif self.fixed_alt is not None:
             scan = block.get_scan_at_alt(self.fixed_alt)
         else:

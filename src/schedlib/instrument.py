@@ -50,11 +50,14 @@ def get_spec(specs: SpecsTree, query: List[str], merge=True) -> Union[Spec, Spec
 
 def get_bounds_x_tilted(bounds_x: List[float], bounds_y: List[float], phi_tilt: Union[float, core.Arr[float]], shape: str):
     """get the effective bounds of the x-axis of the spec when covering a tilted patch"""
-    assert shape in ['ellipse']  # more to implement
+    assert shape in ['ellipse', 'rect']  # more to implement
+    a = (bounds_x[1] - bounds_x[0])/2
+    b = (bounds_y[1] - bounds_y[0])/2
     if shape == 'ellipse':
-        a = (bounds_x[1] - bounds_x[0])/2
-        b = (bounds_y[1] - bounds_y[0])/2
-        w_proj = np.sqrt(a**2 * np.cos(phi_tilt)**2 + b**2 * np.sin(phi_tilt)**2)
-        return np.array([-w_proj, w_proj]) + (bounds_x[0] + bounds_x[1])/2
+        # w_proj = np.sqrt(a**2 * np.cos(phi_tilt)**2 + b**2 * np.sin(phi_tilt)**2) # TODO: double check this is missing 1/sin(phi)
+        w_proj = a * np.sqrt(1 + b**2 / a**2 * np.tan(phi_tilt)**2)  # TODO: double-check this is correct
+    elif shape == 'rect':
+        w_proj = b * np.tan(phi_tilt) + a
     else:
         raise NotImplementedError
+    return np.array([-w_proj, w_proj]) + (bounds_x[0] + bounds_x[1])/2
