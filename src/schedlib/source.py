@@ -254,12 +254,10 @@ def make_source_ces(block, array_info, el_bore=50, drift_params=None, enable_dri
         az_src -= (t - drift_params['t']) * drift_params['az_speed']
     else:
         v_az = 0
-    # az of the source when el_src = el_array
+    # # az of the source when el_src = el_array
     if el_array > max(el_src):
-        print("Warning: source is too low")
         return None
     if el_array < min(el_src):
-        print("Warning: source is too high")
         return None
     az_array = interpolate.interp1d(el_src, az_src)(el_array)
     # center array on the source and put it at the origin
@@ -268,12 +266,12 @@ def make_source_ces(block, array_info, el_bore=50, drift_params=None, enable_dri
     q_src_array = ~q_target_ground * q_src_ground  # where target is at the origin
     xi_src_array, eta_src_array, _ = quat.decompose_xieta(q_src_array)
     # make sure a scan of the entire array is possible
-    if max(eta_cover_array) < max(eta_src_array):
-        print("Warning: source is too low")
-        return None
-    if min(eta_cover_array) > min(eta_src_array):
-        print("Warning: source is too high")
-        return None
+    if block.mode == 'rising':
+        if max(eta_src_array) < max(eta_cover_array) or min(eta_src_array) > min(eta_cover_array): 
+            return None
+    if block.mode == 'setting':
+        if min(eta_src_array) > min(eta_cover_array) or max(eta_src_array) < max(eta_cover_array): 
+            return None
     # work out the tilt of the wafer at the origin
     phi_tilt_fun = interpolate.interp1d(eta_src_array[:-1], 
                                         np.arctan2(np.diff(xi_src_array), 
@@ -303,9 +301,13 @@ def make_source_ces(block, array_info, el_bore=50, drift_params=None, enable_dri
     if block.mode == 'rising': 
         el_src_start = np.min(el_cover_start) / utils.deg
         el_src_stop = np.max(el_cover_start) / utils.deg
+        if el_src_start < np.min(el_src) or el_src_stop > np.max(el_src):
+            return None
     elif block.mode == 'setting':
         el_src_start = np.max(el_cover_start) / utils.deg
         el_src_stop = np.min(el_cover_start) / utils.deg
+        if el_src_start > np.max(el_src) or el_src_stop < np.min(el_src):
+            return None
     else:
         raise ValueError(f'unsupported scan mode encountered: {block.mode}')
     # get the time ranges

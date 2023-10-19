@@ -289,7 +289,6 @@ class MakeCESourceScan(MappableRule):
     def from_config(cls, config):
         query = config.pop('array_query', "*")
         geometries = config.pop('geometries', {})
-        utils.pprint(geometries)
         array_info = inst.array_info_from_query(geometries, query)
         return cls(array_info=array_info, **config)
     
