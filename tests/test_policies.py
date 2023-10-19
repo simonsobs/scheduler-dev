@@ -52,32 +52,36 @@ def test_flex_policy():
     blocks:
       master: !toast data/schedule_test.txt
       calibration:
-        uranus: !source uranus
+        saturn: !source saturn
         moon: !source moon
     rules:
-      - !rule 
-         name: sun-avoidance
-         min_angle_az: 6
-         min_angle_alt: 6
-         time_step: 30
-         n_buffer: 10
-      - !rule 
-         name: day-mod
-         day: 0
-         day_mod: 1
-         day_ref: !datetime "2014-01-01 00:00:00"
-      - !rule
-         name: rephase-first
-         max_fraction: 0.1
-         min_block_size: 600    
+      - name: sun-avoidance
+        min_angle_az: 6
+        min_angle_alt: 6
+        time_step: 30
+        n_buffer: 10
+      - name: day-mod
+        day: 0
+        day_mod: 1
+        day_ref: !datetime "2014-01-01 00:00:00"
+      - name: make-drift-scan
+        constraint: calibration
+        array_query: full
+        el_bore: 50
+        drift: true
     post_rules:
-      - !rule
-        name: min-duration
+      - name: min-duration
         min_duration: 600
     merge_order:
-      - master
-      - uranus
       - moon
+      - saturn
+      - master
+    geometries:
+      full:
+        center:
+          - 0
+          - 0
+        radius: 7
     """
     policy = policies.FlexPolicy.from_config(config)
     seqs = policy.init_seqs(
