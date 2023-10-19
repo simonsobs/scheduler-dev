@@ -32,7 +32,7 @@ class ConstrainedRule(GreenRule):
     rule: core.Rule
     constraint: str
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        matched, unmatched = core.seq_partition_wth_query(self.constraint, blocks)
+        matched, unmatched = core.seq_partition_with_query(self.constraint, blocks)
         return core.seq_combine(self.rule(matched), unmatched)
 
 @dataclass(frozen=True)
@@ -163,6 +163,7 @@ class MakeSourcePlan(MappableRule):
                 shape=self.spec_shape,
                 phi_tilt=phi_tilt,
             ) for spec in self.specs])
+
         x_lo, x_hi = np.min(bounds_x[:, 0]), np.max(bounds_x[:, 1])
         # add back the projection effect to get the actual az bounds
         stretch = 1 / np.cos(np.deg2rad(alt_center))
@@ -265,6 +266,33 @@ class MakeSourceScan(MappableRule):
     def applicable(self, block: core.Block) -> bool:
         return isinstance(block, src.ObservingWindow)
 
+@dataclass(frozen=True)
+class MakeCESourceScan(MappableRule):
+    """Transform SourceBlock into fixed-elevation ScanBlocks that support
+    az drift mode.
+   
+    Parameters
+    ----------
+    array_info : dict. array information, contains 'center' and 'radius' keys
+    el_bore : float. elevation of the boresight in degrees 
+    drift : bool. whether to enable drift mode
+
+    """
+    array_info: dict
+    el_bore: float  # deg
+    drift: bool = True
+    def apply_block(self, block: core.Block) -> core.Block: 
+        return src.make_source_ces(block, array_info=self.array_info, el_bore=self.el_bore, enable_drift=self.drift)
+    def applicable(self, block: core.Block) -> bool:
+        return isinstance(block, src.SourceBlock)
+    @classmethod
+    def from_config(cls, config):
+        query = config.pop('array_query', "*")
+        geometries = config.pop('geometries', {})
+        utils.pprint(geometries)
+        array_info = inst.array_info_from_query(geometries, query)
+        return cls(array_info=array_info, **config)
+    
 # global registry of rules
 RULES = {
     'alt-range': AltRange,
@@ -275,6 +303,7 @@ RULES = {
     'sun-avoidance': SunAvoidance,
     'make-source-plan': MakeSourcePlan,
     'make-source-scan': MakeSourceScan,
+    'make-drift-scan': MakeCESourceScan
 }
 def get_rule(name: str) -> core.Rule:
     return RULES[name]

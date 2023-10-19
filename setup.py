@@ -13,6 +13,7 @@ setup(
         "pandas",
         "chex",
         "pyephem",
-        "equinox"
+        "equinox",
+        "so3g"
     ],
 )
