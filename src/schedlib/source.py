@@ -28,10 +28,21 @@ class Location(NamedTuple):
         obs.date = ephem.date(date)
         return obs
 
+def _debabyl(deg, arcmin, arcsec):
+    return deg + arcmin/60 + arcsec/3600
+
+SITES = {
+    'act':   Location(lat=-22.9585, lon=-67.7876, elev=5188),
+    'lat':   Location(lat=-_debabyl(22,57,39.47), lon=-_debabyl(67,47,15.68), elev=5188),
+    'satp1': Location(lat=-_debabyl(22,57,36.38), lon=-_debabyl(67,47,18.11), elev=5188),
+    'satp2': Location(lat=-_debabyl(22,57,36.35), lon=-_debabyl(67,47,17.28), elev=5188),
+    'satp3': Location(lat=-_debabyl(22,57,35.97), lon=-_debabyl(67,47,16.53), elev=5188),
+}
 DEFAULT_SITE = Location(lat=-22.958, lon=-67.786, elev=5200)
 
-def get_site() -> Location:
-    return DEFAULT_SITE
+def get_site(site='lat') -> Location:
+    """use lat as default following so3g convention"""
+    return SITES[site]
 
 # source needs to be callable to avoid side effects
 SOURCES = {
