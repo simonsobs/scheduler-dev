@@ -12,6 +12,7 @@ setup(
         "toolz",
         "pandas",
         "pyephem",
+        "jax[cpu]",
         "equinox",
         "so3g"
     ],
