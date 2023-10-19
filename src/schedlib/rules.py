@@ -1,9 +1,8 @@
 from typing import Tuple, Dict, List, Optional
 import numpy as np
-from chex import dataclass
-from functools import partial
 from abc import ABC, abstractmethod
 import datetime as dt
+from dataclasses import dataclass
 
 from . import core, source as src, instrument as inst, utils
 
@@ -24,6 +23,17 @@ class MappableRule(GreenRule, ABC):
     def apply_block(self, block) -> core.Blocks: ...
     def applicable(self, block) -> bool: 
         return True
+
+@dataclass(frozen=True)
+class ConstrainedRule(GreenRule):
+    """ConstrainedRule applies a rule to a subset of blocks. Here
+    constraint is a fnmatch pattern that matches to the `key` of a
+    block."""
+    rule: core.Rule
+    constraint: str
+    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        matched, unmatched = core.seq_partition_with_query(self.constraint, blocks)
+        return core.seq_combine(self.rule(matched), unmatched)
 
 @dataclass(frozen=True)
 class AltRange(MappableRule):
@@ -91,9 +101,9 @@ class RephaseFirst(GreenRule):
         # identify the first block as the first in the sorted list
         src = core.seq_sort(core.seq_flatten(blocks))[0]
         # randomize the phase of it but not too much
-        allowance = min(self.max_fraction * src.duration,
-                        max(src.duration - self.min_block_size, 0))
-        tgt = src.replace(t0=src.t0 + utils.uniform(self.rng_key, 0, allowance))
+        allowance = min(self.max_fraction * src.duration.total_seconds(),
+                        max(src.duration.total_seconds() - self.min_block_size, 0))
+        tgt = src.replace(t0=src.t0 + dt.timedelta(seconds=utils.uniform(self.rng_key, 0, allowance)))
         return core.seq_replace_block(blocks, src, tgt)
 
 @dataclass(frozen=True)
@@ -126,8 +136,9 @@ class MakeSourcePlan(MappableRule):
         # we should stop scanning when the source is at this alt
         alt_stop = alt + sign*alt_height
         # total passage time
-        obs_length = utils.interp_extra(alt_stop, alt, t) - t
-        assert np.all(obs_length >= 0), "passage time must be positive, something is wrong"
+        obs_length = utils.interp_extra(alt_stop, alt, t, fill_value=np.nan) - t
+        ok = np.logical_not(np.isnan(obs_length))
+        assert np.all(obs_length[ok] >= 0), "passage time must be positive, something is wrong"
 
         # this is where our boresight pointing should be to observe the passage.
         # this places our wafer set at the center of the source path, so the source
@@ -152,6 +163,7 @@ class MakeSourcePlan(MappableRule):
                 shape=self.spec_shape,
                 phi_tilt=phi_tilt,
             ) for spec in self.specs])
+
         x_lo, x_hi = np.min(bounds_x[:, 0]), np.max(bounds_x[:, 1])
         # add back the projection effect to get the actual az bounds
         stretch = 1 / np.cos(np.deg2rad(alt_center))
@@ -160,7 +172,7 @@ class MakeSourcePlan(MappableRule):
         az_bore   = az_center - az_offset
 
         # get validity ranges
-        ok = utils.within_bound(alt_stop, [alt.min(), alt.max()])
+        ok *= utils.within_bound(alt_stop, [alt.min(), alt.max()])
         if self.bounds_alt is not None:
             ok *= utils.within_bound(alt_bore, self.bounds_alt)
         if self.bounds_az_throw is not None:
@@ -231,20 +243,56 @@ class MakeSourceScan(MappableRule):
     """convert observing window to actual scan blocks and allow for
     rephasing of the block. Applicable to only ObservingWindow blocks.
     """
-    preferred_length: float  # seconds
     rng_key: utils.PRNGKey
+    preferred_length: Optional[float] = None  # seconds
+    fixed_alt: Optional[float] = None
 
     def apply_block(self, block: core.Block) -> core.Block:
         duration = block.duration.total_seconds()
-        preferred_len = min(self.preferred_length, duration)
-        allowance = duration - preferred_len
-        offset = utils.uniform(self.rng_key, 0, allowance)
-        t0 = block.t0 + dt.timedelta(seconds=offset)
-        return block.get_scan_starting_at(t0)
+        # make sure preferred length and fixed_alt are not both set
+        assert not (self.preferred_length is not None and self.fixed_alt is not None)
+        if self.preferred_length is not None:
+            preferred_len = min(self.preferred_length, duration)
+            allowance = duration - preferred_len
+            offset = utils.uniform(self.rng_key, 0, allowance)
+            t0 = block.t0 + dt.timedelta(seconds=offset)
+            scan = block.get_scan_at_t0(t0)
+        elif self.fixed_alt is not None:
+            scan = block.get_scan_at_alt(self.fixed_alt)
+        else:
+            scan = block
+        return scan
 
     def applicable(self, block: core.Block) -> bool:
         return isinstance(block, src.ObservingWindow)
 
+@dataclass(frozen=True)
+class MakeCESourceScan(MappableRule):
+    """Transform SourceBlock into fixed-elevation ScanBlocks that support
+    az drift mode.
+   
+    Parameters
+    ----------
+    array_info : dict. array information, contains 'center' and 'radius' keys
+    el_bore : float. elevation of the boresight in degrees 
+    drift : bool. whether to enable drift mode
+
+    """
+    array_info: dict
+    el_bore: float  # deg
+    drift: bool = True
+    def apply_block(self, block: core.Block) -> core.Block: 
+        return src.make_source_ces(block, array_info=self.array_info, el_bore=self.el_bore, enable_drift=self.drift)
+    def applicable(self, block: core.Block) -> bool:
+        return isinstance(block, src.SourceBlock)
+    @classmethod
+    def from_config(cls, config):
+        query = config.pop('array_query', "*")
+        geometries = config.pop('geometries', {})
+        utils.pprint(geometries)
+        array_info = inst.array_info_from_query(geometries, query)
+        return cls(array_info=array_info, **config)
+    
 # global registry of rules
 RULES = {
     'alt-range': AltRange,
@@ -255,9 +303,11 @@ RULES = {
     'sun-avoidance': SunAvoidance,
     'make-source-plan': MakeSourcePlan,
     'make-source-scan': MakeSourceScan,
+    'make-drift-scan': MakeCESourceScan
 }
 def get_rule(name: str) -> core.Rule:
     return RULES[name]
 
 def make_rule(name: str, **kwargs) -> core.Rule:
+    assert name in RULES, f"unknown rule {name}"
     return get_rule(name)(**kwargs)

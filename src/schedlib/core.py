@@ -1,10 +1,12 @@
 from typing import List, Union, Callable, Optional, Any, TypeVar
-from chex import dataclass
 from abc import ABC, abstractmethod
 import datetime as dt
 import numpy as np
-from toolz import compose_left
 import jax.tree_util as tu
+import equinox
+from dataclasses import dataclass, replace as dc_replace
+
+from . import utils
 
 @dataclass(frozen=True)
 class Block:
@@ -37,6 +39,8 @@ class Block:
         return block_trim_right_to(self, t)
     def isa(self, block_type: "BlockType") -> bool:
         return block_isa(block_type)(self)
+    def replace(self, **kwargs) -> "Block":
+        return dc_replace(self, **kwargs)
 
 BlockType = type(Block)
 Blocks = List[Union[Block, None, "Blocks"]]  # maybe None, maybe nested
@@ -224,6 +228,9 @@ def seq_filter_out(op: Callable[[Block], bool], blocks: BlocksTree) -> BlocksTre
 def seq_map(op, *blocks: BlocksTree) -> List[Any]:
     return tu.tree_map(op, *blocks, is_leaf=is_block)
 
+def seq_map_with_path(op, *blocks: BlocksTree) -> List[Any]:
+    return tu.tree_map_with_path(op, *blocks, is_leaf=is_block)
+
 def seq_map_when(op_when: Callable[[Block], bool], op: Callable[[Block], Any], blocks: BlocksTree) -> List[Any]:
     return tu.tree_map(lambda b: op(b) if op_when(b) else b, blocks, is_leaf=is_block)
 
@@ -232,6 +239,42 @@ def seq_replace_block(blocks: BlocksTree, source: Block, target: Block) -> Block
 
 def seq_trim(blocks: BlocksTree, t0: dt.datetime, t1: dt.datetime) -> BlocksTree:
     return seq_map(lambda b: b.trim(t0, t1), blocks)
+
+def seq_partition(op, blocks: BlocksTree) -> List[Any]:
+    """partition a blockstree into two trees, one for blocks that satisfy the predicate,
+    which is specified through a function that takes a block as input and returns
+    a boolean, and the second return is for blocks that don't match the predicate. Unmatched
+    values will be left as None."""
+    filter_spec = tu.tree_map(op, blocks, is_leaf=is_block)
+    return equinox.partition(blocks, filter_spec)
+
+def seq_partition_with_path(op, blocks: BlocksTree, **kwargs) -> List[Any]:
+    """partition a blockstree into two trees, one for blocks that satisfy the predicate,
+    which is specified through a function that takes a block and path as input and returns
+    a boolean, and the second return is for blocks that don't match the predicate. Unmatched
+    values will be left as None."""
+    filter_spec = tu.tree_map_with_path(op, blocks, is_leaf=is_block)
+    return equinox.partition(blocks, filter_spec, **kwargs)
+
+def seq_partition_with_query(query, blocks: BlocksTree):
+    def path2key(path):
+        """convert a path (used in tree_util.tree_map_with_path) to a dot-separated key"""
+        keys = []
+        for p in path:
+            if isinstance(p, tu.SequenceKey):
+                keys.append(p.idx)
+            elif isinstance(p, tu.DictKey):
+                keys.append(p.key)
+            else:
+                raise ValueError(f"unknown path type {type(p)}")
+        return ".".join([str(k) for k in keys])
+    return seq_partition_with_path(lambda path, block: utils.match_query(path, query), blocks)
+
+def seq_combine(*blocks: BlocksTree) -> BlocksTree:
+    """combine blocks from multiple trees into a single tree, where the blocks are
+    combined in a list. The trees must have the same structure."""
+    seq_assert_same_structure(*blocks)
+    return equinox.combine(*blocks, is_leaf=is_block)
 
 # =========================
 # Other useful Block types
@@ -255,14 +298,6 @@ class BlocksTransformation(ABC):
 
 Rule = Union[BlocksTransformation, Callable[[Blocks], Blocks]]
 RuleSet = List[Rule]
-
-@dataclass(frozen=True)
-class MultiRules(BlocksTransformation):
-    rules: RuleSet
-    def apply(self, blocks: Blocks) -> Blocks:
-        """apply rules to blocks in first-to-last order"""
-        return compose_left(*self.rules)(blocks)
-
 
 @dataclass(frozen=True)
 class Policy(BlocksTransformation, ABC):

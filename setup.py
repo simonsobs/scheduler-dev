@@ -12,6 +12,8 @@ setup(
         "toolz",
         "pandas",
         "chex",
-        "pyephem"
+        "pyephem",
+        "equinox",
+        "so3g"
     ],
 )

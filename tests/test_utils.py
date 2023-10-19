@@ -53,12 +53,6 @@ def test_mask2ranges_digest():
     for i_left, i_right in mask2ranges(mask):
         assert np.all(mask[i_left:i_right])
 
-def test_parse_sequence_from_toast():
-    ifile = op.join(op.abspath(op.dirname(__file__)), "data/schedule_test.txt")
-    seq = parse_sequence_from_toast(ifile)
-    print(seq)
-    assert len(seq) == 17
-
 def test_ranges_pad():
     mask = np.array([False, False, True, True, False, False, False, True, True, True, False, False])
     ranges = mask2ranges(mask)
