@@ -14,7 +14,7 @@ class ScanBlock(core.NamedBlock):
     az: float        # deg
     alt: float       # deg
     throw: float     # deg
-    drift: float = 0 # deg / s
+    az_drift: float = 0 # deg / s
 
 @dataclass(frozen=True)
 class IVBlock(core.NamedBlock): pass

@@ -324,4 +324,4 @@ def make_source_ces(block, array_info, el_bore=50, drift_params=None, enable_dri
             print("az = ", az_start / utils.deg)
             print("throw = ", throw / utils.deg)
             print("drift = ", v_az)
-        return inst.ScanBlock(name=block.name, az=az_start / utils.deg, alt=el_bore, throw=throw / utils.deg, t0=t0, t1=t1, drift=v_az)
+        return inst.ScanBlock(name=block.name, az=az_start / utils.deg, alt=el_bore, throw=throw / utils.deg, t0=t0, t1=t1, az_drift=v_az)

@@ -2,8 +2,6 @@ from typing import List
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from . import core, instrument as inst
-
 @dataclass(frozen=True)
 class Command:
     pass
@@ -20,8 +18,9 @@ class Scan(Command):
     field: str
     stop: datetime
     width: float
+    az_drift: float
     def __str__(self):
-        return f"seq.scan(description='{self.field}', stop_time='{self.stop.isoformat()}', width={self.width:.2f})"
+        return f"seq.scan(description='{self.field}', stop_time='{self.stop.isoformat()}', width={self.width:.2f}, az_drift={self.az_drift})"
 
 @dataclass(frozen=True)
 class Wait(Command):

@@ -11,7 +11,6 @@ setup(
     install_requires=[
         "toolz",
         "pandas",
-        "chex",
         "pyephem",
         "equinox",
         "so3g"
