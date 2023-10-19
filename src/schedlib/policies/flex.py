@@ -116,7 +116,7 @@ class FlexPolicy(basic.BasePolicy):
                     cmd.BiasDets(),
                     cmd.Wait(block.t0),
                     cmd.BiasStep(),
-                    cmd.Scan(block.name, block.t1, block.throw),
+                    cmd.Scan(block.name, block.t1, block.throw, block.az_drift),
                     cmd.BiasStep(),
                     "",
             ])
