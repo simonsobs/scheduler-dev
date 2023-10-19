@@ -48,7 +48,7 @@ class BasicPolicy(BasePolicy):
         return ru.make_rule(rule_name, **kwargs)
 
     def init_seqs(self, t0: dt.datetime, t1: dt.datetime) -> core.BlocksTree:
-        master = utils.parse_sequence_from_toast(self.master_schedule)
+        master = inst.parse_sequence_from_toast(self.master_schedule)
         calibration = {k: src.source_gen_seq(k, t0, t1) for k in self.calibration_targets}
         soft = {k: src.source_gen_seq(k, t0, t1) for k in self.soft_targets}
         blocks = {
