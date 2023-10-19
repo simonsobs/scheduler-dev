@@ -43,3 +43,41 @@ def test_parse_sequence_from_toast():
     seq = inst.parse_sequence_from_toast(ifile)
     print(seq)
     assert len(seq) == 17
+
+def test_array_info():
+    geometries = {
+        'w11': {
+            'center': [0, 0],
+            'radius': 1.0,
+        },
+        'w22': {
+            'center': [1, 1],
+            'radius': 1.0,
+        }
+    }
+    array_info1 = inst.make_circular_cover(*geometries['w11']['center'], geometries['w11']['radius'])
+    array_info2 = inst.make_circular_cover(*geometries['w22']['center'], geometries['w22']['radius'])
+    assert array_info1['cover'].shape == (2, 50)
+    query = "w11,w22"
+    array_info = inst.array_info_from_query(geometries, query)
+    assert array_info['cover'].shape == (2, 100)
+    assert np.allclose(array_info['center'], np.mean([array_info1['center'], array_info2['center']], axis=0))
+    assert np.allclose(array_info['cover'], np.concatenate([array_info1['cover'], array_info2['cover']], axis=1))
+
+    query = "w1*"
+    array_info = inst.array_info_from_query(geometries, query)
+    assert array_info['cover'].shape == (2, 50)
+    assert np.allclose(array_info['center'], array_info1['center'])
+    assert np.allclose(array_info['cover'], array_info1['cover'])
+
+    query = "*2"
+    array_info = inst.array_info_from_query(geometries, query)
+    assert array_info['cover'].shape == (2, 50)
+    assert np.allclose(array_info['center'], array_info2['center'])
+    assert np.allclose(array_info['cover'], array_info2['cover'])
+
+    query = "*2,*1"
+    array_info = inst.array_info_from_query(geometries, query)
+    assert array_info['cover'].shape == (2, 100)
+    assert np.allclose(array_info['center'], np.mean([array_info1['center'], array_info2['center']], axis=0))
+    assert np.allclose(array_info['cover'], np.concatenate([array_info1['cover'], array_info2['cover']], axis=1))
