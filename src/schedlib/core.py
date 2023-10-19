@@ -5,7 +5,8 @@ import numpy as np
 import jax.tree_util as tu
 import equinox
 from dataclasses import dataclass, replace as dc_replace
-import fnmatch
+
+from . import utils
 
 @dataclass(frozen=True)
 class Block:
@@ -267,14 +268,7 @@ def seq_partition_with_query(query, blocks: BlocksTree):
             else:
                 raise ValueError(f"unknown path type {type(p)}")
         return ".".join([str(k) for k in keys])
-    # TODO: support comma separated list of queries
-    def match_query(path, block):
-        key = path2key(path)
-        # first match the constraint to key
-        if query in key: return True
-        # then match based on fnmatch pattern
-        return fnmatch.fnmatch(path2key(path), query)
-    return seq_partition_with_path(match_query, blocks)
+    return seq_partition_with_path(lambda path, block: utils.match_query(path, query), blocks)
 
 def seq_combine(*blocks: BlocksTree) -> BlocksTree:
     """combine blocks from multiple trees into a single tree, where the blocks are

@@ -4,13 +4,10 @@ import pandas as pd
 import numpy as np
 from functools import reduce
 from contextlib import contextmanager
-from typing import Any, List
 from scipy import interpolate
 from collections.abc import Iterable
 from jax.tree_util import SequenceKey, DictKey
-
-from . import core, instrument as inst
-
+import fnmatch
 
 minute = 60 # second
 hour = 60 * minute
@@ -30,7 +27,7 @@ def datetime2str(dtime):
     return dtime.strftime('%Y-%m-%dT%H:%M:%S.%f%z')
 
 def ct2dt(ctime):
-    if isinstance(ctime, Iterable):
+    if isinstance(ctime, list):
         return [datetime.utcfromtimestamp(t).astimezone(timezone.utc) for t in ctime]
     else:
         try:
@@ -77,26 +74,6 @@ def ranges_complement(ranges, imax):
     """return the complement ranges"""
     return mask2ranges(~ranges2mask(ranges, imax))
 
-def parse_sequence_from_toast(ifile: str) -> core.Blocks:
-    """
-    Parameters
-    ----------
-    ifile: input master schedule from toast
-    """
-    columns = ["start_utc", "stop_utc", "rotation", "patch", "az_min", "az_max", "el", "pass", "sub"]
-    df = pd.read_csv(ifile, skiprows=3, delimiter="|", names=columns)
-    blocks = []
-    for _, row in df.iterrows():
-        block = inst.ScanBlock(
-            name=row['patch'].strip(),
-            t0=str2datetime(row['start_utc']),
-            t1=str2datetime(row['stop_utc']),
-            alt=row['el'],
-            az=row['az_min'],
-            throw=np.abs(row['az_max'] - row['az_min']),
-        )
-        blocks.append(block)
-    return blocks
 
 # convenience wrapper for interpolation: numpy-like scipy interpolate
 def interp_extra(x_new, x, y, fill_value='extrapolate'):
@@ -107,7 +84,7 @@ def interp_bounded(x_new, x, y):
     """interpolate with bounded extrapolation"""
     return interpolate.interp1d(x, y, fill_value=(y[0], y[-1]), bounds_error=False, kind='cubic', assume_sorted=False)(x_new)
 
-def within_bound(x: core.Arr[Any], bounds: List[float]) -> core.Arr[bool]:
+def within_bound(x, bounds):
     """return a boolean mask indicating whether x is within the bound"""
     return (x >= bounds[0]) * (x <= bounds[1])
 
@@ -156,7 +133,7 @@ def uniform(key: PRNGKey, low=0.0, high=1.0, size=None):
 def daily_static_key(t: datetime):
     return PRNGKey((t.year, t.month, t.day))
 
-def pprint(seq: core.BlocksTree):
+def pprint(seq):
     """pretty print"""
     from equinox import tree_pprint
     tree_pprint(seq)
@@ -176,3 +153,21 @@ def path2key(path):
         else:
             raise ValueError(f"unknown path type {type(p)}")
     return ".".join([str(k) for k in keys])
+
+def match_query(path, query):
+    """in order for a query to match with a path, it can
+    satisfy the following: 
+    1. the query is a substring of the path
+    2. the query is a glob pattern that matches the path
+    3. if the query is a comma-separated list of multiple queries, 
+    any of them meeting comdition 1 and 2 will return True
+    """
+    key = path2key(path)
+    # first match the constraint to key
+    queires = query.split(",")
+    for q in queires:
+        if q in key: 
+            return True
+        if fnmatch.fnmatch(key, q): 
+            return True
+    return False
