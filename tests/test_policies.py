@@ -96,3 +96,11 @@ def test_flex_policy():
     policy.apply(seqs)
     seqs = policy.transform(seqs)
     seqs = policy.merge(seqs)
+
+    # test drift scan
+    seqs = policy.get_drift_scans(
+      t0=dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+      t1=dt.datetime(2023, 1, 10, 1, 0, 0, tzinfo=dt.timezone.utc),
+      el_bore=50,
+      array_query='full' 
+    )

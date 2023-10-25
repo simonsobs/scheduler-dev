@@ -114,3 +114,27 @@ class FlexPolicy(basic.BasePolicy):
         commands = core.seq_flatten(core.seq_map(self.block2cmd, seq))
         commands = [cmd.Preamble()] + commands
         return cmd.CompositeCommand(commands)
+
+    def get_drift_scans(self, t0, t1, el_bore, array_query):
+        """a convenience function to build drift source scans from a policy.
+        
+        Parameters
+        ----------
+        t0 : datetime
+            start time
+        t1 : datetime
+            end time
+        el_bore : float
+            elevation of the boresight in degrees 
+        array_query : str
+            query for the part of array to focus
+
+        """
+        # construct the sequence
+        seqs = self.init_seqs(t0, t1)
+        # find the subset of array of interests based on the query
+        array_info = inst.array_info_from_query(self.geometries, array_query)
+        # construct a rule that does the transformation
+        rule = ru.MakeCESourceScan(array_info=array_info, el_bore=el_bore, drift=True)
+        # apply the rule
+        return rule(seqs)
