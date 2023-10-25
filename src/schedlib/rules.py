@@ -309,4 +309,7 @@ def get_rule(name: str) -> core.Rule:
 
 def make_rule(name: str, **kwargs) -> core.Rule:
     assert name in RULES, f"unknown rule {name}"
+    block_query = kwargs.pop('block_query', None)
+    if block_query is not None:
+        return ConstrainedRule(make_rule(name, **kwargs), block_query)
     return get_rule(name)(**kwargs)

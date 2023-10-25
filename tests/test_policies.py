@@ -50,10 +50,16 @@ def test_basic_policy():
 def test_flex_policy():
     config = """
     blocks:
-      master: !toast data/schedule_test.txt
+      master: 
+        type: toast
+        file: data/schedule_test.txt
       calibration:
-        saturn: !source saturn
-        moon: !source moon
+        saturn:
+          type: source
+          name: saturn 
+        moon:
+          type: source
+          name: moon
     rules:
       - name: sun-avoidance
         min_angle_az: 6
@@ -65,7 +71,7 @@ def test_flex_policy():
         day_mod: 1
         day_ref: !datetime "2014-01-01 00:00:00"
       - name: make-drift-scan
-        constraint: calibration
+        block_query: calibration
         array_query: full
         el_bore: 50
         drift: true
@@ -90,3 +96,11 @@ def test_flex_policy():
     policy.apply(seqs)
     seqs = policy.transform(seqs)
     seqs = policy.merge(seqs)
+
+    # test drift scan
+    seqs = policy.get_drift_scans(
+      t0=dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc),
+      t1=dt.datetime(2023, 1, 10, 1, 0, 0, tzinfo=dt.timezone.utc),
+      el_bore=50,
+      array_query='full' 
+    )

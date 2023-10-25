@@ -18,7 +18,7 @@ class Scan(Command):
     field: str
     stop: datetime
     width: float
-    az_drift: float
+    az_drift: float = 0
     def __str__(self):
         return f"seq.scan(description='{self.field}', stop_time='{self.stop.isoformat()}', width={self.width:.2f}, az_drift={self.az_drift})"
 
