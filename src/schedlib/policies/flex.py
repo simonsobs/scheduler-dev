@@ -20,13 +20,15 @@ class FlexPolicy(basic.BasePolicy):
 
     @classmethod
     def from_config(cls, config: dict):
-        """populate policy object from a yaml config file or a string yaml config or a dict"""
-        loader = cfg.get_loader()
-        if op.isfile(config):
-            with open(config, "r") as f:
-                config = yaml.load(f.read(), Loader=loader)
-        if not isinstance(config, dict) and isinstance(config, str):
-            config = yaml.load(config, Loader=loader)
+        """populate policy object from a yaml config file or a string yaml
+        config or a dict"""
+        if isinstance(config, str):
+            loader = cfg.get_loader()
+            if op.isfile(config):
+                with open(config, "r") as f:
+                    config = yaml.load(f.read(), Loader=loader)
+            else:
+                config = yaml.load(config, Loader=loader)            
 
         # pre-load the config to populate some common fields in the policy
         # load rules
