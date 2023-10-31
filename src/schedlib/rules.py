@@ -15,16 +15,6 @@ class GreenRule(core.BlocksTransformation, ABC):
         return out
 
 @dataclass(frozen=True)
-class MappableRule(GreenRule, ABC):
-    """MappableRule preserves sequences"""
-    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        return core.seq_map_when(self.applicable, self.apply_block, blocks)
-    @abstractmethod
-    def apply_block(self, block) -> core.Blocks: ...
-    def applicable(self, block) -> bool: 
-        return True
-
-@dataclass(frozen=True)
 class ConstrainedRule(GreenRule):
     """ConstrainedRule applies a rule to a subset of blocks. Here
     constraint is a fnmatch pattern that matches to the `key` of a
@@ -34,6 +24,14 @@ class ConstrainedRule(GreenRule):
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
         matched, unmatched = core.seq_partition_with_query(self.constraint, blocks)
         return core.seq_combine(self.rule(matched), unmatched)
+
+@dataclass(frozen=True)
+class MappableRule(GreenRule, ABC):
+    """MappableRule preserves sequences"""
+    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        return core.seq_map(self.apply_block, blocks)
+    @abstractmethod
+    def apply_block(self, block) -> core.Blocks: ...
 
 @dataclass(frozen=True)
 class AltRange(MappableRule):
@@ -46,10 +44,11 @@ class AltRange(MappableRule):
     alt_range: Tuple[float, float]
 
     def apply_block(self, block:core.Block) -> core.Block:
-        return block.trim_by_az_alt_range(alt_range=self.alt_range)
+        if isinstance(block, src.SourceBlock):
+            return block.trim_by_az_alt_range(alt_range=self.alt_range)
+        else:
+            return block
 
-    def applicable(self, block:core.Block) -> bool:
-        return isinstance(block, src.SourceBlock)
 
 @dataclass(frozen=True)
 class DayMod(GreenRule):
@@ -78,13 +77,18 @@ class DriftMode(MappableRule):
         if self.mode not in ['rising', 'setting', 'both']:
             raise ValueError(f"mode must be 'rising', 'setting' or 'both', got {self.mode}")
     def apply_block(self, block: core.Block) -> core.Block:
-        return block if block.mode == self.mode else None
-    def applicable(self, block: core.Block) -> bool:
-        return isinstance(block, src.SourceBlock)
+        if isinstance(block, src.SourceBlock):
+            return block if block.mode == self.mode else None
 
 @dataclass(frozen=True)
 class MinDuration(GreenRule):
-    """Restrict the minimum block size."""
+    """Restrict the minimum block size.
+    
+    Parameters
+    ----------
+    min_duration : int. minimum duration in seconds
+    
+    """
     min_duration: int  # in seconds
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
         filt = lambda block: block.duration >= dt.timedelta(seconds=self.min_duration)
@@ -116,6 +120,7 @@ class MakeSourcePlan(MappableRule):
     bounds_az_throw: Optional[Tuple[float, float]] = None
 
     def apply_block(self, block: core.Block):
+        if not isinstance(block, src.SourceBlock): return block  # not relevant
         if block.mode == "both": return block  # not relevant
         # get some shape parameters
         pos_hi = max([spec['bounds_y'][1] for spec in self.specs])
@@ -193,9 +198,6 @@ class MakeSourcePlan(MappableRule):
         # probably the dominant mode of operation
         if len(blocks) == 1: return blocks[0]
 
-    def applicable(self, block):
-        return isinstance(block, src.SourceBlock)
-
 @dataclass(frozen=True)
 class SunAvoidance(MappableRule):
     """Avoid sources that are too close to the Sun.
@@ -214,6 +216,8 @@ class SunAvoidance(MappableRule):
 
     def apply_block(self, block: core.Block) -> core.Blocks:
         """Calculate the distance between a block and a sun block."""
+        if not isinstance(block, (inst.ScanBlock, src.SourceBlock)): return block
+
         sun_block = src.block_get_matching_sun_block(block)
         t, az_sun, alt_sun = sun_block.get_az_alt(time_step = dt.timedelta(seconds=self.time_step))
 
@@ -235,9 +239,6 @@ class SunAvoidance(MappableRule):
         # otherwise, split it up into safe intervals
         return [block.replace(t0=utils.ct2dt(t[i0]), t1=utils.ct2dt(t[i1-1])) for i0, i1 in safe_intervals]
 
-    def applicable(self, block: core.Block) -> bool:
-        return isinstance(block, (inst.ScanBlock, src.SourceBlock))
-
 @dataclass(frozen=True)
 class MakeSourceScan(MappableRule):
     """convert observing window to actual scan blocks and allow for
@@ -248,6 +249,7 @@ class MakeSourceScan(MappableRule):
     fixed_alt: Optional[float] = None
 
     def apply_block(self, block: core.Block) -> core.Block:
+        if not isinstance(block, src.ObservingWindow): return block
         duration = block.duration.total_seconds()
         # make sure preferred length and fixed_alt are not both set
         assert not (self.preferred_length is not None and self.fixed_alt is not None)
@@ -262,9 +264,6 @@ class MakeSourceScan(MappableRule):
         else:
             scan = block
         return scan
-
-    def applicable(self, block: core.Block) -> bool:
-        return isinstance(block, src.ObservingWindow)
 
 @dataclass(frozen=True)
 class MakeCESourceScan(MappableRule):
@@ -282,9 +281,10 @@ class MakeCESourceScan(MappableRule):
     el_bore: float  # deg
     drift: bool = True
     def apply_block(self, block: core.Block) -> core.Block: 
-        return src.make_source_ces(block, array_info=self.array_info, el_bore=self.el_bore, enable_drift=self.drift)
-    def applicable(self, block: core.Block) -> bool:
-        return isinstance(block, src.SourceBlock)
+        if isinstance(block, src.SourceBlock):
+            return src.make_source_ces(block, array_info=self.array_info, el_bore=self.el_bore, enable_drift=self.drift)
+        else:
+            return block
     @classmethod
     def from_config(cls, config):
         query = config.pop('array_query', "*")
