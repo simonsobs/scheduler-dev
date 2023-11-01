@@ -49,7 +49,71 @@ class AltRange(MappableRule):
         else:
             return block
 
+@dataclass(frozen=True)
+class AzRange(MappableRule):
+    """Restrict the azimuth range of scan blocks
+    
+    Parameters
+    ----------
+    az_range : Tuple[float, float]. min and max azimuth in degrees 
+    trim: bool. whether to trim the block if it is out of range
 
+    """
+    az_range: Tuple[float, float]
+    trim: bool = True
+
+    def apply_block(self, block: core.Block) -> core.Block:
+        if isinstance(block, inst.ScanBlock):
+            def is_good(az, throw):
+                return (az >= self.az_range[0]) and (az + throw <= self.az_range[1])
+            def get_coverage(az, throw):
+                return min(self.az_range[1], az + throw) - max(self.az_range[0], az)
+
+            # get az limits
+            dt = utils.dt2ct(block.t1) - utils.dt2ct(block.t0)
+            az, throw = block.az,  block.throw + dt * block.az_drift
+
+            if is_good(az, throw): return block 
+
+            if az < self.az_range[0]:
+                # see if wrapping around helps
+                az_best = az
+                for az_ in range(az, self.az_range[1], 360):
+                    # ideal case: find full coverage after 2pi wrapping
+                    if is_good(az_, throw):
+                        return block.replace(az=az_)
+                    if get_coverage(az_, throw) > get_coverage(az, throw):
+                        az_best = az_
+
+                # when we get here, it means we didn't find a full coverage,
+                # abort if we don't want to trim
+                if not self.trim: 
+                    return None
+
+                # if we are allowed to trim, use the best coverage
+                return block.replace(az=max(az_best, self.az_range[0]), throw=get_coverage(az_best, throw))
+                     
+            elif az + throw > self.az_range[1]:
+                # see if wrapping around helps
+                az_best = az
+                for az_ in np.arange(az, self.az_range[0], -360):
+                    # ideal case: find full coverage after 2pi wrapping
+                    if is_good(az_, throw):
+                        return block.replace(az=az_)
+                    if get_coverage(az_, throw) > get_coverage(az, throw):
+                        az_best = az_
+                    
+                # when we get here, it means we didn't find a full coverage,
+                # abort if we don't want to trim
+                if not self.trim:
+                    return None
+                
+                # if we are allowed to trim, use the best coverage
+                return block.replace(az=max(az_best, self.az_range[0]), throw=get_coverage(az_best, throw))
+
+            else:
+                raise RuntimeError("This should not happen")
+            
 @dataclass(frozen=True)
 class DayMod(GreenRule):
     """Restrict the blocks to a specific day of the week.

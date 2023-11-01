@@ -1,5 +1,5 @@
 import datetime as dt
-from schedlib import rules, source as src, core, utils
+from schedlib import rules, source as src, core, utils, instrument as inst
 import pytest
 
 def test_altrange():
@@ -10,6 +10,23 @@ def test_altrange():
     )
     blocks = src.source_get_blocks('uranus', t0, t1)
     blocks = rule.apply(blocks)
+
+def test_azrange():
+    t0 = dt.datetime(2020, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    t1 = dt.datetime(2020, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc)
+    block = inst.ScanBlock(name='test', t0=t0, t1=t1, alt=50, az=-150, throw=100)
+    rule = rules.AzRange(az_range=(0, 360))
+    block_res = rule([block])[0]
+    assert block_res == inst.ScanBlock(name='test', t0=t0, t1=t1, alt=50, az=210, throw=100)
+
+    block = inst.ScanBlock(name='test', t0=t0, t1=t1, alt=50, az=-50, throw=100)
+    rule = rules.AzRange(az_range=(0, 360), trim=True)
+    block_res = rule([block])[0]
+    assert block_res == inst.ScanBlock(name='test', t0=t0, t1=t1, alt=50, az=0, throw=50)
+
+    rule = rules.AzRange(az_range=(0, 360), trim=False)
+    block_res = rule([block])[0]
+    assert block_res == None
 
 def test_day_mod():
     t0 = dt.datetime(2020, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
