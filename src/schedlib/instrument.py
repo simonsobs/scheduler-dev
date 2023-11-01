@@ -103,7 +103,14 @@ def parse_sequence_from_toast(ifile):
     ifile: input master schedule from toast
     """
     columns = ["start_utc", "stop_utc", "rotation", "patch", "az_min", "az_max", "el", "pass", "sub"]
-    df = pd.read_csv(ifile, skiprows=3, delimiter="|", names=columns)
+    # count the number of lines to skip
+    with open(ifile) as f:
+        for i, l in enumerate(f):
+            if l.startswith('#'):
+                continue
+            else:
+                break
+    df = pd.read_csv(ifile, skiprows=i+2, delimiter="|", names=columns, comment='#')
     blocks = []
     for _, row in df.iterrows():
         block = ScanBlock(
