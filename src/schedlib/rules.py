@@ -275,8 +275,8 @@ class SunAvoidance(MappableRule):
     """
     min_angle_az: float
     min_angle_alt: float
-    n_buffer: int
-    time_step: int
+    n_buffer: int = 10
+    time_step: int = 30
 
     def apply_block(self, block: core.Block) -> core.Blocks:
         """Calculate the distance between a block and a sun block."""

@@ -171,3 +171,15 @@ def match_query(path, query):
         if fnmatch.fnmatch(key, q): 
             return True
     return False
+
+def nested_update(dictionary, update_dict, new_keys_allowed=True):
+    """update a nested dictionary recursively but
+    never add new keys"""
+    for key, value in update_dict.items():
+        if key in dictionary and isinstance(dictionary[key], dict) and isinstance(value, dict):
+            nested_update(dictionary[key], value)
+        else:
+            # optional to prevent new keys to be added with new_keys_allowed=False
+            if key in dictionary or new_keys_allowed:
+                dictionary[key] = value
+    return dictionary
