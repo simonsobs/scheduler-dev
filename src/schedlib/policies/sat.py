@@ -98,7 +98,7 @@ class SATPolicy(basic.BasePolicy):
                              is_leaf=lambda x: isinstance(x, dict) and 'type' in x)
         return core.seq_trim(blocks, t0, t1)
 
-    def transform(self, blocks: core.BlocksTree) -> core.BlocksTree:
+    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
         # sun avoidance
         rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
         blocks = rule(blocks)
@@ -154,15 +154,9 @@ class SATPolicy(basic.BasePolicy):
         # store the result back to calibration
         blocks['calibration'] = cal_blocks
 
-        # az range fix
-        rule = ru.make_rule('az-range', **self.rules['az-range'])
-
-        return blocks
-
-    def merge(self, blocks: core.BlocksTree) -> core.Blocks:
-        """merge blocks into a single sequence by the order specified
-        in self.merge_order, assuming an descending priority order as moving
-        down the merge_order list."""
+        #########
+        # merge #
+        #########
         seq = None
         for query in self.merge_order[::-1]:
             match, _ = core.seq_partition_with_query(query, blocks)
@@ -173,6 +167,11 @@ class SATPolicy(basic.BasePolicy):
                 # match takes precedence
                 seq = core.seq_merge(seq, match, flatten=True)
 
+        # az range fix
+        rule = ru.make_rule('az-range', **self.rules['az-range'])
+        seq = rule(seq)
+
+        # duration cut
         rule = ru.make_rule('min-duration', **self.rules['min-duration'])
         seq = rule(seq)
 
