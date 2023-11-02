@@ -11,95 +11,55 @@ import jax.tree_util as tu
 from . import basic
 from .. import config as cfg, core, source as src, rules as ru, commands as cmd, instrument as inst
 
-geometries = {
-  'full': {
-    'left': {
-      'ws6': {
-        'center': [-10.9624, 6.46363],
-        'radius': 6,
-      },
-      'ws5': {
-        'center': [-10.9624, -6.46363],
-        'radius': 6,
-      },
-    },
-    'middle': {
-      'ws1': {
-        'center': [0, 12.634],
-        'radius': 6,
-      },
-      'ws0': {
-        'center': [0, 0], 
-        'radius': 6,
-      },
-      'ws4': {
-        'center': [0, -12.634],
-        'radius': 6,
-      },
-    },
-    'right': {
-      'ws2': {
-        'center': [10.9624, 6.46363],
-        'radius': 6,
-      },
-      'ws3': {
-        'center': [10.9624, -6.46363],
-        'radius': 6,
-      },
-    },
-  },
-  'bottom' : {
-    'ws4': {
-        'center': [0, -12.634],
-        'radius': 6,
-    },
-    'ws3': {
-        'center': [10.9624, -6.46363],
-        'radius': 6,
-    },
-    'ws5': {
-        'center': [-10.9624, -6.46363],
-        'radius': 6,
-    },
-  }
-}
+# ==================
+# useful commands
+# ==================
+preamble = [
+    "from nextline import disable_trace",
+    "",
+    "import time",
+    "import datetime",
+    "",
+    "with disable_trace():",
+    "    import numpy as np",
+    "    import sorunlib as run",
+    "    run.initialize()",
+    "",
+    "UTC = datetime.timezone.utc",
+    "acu = run.CLIENTS['acu']",
+    "pysmurfs = run.CLIENTS['smurf']",
+    "",
+]
 
-blocks = {
-    'calibration': {
-        'saturn': {
-            'type' : 'source',
-            'name' : 'saturn',
-        },
-    },
-    'baseline': {
-        'cmb': {
-            'type': 'toast',
-            'file': None
-        }
-    }
-}
+wrap_up = [
+    "# go home"
+    "run.acu.move_to(az=220, el=40)",
+    "",
+    "time.sleep(1)"
+]
 
-config = {
-    'blocks': blocks,
-    'geometries': geometries,
-    'rules': {
-        'sun-avoidance': {
-            'min_angle_az': 45,
-            'min_angle_alt': 45,
-        },     
-    },
-    'source_targets': [
-        ('saturn', 'left', 50),
-        ('saturn', 'mid', 50),
-        ('saturn', 'right', 50),
-    ],
-    'merge_order': ['calibration', 'baseline'],
-    'az_speed': 1.0, # deg/s
-    'az_accel': 2, # deg/s^2
-    'elevation': 50, # deg 
-    'det_setup_time': 40, # minutes
-}
-
+ufm_relock = [
+    "############# Daily Relock ######################",
+    "# unbias dets",
+    "for smurf_instance_id in self.pysmurfs_instance_ids:",
+    "    args = ['--bias', '0.0', '--slot', str(smurf_instance_id.split('s')[-1])]",
+    "    ok, msg, sess = run.smurf.run.start(script='/readout-script-dev/max/site_control/set_det_biases.py', args=args)",
+    "",
+    "for smurf in pysmurfs:",
+    "    smurf.run.wait()",
+    "time.sleep(120)",
+    "run.smurf.take_noise(concurrent=True, tag='oper,take_noise,res_check')",
+    "",
+    "print('Relocking the UFMs')",
+    "for smurf in pysmurfs:",
+    "    smurf.uxm_relock.start(kwargs={'skip_setup_amps':True})",
+    "for smurf in pysmurfs:",
+    "    smurf.uxm_relock.wait()",
+    "    print(smurf.uxm_relock.status())",
+    "",
+    "#################################################", 
+]
+    
 @dataclass(frozen=True)
 class SATPolicy(basic.BasePolicy):
     """a more realistic SAT policy. `config` is a string yaml config"""
@@ -107,6 +67,9 @@ class SATPolicy(basic.BasePolicy):
     rules: List[core.Rule]
     geometries: List[dict]
     source_targets: List[tuple]
+    merge_order: List[str]
+    time_costs: dict[float]
+    ufm_relock: bool
     
     @classmethod
     def from_config(cls, config: dict):
@@ -142,28 +105,57 @@ class SATPolicy(basic.BasePolicy):
         
         # plan source scans
         cal_blocks = {}
-        for source, array_query, el_bore in self.source_targets:
+        for source, array_query, el_bore, tagname in self.source_targets:
+            assert source in blocks['calibration'], f"source {source} not found in sequence"
+
             array_info = inst.array_info_from_query(self.geometries, array_query)
             rule = ru.MakeCESourceScan(
                 array_info=array_info, 
                 el_bore=el_bore, 
-                drift=True
+                drift=True,
             )
-            assert source in blocks['calibration'], f"source {source} not found in sequence"
+
             if source not in cal_blocks: cal_blocks[source] = []
-            cal_blocks[source].append(rule(blocks['calibration'][source]))
+            _blocks = rule(blocks['calibration'][source])
+            cal_blocks[source].append(
+                core.seq_map(lambda block: block.replace(tag=f"{block.tag},{tagname}"), _blocks)
+            )
 
         # can we simply merge these blocks for each source?
         for source in cal_blocks:
             if core.seq_has_overlap(cal_blocks[source]):
-                # need some special treatment
-                # placeholder
-                cal_blocks[source] = core.seq_merge(cal_blocks[source], flatten=True)
+                # one target per source block (e.g. per transit)
+                rules = [
+                    (
+                        tagname,
+                        ru.MakeCESourceScan(
+                            array_info=inst.array_info_from_query(self.geometries, array_query),
+                            el_bore=el_bore,
+                            drift=True
+                        ),
+                    )
+                    for source_, array_query, el_bore, tagname in self.source_targets if source_ == source 
+                ]
+
+                new_blocks = []
+                rule_i = 0
+                for block in blocks['calibration'][source]:
+                    tagname, rule = rules[rule_i]
+                    block = rule(block)
+                    new_blocks.append(block.replace(tag=f"{block.tag},{tagname}"))
+                    rule_i = (rule_i + 1) % len(rules)  # alternating between rules
+                cal_blocks[source] = new_blocks
             else:
                 cal_blocks[source] = core.seq_merge(cal_blocks[source], flatten=True)
         
+        # add proper subtypes to calibration blocks
+        cal_blocks = core.seq_map(lambda block: block.replace(subtype="cal"), cal_blocks)
+
         # store the result back to calibration
         blocks['calibration'] = cal_blocks
+
+        # az range fix
+        rule = ru.make_rule('az-range', **self.rules['az-range'])
 
         return blocks
 
@@ -186,50 +178,80 @@ class SATPolicy(basic.BasePolicy):
 
         return core.seq_sort(seq)
 
-    def seq2cmd(self, seq: core.Blocks):
-        """map a scan to a command"""
-        commands = [
-            "from nextline import disable_trace",
-            "",
-            "import time",
-            "import datetime as dt",
-            "",
-            "with disable_trace():",
-            "    import numpy as np",
-            "    import sorunlib as run",
-            "    run.initialize()",
-            "",
-            "UTC = dt.timezone.utc",
-            "acu = run.CLIENTS['acu']",
-            "pysmurfs = run.CLIENTS['smurf']",
-            "",
-            "#################################################",
-            "",
-            f"az_speed = {self.az_speed} # deg/s",
-            f"el_speed = {self.el_speed} # deg/s^2",
-            f"elevation = {self.elevation} # deg",
-            f"det_setup_time = dt.timedelta(minutes={self.det_setup_time})",
-            "",
-            "#################################################",
-            "",
-            "# unbias dets",
-            "for smurf_instance_id in self.pysmurfs_instance_ids:",
-            "    args = ['--bias', '0.0', '--slot', str(smurf_instance_id.split('s')[-1])]",
-            "    ok, msg, sess = run.smurf.run.start(script='/readout-script-dev/max/site_control/set_det_biases.py', args=args)",
-            "",
-            "for smurf in pysmurfs:",
-            "    smurf.run.wait()",
-            "time.sleep(120)",
-            "run.smurf.take_noise(concurrent=True, tag='oper,take_noise,res_check')",
-            "",
-            "print('Relocking the UFMs')",
-            "for smurf in pysmurfs:",
-            "    smurf.uxm_relock.start(kwargs={'skip_setup_amps':True})",
-            "for smurf in pysmurfs:",
-            "    smurf.uxm_relock.wait()",
-            "    print(smurf.uxm_relock.status())",
-            "",
-            "#################################################",
-            "",
-        ] 
+    def seq2cmd(self, seq: core.Blocks, t0: dt.datetime, t1: dt.datetime):
+        time_cost = 0  # secs
+        commands = []
+
+        commands += preamble
+
+        if self.ufm_relock:
+            commands += ufm_relock
+            time_cost += self.time_costs['ufm_relock']
+
+        # start to build scans
+        assert core.seq_is_sorted(seq), "seq must be sorted"
+
+        t_cur = t0 + dt.timedelta(seconds=time_cost)
+        for block in seq:
+            # det setup
+            if t_cur + dt.timedelta(seconds=self.time_costs['det_setup']) > block.t1:
+                commands += [
+                    "",
+                    f"Note: {block} skipped due to insufficient time",
+                    "",
+                ]
+                continue
+            else:
+                t_start = block.t0 - dt.timedelta(seconds=self.time_costs['det_setup'])
+
+                # setup detectors
+                commands += [
+                    "",
+                    "#################### Detector Setup #########################",
+                    f"print('Waiting until {t_start} to start detector setup')",
+                    f"run.wait_until({t_start.isoformat()})",
+                    f"run.acu.move_to(az={block.az}, el={block.alt})",
+                    "run.smurf.take_bgmap(concurrent=True)",
+                    "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
+                    "run.smurf.bias_dets(concurrent=True)",
+                    "time.sleep(180)",
+                    "run.smurf.bias_step(concurrent=True)",
+                    "#################### Detector Setup Over ####################",
+                    "",
+                ]
+
+                # start the scan
+                commands += [
+                     "################# Scan #################################",
+                     "",
+                    f"run.acu.set_scan_params({block.az_speed}, {block.az_accel})",
+                     "now = datetime.datetime.now(tz=UTC)",
+                    f"if now > {repr(block.t0)}:",
+                     "    # adjust scan parameters",
+                    f"    az = {block.az} + {block.az_drift}*(now-{repr(block.t0)}).total_seconds()",
+                    f"if now > {repr(block.t1)}:",
+                     "    # too late, don't scan",
+                     "    pass",
+                     "else:",
+                    f"    run.acu.move_to({block.az}, {block.alt})",
+                     "",
+                    f"    print('Waiting until {block.t0} to start scan')",
+                    f"    run.wait_until({block.t0.isoformat()})",
+                     "",
+                     "    run.seq.scan(",
+                    f"        description='{block.name}', ",
+                    f"        stop_time={block.t1.isoformat()}, ",
+                    f"        width={block.throw}, ",
+                    f"        az_drift={block.az_drift}, ",
+                    f"        subtype={block.subtype},",
+                    f"        tag={block.tag},",
+                     "    )",
+                     "    print('Taking Bias Steps')",
+                     "    run.smurf.bias_step(concurrent=True)",
+                     "################# Scan Over #############################",
+                ] 
+                t_cur = block.t1 + dt.timedelta(seconds=self.time_costs['bias_step'])
+
+        commands += wrap_up
+
         return cmd.CompositeCommand(commands)
