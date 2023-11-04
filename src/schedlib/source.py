@@ -291,10 +291,10 @@ def make_source_ces(block, array_info, el_bore=50, allow_partial=False, v_az=Non
 
     # can we cover the full array?
     if not allow_partial:
-        if np.max(el_cover) > np.max(el_src):
+        if np.max(el_cover) / u.deg > np.max(el_src):
             print("Source will not cover the top part of the array")
             return None
-        if np.min(el_cover) < np.min(el_src):
+        if np.min(el_cover) / u.deg < np.min(el_src):
             print("Source will not cover the bottom part of the array")
             return None
 
