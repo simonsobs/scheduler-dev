@@ -349,7 +349,11 @@ class MakeCESourceScan(MappableRule):
 
     def apply_block(self, block: core.Block) -> core.Block: 
         if isinstance(block, src.SourceBlock):
-            return src.make_source_ces(block, array_info=self.array_info, el_bore=self.el_bore, enable_drift=self.drift)
+            # if drift mode is enabled, we pass in a v_az that's None
+            # so that it will be automatically calculated. Otherwise, we pass
+            # in a zero v_az, which effectively has no drift.
+            v_az = 0 if not self.drift else None
+            return src.make_source_ces(block, array_info=self.array_info, el_bore=self.el_bore, v_az=v_az)
         else:
             return block
 
