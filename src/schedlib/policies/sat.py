@@ -3,9 +3,9 @@
 """
 import yaml
 import os.path as op
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import datetime as dt
-from typing import List 
+from typing import List, Union
 import jax.tree_util as tu
 
 from . import basic
@@ -32,7 +32,7 @@ preamble = [
 ]
 
 wrap_up = [
-    "# go home"
+    "# go home",
     "run.acu.move_to(az=220, el=40)",
     "",
     "time.sleep(1)"
@@ -60,19 +60,23 @@ ufm_relock = [
     "#################################################", 
 ]
     
-@dataclass(frozen=True)
-class SATPolicy(basic.BasePolicy):
-    """a more realistic SAT policy. `config` is a string yaml config"""
+@dataclass
+class SATPolicy:
+    """a more realistic SAT policy."""
     blocks: dict
     rules: List[core.Rule]
     geometries: List[dict]
     source_targets: List[tuple]
     merge_order: List[str]
-    time_costs: dict[float]
+    time_costs: dict[str, float]
     ufm_relock: bool
+    checkpoints: dict[str, core.BlocksTree] = field(default_factory=dict)
     
+    def save_checkpoint(self, name, blocks):
+        self.checkpoints[name] = blocks
+
     @classmethod
-    def from_config(cls, config: dict):
+    def from_config(cls, config: Union[dict, str]):
         """populate policy object from a yaml config file or a string yaml
         config or a dict"""
         if isinstance(config, str):
@@ -100,8 +104,10 @@ class SATPolicy(basic.BasePolicy):
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
         # sun avoidance
-        rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
-        blocks = rule(blocks)
+        if 'sun-avoidance' in self.rules:
+            rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
+            blocks = rule(blocks)
+            self.save_checkpoint('sun-avoidance', blocks)
         
         # plan source scans
         cal_blocks = {}
@@ -146,13 +152,14 @@ class SATPolicy(basic.BasePolicy):
                     rule_i = (rule_i + 1) % len(rules)  # alternating between rules
                 cal_blocks[source] = new_blocks
             else:
-                cal_blocks[source] = core.seq_merge(cal_blocks[source], flatten=True)
+                cal_blocks[source] = core.seq_flatten(cal_blocks[source])
         
         # add proper subtypes to calibration blocks
         cal_blocks = core.seq_map(lambda block: block.replace(subtype="cal"), cal_blocks)
 
         # store the result back to calibration
         blocks['calibration'] = cal_blocks
+        self.save_checkpoint('add-calibration', blocks)
 
         #########
         # merge #
@@ -168,12 +175,14 @@ class SATPolicy(basic.BasePolicy):
                 seq = core.seq_merge(seq, match, flatten=True)
 
         # az range fix
-        rule = ru.make_rule('az-range', **self.rules['az-range'])
-        seq = rule(seq)
+        if 'az-range' in self.rules:
+            rule = ru.make_rule('az-range', **self.rules['az-range'])
+            seq = rule(seq)
 
         # duration cut
-        rule = ru.make_rule('min-duration', **self.rules['min-duration'])
-        seq = rule(seq)
+        if 'min-duration' in self.rules:
+            rule = ru.make_rule('min-duration', **self.rules['min-duration'])
+            seq = rule(seq)
 
         return core.seq_sort(seq)
 
