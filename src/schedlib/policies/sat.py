@@ -5,10 +5,9 @@ import yaml
 import os.path as op
 from dataclasses import dataclass, field
 import datetime as dt
-from typing import List, Union
+from typing import List, Union, Optional
 import jax.tree_util as tu
 
-from . import basic
 from .. import config as cfg, core, source as src, rules as ru, commands as cmd, instrument as inst
 
 # ==================
@@ -66,10 +65,11 @@ class SATPolicy:
     blocks: dict
     rules: List[core.Rule]
     geometries: List[dict]
-    source_targets: List[tuple]
+    cal_targets: List[tuple]
     merge_order: List[str]
     time_costs: dict[str, float]
     ufm_relock: bool
+    scan_tag: Optional[str]
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=dict)
     
     def save_checkpoint(self, name, blocks):
@@ -111,7 +111,7 @@ class SATPolicy:
         
         # plan source scans
         cal_blocks = {}
-        for source, array_query, el_bore, tagname in self.source_targets:
+        for source, array_query, el_bore, tagname in self.cal_targets:
             assert source in blocks['calibration'], f"source {source} not found in sequence"
 
             array_info = inst.array_info_from_query(self.geometries, array_query)
@@ -129,6 +129,7 @@ class SATPolicy:
 
         # can we simply merge these blocks for each source?
         for source in cal_blocks:
+            # if not, let's alternate between targets
             if core.seq_has_overlap(cal_blocks[source]):
                 # one target per source block (e.g. per transit)
                 rules = [
@@ -140,7 +141,7 @@ class SATPolicy:
                             drift=True
                         ),
                     )
-                    for source_, array_query, el_bore, tagname in self.source_targets if source_ == source 
+                    for source_, array_query, el_bore, tagname in self.cal_targets if source_ == source 
                 ]
 
                 new_blocks = []
@@ -154,12 +155,22 @@ class SATPolicy:
             else:
                 cal_blocks[source] = core.seq_flatten(cal_blocks[source])
         
-        # add proper subtypes to calibration blocks
-        cal_blocks = core.seq_map(lambda block: block.replace(subtype="cal"), cal_blocks)
-
         # store the result back to calibration
         blocks['calibration'] = cal_blocks
         self.save_checkpoint('add-calibration', blocks)
+
+        # az range fix
+        if 'az-range' in self.rules:
+            rule = ru.make_rule('az-range', **self.rules['az-range'])
+            blocks = rule(blocks)
+
+        # add proper subtypes
+        blocks['calibration'] = core.seq_map(lambda block: block.replace(subtype="cal"), blocks['calibration'])
+        blocks['baseline']['cmb'] = core.seq_map(lambda block: block.replace(subtype="cmb", tag=f"{block.az:.0f}-{block.az+block.throw:.0f}"), blocks['baseline']['cmb'])
+
+        # add scan tag if supplied
+        if self.scan_tag is not None:
+            blocks['baseline'] = core.seq_map(lambda block: block.replace(tag=f"{block.tag},{self.scan_tag}"), blocks['baseline'])
 
         #########
         # merge #
@@ -173,11 +184,6 @@ class SATPolicy:
             else:
                 # match takes precedence
                 seq = core.seq_merge(seq, match, flatten=True)
-
-        # az range fix
-        if 'az-range' in self.rules:
-            rule = ru.make_rule('az-range', **self.rules['az-range'])
-            seq = rule(seq)
 
         # duration cut
         if 'min-duration' in self.rules:
@@ -200,6 +206,7 @@ class SATPolicy:
         assert core.seq_is_sorted(seq), "seq must be sorted"
 
         t_cur = t0 + dt.timedelta(seconds=time_cost)
+
         for block in seq:
             # det setup
             if t_cur + dt.timedelta(seconds=self.time_costs['det_setup']) > block.t1:
@@ -210,54 +217,72 @@ class SATPolicy:
                 ]
                 continue
             else:
-                t_start = block.t0 - dt.timedelta(seconds=self.time_costs['det_setup'])
+                if block.subtype == 'cmb':
+                    t_start = block.t0 - dt.timedelta(seconds=self.time_costs['det_setup'])
+                    commands += [
+                        "",
+                        "#~~~~~~~~~~~~~~~~~~~~~~~",
+                        f"run.wait_until('{block.t0.isoformat()}')",
+                        f"run.acu.move_to(az={block.az}, el={block.alt})",
+                         "run.smurf.bias_step(concurrent=True)",
+                         "run.seq.scan(",
+                        f"        description='{block.name}',",
+                        f"        stop_time='{block.t1.isoformat()}',", 
+                        f"        width={block.throw}, az_drift=0,",
+                        f"        subtype='cmb', tag='{block.tag}',",
+                         ")",
+                         "#~~~~~~~~~~~~~~~~~~~~~~~",
+                         "",
+                    ]
+                if block.subtype == 'cal':
+                    t_start = block.t0 - dt.timedelta(seconds=self.time_costs['det_setup'])
 
-                # setup detectors
-                commands += [
-                    "",
-                    "#################### Detector Setup #########################",
-                    f"print('Waiting until {t_start} to start detector setup')",
-                    f"run.wait_until({t_start.isoformat()})",
-                    f"run.acu.move_to(az={block.az}, el={block.alt})",
-                    "run.smurf.take_bgmap(concurrent=True)",
-                    "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
-                    "run.smurf.bias_dets(concurrent=True)",
-                    "time.sleep(180)",
-                    "run.smurf.bias_step(concurrent=True)",
-                    "#################### Detector Setup Over ####################",
-                    "",
-                ]
+                    # setup detectors
+                    commands += [
+                        "",
+                        "#################### Detector Setup #########################",
+                        f"print('Waiting until {t_start} to start detector setup')",
+                        f"run.wait_until({t_start.isoformat()})",
+                        f"run.acu.move_to(az={block.az}, el={block.alt})",
+                        "run.smurf.take_bgmap(concurrent=True)",
+                        "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
+                        "run.smurf.bias_dets(concurrent=True)",
+                        "time.sleep(180)",
+                        "run.smurf.bias_step(concurrent=True)",
+                        "#################### Detector Setup Over ####################",
+                        "",
+                    ]
 
-                # start the scan
-                commands += [
-                     "################# Scan #################################",
-                     "",
-                    f"run.acu.set_scan_params({block.az_speed}, {block.az_accel})",
-                     "now = datetime.datetime.now(tz=UTC)",
-                    f"if now > {repr(block.t0)}:",
-                     "    # adjust scan parameters",
-                    f"    az = {block.az} + {block.az_drift}*(now-{repr(block.t0)}).total_seconds()",
-                    f"if now > {repr(block.t1)}:",
-                     "    # too late, don't scan",
-                     "    pass",
-                     "else:",
-                    f"    run.acu.move_to({block.az}, {block.alt})",
-                     "",
-                    f"    print('Waiting until {block.t0} to start scan')",
-                    f"    run.wait_until({block.t0.isoformat()})",
-                     "",
-                     "    run.seq.scan(",
-                    f"        description='{block.name}', ",
-                    f"        stop_time={block.t1.isoformat()}, ",
-                    f"        width={block.throw}, ",
-                    f"        az_drift={block.az_drift}, ",
-                    f"        subtype={block.subtype},",
-                    f"        tag={block.tag},",
-                     "    )",
-                     "    print('Taking Bias Steps')",
-                     "    run.smurf.bias_step(concurrent=True)",
-                     "################# Scan Over #############################",
-                ] 
+                    # start the scan
+                    commands += [
+                        "################# Scan #################################",
+                        "",
+                        f"run.acu.set_scan_params({block.az_speed}, {block.az_accel})",
+                        "now = datetime.datetime.now(tz=UTC)",
+                        f"if now > {repr(block.t0)}:",
+                        "    # adjust scan parameters",
+                        f"    az = {block.az} + {block.az_drift}*(now-{repr(block.t0)}).total_seconds()",
+                        f"if now > {repr(block.t1)}:",
+                        "    # too late, don't scan",
+                        "    pass",
+                        "else:",
+                        f"    run.acu.move_to({block.az}, {block.alt})",
+                        "",
+                        f"    print('Waiting until {block.t0} to start scan')",
+                        f"    run.wait_until({block.t0.isoformat()})",
+                        "",
+                        "    run.seq.scan(",
+                        f"        description='{block.name}', ",
+                        f"        stop_time={block.t1.isoformat()}, ",
+                        f"        width={block.throw}, ",
+                        f"        az_drift={block.az_drift}, ",
+                        f"        subtype={block.subtype},",
+                        f"        tag={block.tag},",
+                        "    )",
+                        "    print('Taking Bias Steps')",
+                        "    run.smurf.bias_step(concurrent=True)",
+                        "################# Scan Over #############################",
+                    ] 
                 t_cur = block.t1 + dt.timedelta(seconds=self.time_costs['bias_step'])
 
         commands += wrap_up
