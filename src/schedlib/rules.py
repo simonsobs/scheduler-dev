@@ -80,7 +80,7 @@ class AzRange(MappableRule):
         if az < self.az_range[0]:
             # see if wrapping around helps
             az_best = az
-            for az_ in range(az, self.az_range[1], 360):
+            for az_ in np.arange(az, self.az_range[1], 360):
                 # ideal case: find full coverage after 2pi wrapping
                 if is_good(az_, throw):
                     return block.replace(az=az_)

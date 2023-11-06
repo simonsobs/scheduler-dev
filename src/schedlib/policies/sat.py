@@ -69,7 +69,7 @@ class SATPolicy:
     merge_order: List[str]
     time_costs: dict[str, float]
     ufm_relock: bool
-    scan_tag: Optional[str]
+    scan_tag: Optional[str] = None
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=dict)
     
     def save_checkpoint(self, name, blocks):
@@ -147,8 +147,10 @@ class SATPolicy:
                 new_blocks = []
                 rule_i = 0
                 for block in blocks['calibration'][source]:
+                    if block is None: continue
                     tagname, rule = rules[rule_i]
                     block = rule(block)
+                    if block is None: continue
                     new_blocks.append(block.replace(tag=f"{block.tag},{tagname}"))
                     rule_i = (rule_i + 1) % len(rules)  # alternating between rules
                 cal_blocks[source] = new_blocks
