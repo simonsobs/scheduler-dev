@@ -16,11 +16,11 @@ class BasePolicy(core.Policy, ABC):
     preserve the nested structure for the user to see, but we can
     also flatten the structure for the scheduler to consume."""
 
-    @abstractmethod
-    def transform(self, blocks: core.BlocksTree) -> core.BlocksTree: ...
+    def transform(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        return blocks
 
-    @abstractmethod
-    def merge(self, blocks: core.BlocksTree) -> core.Blocks: ...
+    def merge(self, blocks: core.BlocksTree) -> core.Blocks:
+        return blocks
 
     def apply(self, blocks: core.BlocksTree) -> core.Blocks:
         """main interface"""

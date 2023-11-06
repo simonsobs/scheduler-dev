@@ -142,12 +142,24 @@ def pprint(seq):
 # path related
 # ====================
 
-def path2key(path):
-    """convert a path (used in tree_util.tree_map_with_path) to a dot-separated key"""
+def path2key(path, ignore_seqkey=False):
+    """convert a path (used in tree_util.tree_map_with_path) to a dot-separated key
+    
+    Parameters
+    ----------
+    path: a list of SequenceKey or DictKey
+    ignore_array: if True, ignore the SequencyKey index in the path 
+
+    Returns
+    -------
+    key: a string of dot-separated keys
+
+    """
     keys = []
     for p in path:
         if isinstance(p, SequenceKey):
-            keys.append(p.idx)
+            if not ignore_seqkey:
+                keys.append(p.idx)
         elif isinstance(p, DictKey):
             keys.append(p.key)
         else:
@@ -171,3 +183,15 @@ def match_query(path, query):
         if fnmatch.fnmatch(key, q): 
             return True
     return False
+
+def nested_update(dictionary, update_dict, new_keys_allowed=True):
+    """update a nested dictionary recursively but
+    never add new keys"""
+    for key, value in update_dict.items():
+        if key in dictionary and isinstance(dictionary[key], dict) and isinstance(value, dict):
+            nested_update(dictionary[key], value)
+        else:
+            # optional to prevent new keys to be added with new_keys_allowed=False
+            if key in dictionary or new_keys_allowed:
+                dictionary[key] = value
+    return dictionary

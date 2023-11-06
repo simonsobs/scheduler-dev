@@ -63,56 +63,58 @@ class AzRange(MappableRule):
     trim: bool = True
 
     def apply_block(self, block: core.Block) -> core.Block:
-        if isinstance(block, inst.ScanBlock):
-            def is_good(az, throw):
-                return (az >= self.az_range[0]) and (az + throw <= self.az_range[1])
-            def get_coverage(az, throw):
-                return min(self.az_range[1], az + throw) - max(self.az_range[0], az)
+        # passthrough if not a scan block which has az and throw
+        if not isinstance(block, inst.ScanBlock): return block
 
-            # get az limits
-            dt = utils.dt2ct(block.t1) - utils.dt2ct(block.t0)
-            az, throw = block.az,  block.throw + dt * block.az_drift
+        def is_good(az, throw):
+            return (az >= self.az_range[0]) and (az + throw <= self.az_range[1])
+        def get_coverage(az, throw):
+            return min(self.az_range[1], az + throw) - max(self.az_range[0], az)
 
-            if is_good(az, throw): return block 
+        # get az limits
+        dt = utils.dt2ct(block.t1) - utils.dt2ct(block.t0)
+        az, throw = block.az,  block.throw + dt * block.az_drift
 
-            if az < self.az_range[0]:
-                # see if wrapping around helps
-                az_best = az
-                for az_ in range(az, self.az_range[1], 360):
-                    # ideal case: find full coverage after 2pi wrapping
-                    if is_good(az_, throw):
-                        return block.replace(az=az_)
-                    if get_coverage(az_, throw) > get_coverage(az, throw):
-                        az_best = az_
+        if is_good(az, throw): return block 
 
-                # when we get here, it means we didn't find a full coverage,
-                # abort if we don't want to trim
-                if not self.trim: 
-                    return None
+        if az < self.az_range[0]:
+            # see if wrapping around helps
+            az_best = az
+            for az_ in range(az, self.az_range[1], 360):
+                # ideal case: find full coverage after 2pi wrapping
+                if is_good(az_, throw):
+                    return block.replace(az=az_)
+                if get_coverage(az_, throw) > get_coverage(az, throw):
+                    az_best = az_
 
-                # if we are allowed to trim, use the best coverage
-                return block.replace(az=max(az_best, self.az_range[0]), throw=get_coverage(az_best, throw))
+            # when we get here, it means we didn't find a full coverage,
+            # abort if we don't want to trim
+            if not self.trim: 
+                return None
+
+            # if we are allowed to trim, use the best coverage
+            return block.replace(az=max(az_best, self.az_range[0]), throw=get_coverage(az_best, throw))
                      
-            elif az + throw > self.az_range[1]:
-                # see if wrapping around helps
-                az_best = az
-                for az_ in np.arange(az, self.az_range[0], -360):
-                    # ideal case: find full coverage after 2pi wrapping
-                    if is_good(az_, throw):
-                        return block.replace(az=az_)
-                    if get_coverage(az_, throw) > get_coverage(az, throw):
-                        az_best = az_
+        elif az + throw > self.az_range[1]:
+            # see if wrapping around helps
+            az_best = az
+            for az_ in np.arange(az, self.az_range[0], -360):
+                # ideal case: find full coverage after 2pi wrapping
+                if is_good(az_, throw):
+                    return block.replace(az=az_)
+                if get_coverage(az_, throw) > get_coverage(az, throw):
+                    az_best = az_
                     
-                # when we get here, it means we didn't find a full coverage,
-                # abort if we don't want to trim
-                if not self.trim:
-                    return None
+            # when we get here, it means we didn't find a full coverage,
+            # abort if we don't want to trim
+            if not self.trim:
+                return None
                 
-                # if we are allowed to trim, use the best coverage
-                return block.replace(az=max(az_best, self.az_range[0]), throw=get_coverage(az_best, throw))
+            # if we are allowed to trim, use the best coverage
+            return block.replace(az=max(az_best, self.az_range[0]), throw=get_coverage(az_best, throw))
 
-            else:
-                raise RuntimeError("This should not happen")
+        else:
+            raise RuntimeError("This should not happen")
             
 @dataclass(frozen=True)
 class DayMod(GreenRule):
@@ -275,8 +277,8 @@ class SunAvoidance(MappableRule):
     """
     min_angle_az: float
     min_angle_alt: float
-    n_buffer: int
-    time_step: int
+    n_buffer: int = 10
+    time_step: int = 30
 
     def apply_block(self, block: core.Block) -> core.Blocks:
         """Calculate the distance between a block and a sun block."""
@@ -344,11 +346,17 @@ class MakeCESourceScan(MappableRule):
     array_info: dict
     el_bore: float  # deg
     drift: bool = True
+
     def apply_block(self, block: core.Block) -> core.Block: 
         if isinstance(block, src.SourceBlock):
-            return src.make_source_ces(block, array_info=self.array_info, el_bore=self.el_bore, enable_drift=self.drift)
+            # if drift mode is enabled, we pass in a v_az that's None
+            # so that it will be automatically calculated. Otherwise, we pass
+            # in a zero v_az, which effectively has no drift.
+            v_az = 0 if not self.drift else None
+            return src.make_source_ces(block, array_info=self.array_info, el_bore=self.el_bore, v_az=v_az)
         else:
             return block
+
     @classmethod
     def from_config(cls, config):
         query = config.pop('array_query', "*")
@@ -366,7 +374,8 @@ RULES = {
     'sun-avoidance': SunAvoidance,
     'make-source-plan': MakeSourcePlan,
     'make-source-scan': MakeSourceScan,
-    'make-drift-scan': MakeCESourceScan
+    'make-drift-scan': MakeCESourceScan,
+    'az-range': AzRange,
 }
 def get_rule(name: str) -> core.Rule:
     return RULES[name]

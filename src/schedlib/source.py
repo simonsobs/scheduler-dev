@@ -6,12 +6,11 @@ import ephem
 from ephem import to_timezone
 import datetime as dt
 from typing import Union, Callable, NamedTuple, List, Tuple, Optional
-from scipy.interpolate import interp1d
 import numpy as np
-from scipy import interpolate
+from scipy import interpolate, optimize
 from so3g.proj import quat
 
-from . import core, utils, instrument as inst
+from . import core, utils as u, instrument as inst
 
 UTC = dt.timezone.utc
 
@@ -86,8 +85,8 @@ def _source_az_alt_interpolators(source: str, t0: dt.datetime, t1: dt.datetime, 
     times = [t0 + i * time_step for i in range(int((t1 - t0) / time_step))]
     az, alt = _source_get_az_alt(source, times)
     times = [int(t.timestamp()) for t in times]
-    interp_az = interp1d(times, az, kind='cubic')
-    interp_alt = interp1d(times, alt, kind='cubic')
+    interp_az = interpolate.interp1d(times, az, kind='cubic')
+    interp_alt = interpolate.interp1d(times, alt, kind='cubic')
     return interp_az, interp_alt
 
 # global registry of precomputed sources
@@ -196,9 +195,9 @@ def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tupl
     if not mask.any():
         return []  # need blocks type
     blocks = []
-    for (i0, i1) in utils.mask2ranges(mask): 
-        t0 = utils.ct2dt(times[i0])
-        t1 = utils.ct2dt(times[i1-1])  # i1 is non-inclusive
+    for (i0, i1) in u.mask2ranges(mask):
+        t0 = u.ct2dt(times[i0])
+        t1 = u.ct2dt(times[i1-1])  # i1 is non-inclusive
         blocks.append(block.replace(t0=t0, t1=t1))
     return blocks
 
@@ -218,12 +217,12 @@ class ObservingWindow(SourceBlock):
         """get a possible scan starting at t0"""
         t_req = int(t0.timestamp())
         # if we start at t0, we can observe for at most obs_length
-        obs_length = utils.interp_bounded(t_req, self.t_start, self.obs_length)
+        obs_length = u.interp_bounded(t_req, self.t_start, self.obs_length)
         t1 = t0 + dt.timedelta(seconds=float(obs_length))
         # if we start at t0, we can observe with these parameters
-        az = utils.interp_bounded(t_req, self.t_start, self.az_bore)
-        alt = utils.interp_bounded(t_req, self.t_start, self.alt_bore)
-        az_throw = utils.interp_bounded(t_req, self.t_start, self.az_throw)
+        az = u.interp_bounded(t_req, self.t_start, self.az_bore)
+        alt = u.interp_bounded(t_req, self.t_start, self.alt_bore)
+        az_throw = u.interp_bounded(t_req, self.t_start, self.az_throw)
         return inst.ScanBlock(
             name=self.name,
             t0=t0,
@@ -234,96 +233,124 @@ class ObservingWindow(SourceBlock):
         )
     def get_scan_at_alt(self, alt: float) -> inst.ScanBlock:
         """get a possible scan at a given altitude"""
-        t0 = utils.interp_bounded(alt, self.alt_bore, self.t_start)
+        t0 = u.interp_bounded(alt, self.alt_bore, self.t_start)
         return self.get_scan_at_t0(t0)
 
-def make_source_ces(block, array_info, el_bore=50, drift_params=None, enable_drift=False, verbose=False):
-    assert 'center' in array_info and 'cover' in array_info
-    # move to the frame in which the center of the wafer is at the origin
+def _find_az_bore(el_bore, az_src, el_src, q_point):
+    """find the boresight, given el_bore, such that q_point (relative to the boresight) is
+    intercepted by the trajectory of the source
+
+    """
+    def fun(az_bore):
+        az_center, el_center, _ =  quat.decompose_lonlat(quat.rotation_lonlat(-az_bore * u.deg, el_bore * u.deg) * q_point)
+        az_center *= -1
+        az_expect = interpolate.interp1d(el_src, az_src, fill_value='extrapolate')(el_center / u.deg)
+        return np.abs(az_expect - az_center / u.deg)
+    az_bore_init = interpolate.interp1d(el_src, az_src, fill_value='extrapolate')(el_bore)
+    res = optimize.minimize(fun, az_bore_init, method='Nelder-Mead')
+    assert res.success, 'failed to converge on where to point the boresight'
+    az_bore = res.x[0]
+    return az_bore
+
+def make_source_ces(block, array_info, el_bore=50, allow_partial=False, v_az=None):
+    """make a ces scan of a source
+
+    Parameters
+    ----------
+    block: SourceBlock
+        a source block to compute the ces scan for
+    array_info: dict
+        contains center and cover of the array
+    el_bore: float
+        elevation of the boresight in degrees
+    allow_partial: bool
+        if True, allow partial coverage of the array
+    v_az: float
+        az drift speed in az in deg/s, if None, will try to find optimal drift speed
+
+    Returns
+    -------
+    inst.ScanBlock
+        a scan block that can be used to scan the source
+
+    """
+    assert 'center' in array_info and 'cover' in array_info, 'array_info must contain center and cover'
     q_center = quat.rotation_xieta(*array_info['center'])
     q_cover = quat.rotation_xieta(*array_info['cover'])
-    xi_cover_array, eta_cover_array, _ = quat.decompose_xieta(~q_center * q_cover)
-    # find out the elevation of the array if boresight is at el_bore
-    _, dalt, _ = quat.decompose_lonlat(quat.rotation_lonlat(0, 0) * q_center)
-    el_array = el_bore + dalt / utils.deg
-    # get trajectory of the source
+
     t, az_src, el_src = block.get_az_alt()  # degs
-    if drift_params is not None:
-        assert 't' in drift_params and 'az_speed' in drift_params
-        v_az = drift_params['az_speed']
-        az_src -= (t - drift_params['t']) * drift_params['az_speed']
-    else:
-        v_az = 0
-    # # az of the source when el_src = el_array
-    if el_array > max(el_src):
-        return None
-    if el_array < min(el_src):
-        return None
-    az_array = interpolate.interp1d(el_src, az_src)(el_array)
-    # center array on the source and put it at the origin
-    q_src_ground = quat.rotation_lonlat(-az_src * utils.deg, el_src * utils.deg)
-    q_target_ground = quat.rotation_lonlat(-az_array * utils.deg, el_array * utils.deg)
-    q_src_array = ~q_target_ground * q_src_ground  # where target is at the origin
-    xi_src_array, eta_src_array, _ = quat.decompose_xieta(q_src_array)
-    # make sure a scan of the entire array is possible
+    t_src_interp = interpolate.interp1d(el_src, t, kind='linear', fill_value='extrapolate')
+
+    # work out boresight
+    az_bore = _find_az_bore(el_bore, az_src, el_src, q_center)
+    q_bore = quat.rotation_lonlat(-az_bore * u.deg, el_bore * u.deg)
+
+    # put array on the sky
+    az_cover, el_cover, _ = quat.decompose_lonlat(q_bore * q_cover)
+    az_cover *= -1
+
+    # can we cover the full array?
+    if not allow_partial:
+        if np.max(el_cover) / u.deg > np.max(el_src):
+            print("Source will not cover the top part of the array")
+            return None
+        if np.min(el_cover) / u.deg < np.min(el_src):
+            print("Source will not cover the bottom part of the array")
+            return None
+
     if block.mode == 'rising':
-        if max(eta_src_array) < max(eta_cover_array) or min(eta_src_array) > min(eta_cover_array): 
-            return None
-    if block.mode == 'setting':
-        if min(eta_src_array) > min(eta_cover_array) or max(eta_src_array) < max(eta_cover_array): 
-            return None
-    # work out the tilt of the wafer at the origin
-    phi_tilt_fun = interpolate.interp1d(eta_src_array[:-1], 
-                                        np.arctan2(np.diff(xi_src_array), 
-                                                   np.diff(eta_src_array)), 
-                                        fill_value='extrapolate')
-    # find out the boundaries of the wafer by taking a projection along the tilt axis
-    x_cross = - eta_cover_array * np.tan(phi_tilt_fun(eta_cover_array)) + xi_cover_array
-    q_A_array = quat.rotation_xieta(np.min(x_cross), 0)
-    q_B_array = quat.rotation_xieta(np.max(x_cross), 0)
-    az_A_array, _, _ = quat.decompose_lonlat(quat.rotation_lonlat(0, el_array * utils.deg) * q_A_array)
-    az_A_array *= -1
-    az_B_array, _, _ = quat.decompose_lonlat(quat.rotation_lonlat(0, el_array * utils.deg) * q_B_array)
-    az_B_array *= -1 
-    # now we have all ingradients to make a source scan
-    daz, dalt, _ = quat.decompose_lonlat(quat.rotation_lonlat(0, el_bore * utils.deg) * quat.rotation_xieta(*array_info['center']))
-    daz *= -1
-    # az boresight should move between these two points
-    az_A_bore = az_array * utils.deg + az_A_array - daz  # rad
-    az_B_bore = az_array * utils.deg + az_B_array - daz  # rad
-    # get scan az and throw
-    az_start = min(az_A_bore, az_B_bore)  # rad
-    throw = abs(az_B_bore - az_A_bore)    # rad
-    q_bore_start = quat.rotation_lonlat(-az_start, el_bore * utils.deg)
-    az_cover_start, el_cover_start, _ = quat.decompose_lonlat(q_bore_start * q_cover)
-    az_cover_start *= -1
-    # get the elevation ranges
-    if block.mode == 'rising': 
-        el_src_start = np.min(el_cover_start) / utils.deg
-        el_src_stop = np.max(el_cover_start) / utils.deg
-        if el_src_start < np.min(el_src) or el_src_stop > np.max(el_src):
-            return None
+        t0 = t_src_interp(max(np.min(el_cover) / u.deg, np.min(el_src)))
+        t1 = t_src_interp(min(np.max(el_cover) / u.deg, np.max(el_src)))
     elif block.mode == 'setting':
-        el_src_start = np.max(el_cover_start) / utils.deg
-        el_src_stop = np.min(el_cover_start) / utils.deg
-        if el_src_start > np.max(el_src) or el_src_stop < np.min(el_src):
-            return None
+        t0 = t_src_interp(min(np.max(el_cover) / u.deg, np.max(el_src)))
+        t1 = t_src_interp(max(np.min(el_cover) / u.deg, np.min(el_src)))
     else:
         raise ValueError(f'unsupported scan mode encountered: {block.mode}')
-    # get the time ranges
-    t_start = interpolate.interp1d(el_src, t)(el_src_start)
-    t_stop  = interpolate.interp1d(el_src, t)(el_src_stop)
-    t0 = utils.ct2dt(float(t_start))
-    t1 = utils.ct2dt(float(t_stop))
-    if enable_drift:
-        az_speed_ref = np.median(np.diff(az_src) / np.diff(t))
-        drift_params = {'t': t_start, 'az_speed': az_speed_ref}
-        return make_source_ces(block, array_info, el_bore=el_bore, drift_params=drift_params, enable_drift=False, verbose=verbose)
-    else:
-        if verbose:
-            print("t0 = ", t_start)
-            print("t1 = ", t_stop)
-            print("az = ", az_start / utils.deg)
-            print("throw = ", throw / utils.deg)
-            print("drift = ", v_az)
-        return inst.ScanBlock(name=block.name, az=az_start / utils.deg, alt=el_bore, throw=throw / utils.deg, t0=t0, t1=t1, az_drift=v_az)
+
+    # now we have the time bounds, we will find approximate optimal drift
+    def _find_approx_az_throw(az_drift, az_src, el_src):
+        az_src = az_src - az_drift * (t - t0)
+        az_src_interp = interpolate.interp1d(el_src, az_src, kind='cubic')
+        # find the az distance to the source for each point on the array cover
+        distances = []
+        for az_, el_ in zip(az_cover / u.deg, el_cover / u.deg):
+            # we'll only be here if allow_partial is True, in which case
+            # we safely ignore these points
+            if el_ > np.max(el_src) or el_ < np.min(el_src):
+                continue
+            distance = az_src_interp(el_) - az_
+            distances.append(distance)
+        distances = np.array(distances)
+        if len(distances) == 0:
+            print("Source will not cover the array at all")
+            raise ValueError("Source will not cover the array at all")
+        az0, az1 = np.array([np.min(distances), np.max(distances)]) + az_bore
+        throw = az1 - az0
+        return az0, throw
+
+    # only solve if no az_drift are specified
+    if v_az is None:
+        try:
+            res = optimize.minimize(lambda x, *args: _find_approx_az_throw(x, *args)[1], 0, args=(az_src, el_src), method='Nelder-Mead')
+            if not res.success:
+                raise ValueError("Failed to find optimal drift, using median az speed instead")
+            else:
+                v_az = res.x[0]
+        except ValueError:
+            print("Failed to find optimal drift, using median az speed instead")
+            v_az = np.median(np.diff(az_src) / np.diff(t))
+    try:
+        az0, throw = _find_approx_az_throw(v_az, az_src, el_src)
+        return inst.ScanBlock(
+            name=block.name, 
+            az=az0,
+            alt=el_bore, 
+            throw=throw,
+            t0=u.ct2dt(float(t0)),
+            t1=u.ct2dt(float(t1)),
+            az_drift=v_az,
+            tag=f"{block.name},{block.mode}"
+        )
+    except ValueError:
+        print("Failed to find optimal drift, using median az speed instead")
+        return None
