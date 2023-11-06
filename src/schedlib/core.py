@@ -120,7 +120,9 @@ def block_merge(block1: Block, block2: Block) -> Blocks:
 # =============================
 
 def seq_is_nested(blocks: Blocks) -> bool:
+    # special cases:
     if is_block(blocks): return False
+    if blocks is None: return False
     is_leaf = lambda x: is_block(x) or x is None
     return not tu.all_leaves(blocks, is_leaf=is_leaf)
 
