@@ -8,7 +8,8 @@ from . import core, source as src, instrument as inst, utils
 
 @dataclass(frozen=True)
 class GreenRule(core.BlocksTransformation, ABC):
-    """GreenRule preserves trees"""
+    """GreenRule preserves trees. A check is explicitly made to ensure
+    that the input and output are both trees."""
     def __call__(self, blocks: core.BlocksTree) -> core.BlocksTree:
         out = self.apply(blocks)
         assert core.seq_is_nested(out) == core.seq_is_nested(blocks), "GreenRule must preserve trees"
@@ -18,7 +19,16 @@ class GreenRule(core.BlocksTransformation, ABC):
 class ConstrainedRule(GreenRule):
     """ConstrainedRule applies a rule to a subset of blocks. Here
     constraint is a fnmatch pattern that matches to the `key` of a
-    block."""
+    block. This is implemented by first partitioning the tree into
+    one part that matches the constraint and one part that doesn't,
+    and then applying the rule to the matching part before combining
+    the two parts back together. 
+
+    Parameters
+    ----------
+    rule : core.Rule. the rule to apply to the matching blocks
+    constraint : str. fnmatch pattern that matches to the `key` of a block
+    """
     rule: core.Rule
     constraint: str
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
@@ -27,7 +37,9 @@ class ConstrainedRule(GreenRule):
 
 @dataclass(frozen=True)
 class MappableRule(GreenRule, ABC):
-    """MappableRule preserves sequences"""
+    """MappableRule applies the same rule to all blocks in a tree. One needs
+    to implement the `apply_block` method to define how the rule is applied
+    to a single block."""
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
         return core.seq_map(self.apply_block, blocks)
     @abstractmethod
@@ -120,6 +132,15 @@ class AzRange(MappableRule):
 class DayMod(GreenRule):
     """Restrict the blocks to a specific day of the week.
     (day, day_mod): (0, 1) means everyday, (4, 7) means every 4th day in a week, ...
+
+    Parameters
+    ----------
+    day: int 
+        day index of the interval to repeat
+    day_mod: int
+        the interval in days to repeat
+    day_ref: datetime.datetime
+        reference datetime to calculate the day index
     """
     day: int
     day_mod: int
