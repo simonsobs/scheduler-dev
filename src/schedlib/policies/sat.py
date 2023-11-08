@@ -219,6 +219,7 @@ class SATPolicy:
 
         t_cur = t0 + dt.timedelta(seconds=time_cost)
 
+        is_det_setup = False
         for block in seq:
             # det setup
             if t_cur + dt.timedelta(seconds=self.time_costs['det_setup']) > block.t1:
@@ -230,7 +231,24 @@ class SATPolicy:
                 continue
             else:
                 if block.subtype == 'cmb':
-                    t_start = block.t0 - dt.timedelta(seconds=self.time_costs['det_setup'])
+                    if not is_det_setup:
+                        t_start = block.t0 - dt.timedelta(seconds=self.time_costs['det_setup'])
+                        f"print('Waiting until {t_start} to start detector setup')",
+                        commands += [
+                            "",
+                            f"run.wait_until('{t_start.isoformat()}')",
+                            "###################Detector Setup######################",
+                            f"run.acu.move_to(az={round(block.az, 3)}, el={round(block.alt,3)})",
+                            "run.smurf.take_bgmap(concurrent=True)",
+                            "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
+                            "run.smurf.bias_dets(concurrent=True)",
+                            "time.sleep(180)",
+                            "run.smurf.bias_step(concurrent=True)",
+                            "#################### Detector Setup Over ####################",
+                            "",
+                        ]
+                        is_det_setup = True
+
                     commands += [
                         "",
                         "#~~~~~~~~~~~~~~~~~~~~~~~",
@@ -264,6 +282,7 @@ class SATPolicy:
                         "#################### Detector Setup Over ####################",
                         "",
                     ]
+                    is_det_setup = True
 
                     # start the scan
                     commands += [
