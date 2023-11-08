@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import datetime as dt
 from typing import List, Union, Optional
 import jax.tree_util as tu
+import numpy as np
 
 from .. import config as cfg, core, source as src, rules as ru, commands as cmd, instrument as inst
 
@@ -222,9 +223,9 @@ class SATPolicy:
             # det setup
             if t_cur + dt.timedelta(seconds=self.time_costs['det_setup']) > block.t1:
                 commands += [
-                    "",
+                    "\"\"\"",
                     f"Note: {block} skipped due to insufficient time",
-                    "",
+                    "\"\"\"",
                 ]
                 continue
             else:
@@ -234,12 +235,12 @@ class SATPolicy:
                         "",
                         "#~~~~~~~~~~~~~~~~~~~~~~~",
                         f"run.wait_until('{block.t0.isoformat()}')",
-                        f"run.acu.move_to(az={block.az}, el={block.alt})",
+                        f"run.acu.move_to(az={round(block.az,3)}, el={round(block.alt,3)})",
                          "run.smurf.bias_step(concurrent=True)",
                          "run.seq.scan(",
                         f"        description='{block.name}',",
                         f"        stop_time='{block.t1.isoformat()}',", 
-                        f"        width={block.throw}, az_drift=0,",
+                        f"        width={round(block.throw,3)}, az_drift=0,",
                         f"        subtype='cmb', tag='{block.tag}',",
                          ")",
                          "#~~~~~~~~~~~~~~~~~~~~~~~",
@@ -247,14 +248,14 @@ class SATPolicy:
                     ]
                 if block.subtype == 'cal':
                     t_start = block.t0 - dt.timedelta(seconds=self.time_costs['det_setup'])
-
+                    
                     # setup detectors
                     commands += [
                         "",
                         "#################### Detector Setup #########################",
                         f"print('Waiting until {t_start} to start detector setup')",
-                        f"run.wait_until({t_start.isoformat()})",
-                        f"run.acu.move_to(az={block.az}, el={block.alt})",
+                        f"run.wait_until('{t_start.isoformat()}')",
+                        f"run.acu.move_to(az={round(np.mod(block.az,360),3)}, el={round(block.alt,3)})",
                         "run.smurf.take_bgmap(concurrent=True)",
                         "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
                         "run.smurf.bias_dets(concurrent=True)",
@@ -269,23 +270,27 @@ class SATPolicy:
                         "################# Scan #################################",
                         "",
                         "now = datetime.datetime.now(tz=UTC)",
-                        f"if now > {repr(block.t0)}:",
+                        f"scan_start = {repr(block.t0)}",
+                        f"scan_stop = {repr(block.t1)}",
+                        f"if now > scan_start:",
                         "    # adjust scan parameters",
-                        f"    az = {block.az} + {block.az_drift}*(now-{repr(block.t0)}).total_seconds()",
-                        f"if now > {repr(block.t1)}:",
+                        f"    az = {round(np.mod(block.az,360),3)} + {round(block.az_drift,5)}*(now-scan_start).total_seconds()",
+                        f"else: ",
+                        f"    az = {round(np.mod(block.az,360),3)}",
+                        f"if now > scan_stop:",
                         "    # too late, don't scan",
                         "    pass",
                         "else:",
-                        f"    run.acu.move_to({block.az}, {block.alt})",
+                        f"    run.acu.move_to(az, {round(block.alt,3)})",
                         "",
                         f"    print('Waiting until {block.t0} to start scan')",
-                        f"    run.wait_until({block.t0.isoformat()})",
+                        f"    run.wait_until('{block.t0.isoformat()}')",
                         "",
                         "    run.seq.scan(",
                         f"        description='{block.name}', ",
-                        f"        stop_time={block.t1.isoformat()}, ",
-                        f"        width={block.throw}, ",
-                        f"        az_drift={block.az_drift}, ",
+                        f"        stop_time='{block.t1.isoformat()}', ",
+                        f"        width={round(block.throw,3)}, ",
+                        f"        az_drift={round(block.az_drift,5)}, ",
                         f"        subtype='{block.subtype}',",
                         f"        tag='{block.tag}',",
                         "    )",
