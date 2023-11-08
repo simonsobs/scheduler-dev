@@ -70,6 +70,8 @@ class SATPolicy:
     time_costs: dict[str, float]
     ufm_relock: bool
     scan_tag: Optional[str] = None
+    az_speed: float = 1. # deg / s
+    az_accel: float = 2. # deg / s^2
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=dict)
     
     def save_checkpoint(self, name, blocks):
@@ -204,6 +206,13 @@ class SATPolicy:
             commands += ufm_relock
             time_cost += self.time_costs['ufm_relock']
 
+        # set az speed and accel
+        commands += [
+            "",
+            f"run.acu.set_scan_params({self.az_speed}, {self.az_accel})",
+            "",
+        ] 
+        
         # start to build scans
         assert core.seq_is_sorted(seq), "seq must be sorted"
 
@@ -259,7 +268,6 @@ class SATPolicy:
                     commands += [
                         "################# Scan #################################",
                         "",
-                        f"run.acu.set_scan_params({block.az_speed}, {block.az_accel})",
                         "now = datetime.datetime.now(tz=UTC)",
                         f"if now > {repr(block.t0)}:",
                         "    # adjust scan parameters",

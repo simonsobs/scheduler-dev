@@ -15,9 +15,7 @@ class ScanBlock(core.NamedBlock):
     alt: float       # deg
     throw: float     # deg
     az_drift: float = 0. # deg / s
-    az_speed: float = 1. # deg / s
-    az_accel: float = 2. # deg / s^2
-    subtype: str = "scan"
+    subtype: str = ""
     tag: str = ""
 
 @dataclass(frozen=True)
