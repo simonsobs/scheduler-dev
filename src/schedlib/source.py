@@ -372,6 +372,7 @@ def make_source_ces(block, array_info, el_bore=50,
             t0=u.ct2dt(float(t0)),
             t1=u.ct2dt(float(t1)),
             az_drift=v_az,
+            boresight_angle=boresight_rot,
             tag=f"{block.name},{block.mode}"
         )
     except ValueError:

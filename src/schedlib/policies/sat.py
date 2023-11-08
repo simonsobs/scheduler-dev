@@ -221,6 +221,7 @@ class SATPolicy:
         t_cur = t0 + dt.timedelta(seconds=time_cost)
 
         is_det_setup = False
+        cur_boresight_angle = None
         for block in seq:
             # det setup
             if t_cur + dt.timedelta(seconds=self.time_costs['det_setup']) > block.t1:
@@ -253,7 +254,16 @@ class SATPolicy:
                     commands += [
                         "",
                         "#~~~~~~~~~~~~~~~~~~~~~~~",
-                        f"run.wait_until('{block.t0.isoformat()}')",
+                        f"run.wait_until('{block.t0.isoformat()}')"
+                    ]
+
+                    if block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
+                        commands += [
+                            f"run.acu.set_boresight({block.boresight_angle})",
+                        ]
+                        cur_boresight_angle = block.boresight_rot
+
+                    commands += [
                         f"run.acu.move_to(az={round(block.az,3)}, el={round(block.alt,3)})",
                          "run.smurf.bias_step(concurrent=True)",
                          "run.seq.scan(",
@@ -274,6 +284,15 @@ class SATPolicy:
                         "#################### Detector Setup #########################",
                         f"print('Waiting until {t_start} to start detector setup')",
                         f"run.wait_until('{t_start.isoformat()}')",
+                    ]
+
+                    if block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
+                        commands += [
+                            f"run.acu.set_boresight({block.boresight_angle})",
+                        ]
+                        cur_boresight_angle = block.boresight_rot
+
+                    commands += [
                         f"run.acu.move_to(az={round(np.mod(block.az,360),3)}, el={round(block.alt,3)})",
                         "run.smurf.take_bgmap(concurrent=True)",
                         "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from jax import tree_util as tu
 import pandas as pd
-from typing import List, TypeVar, Union, Dict
+from typing import List, TypeVar, Union, Dict, Optional
 import numpy as np
 from functools import reduce
 from dataclasses import dataclass
@@ -15,6 +15,7 @@ class ScanBlock(core.NamedBlock):
     alt: float       # deg
     throw: float     # deg
     az_drift: float = 0. # deg / s
+    boresight_angle: Optional[float] = None # deg
     subtype: str = ""
     tag: str = ""
 
