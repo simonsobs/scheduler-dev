@@ -264,7 +264,7 @@ def _find_az_bore(el_bore, az_src, el_src, q_point, atol=0.01):
     return az_bore
 
 def make_source_ces(block, array_info, el_bore=50, 
-        allow_partial=False, v_az=None
+        allow_partial=False, v_az=None, boresight_rot=None
     ):
     """make a ces scan of a source
 
@@ -278,8 +278,10 @@ def make_source_ces(block, array_info, el_bore=50,
         elevation of the boresight in degrees
     allow_partial: bool
         if True, allow partial coverage of the array
-    v_az: float
+    v_az: Optional[float]
         az drift speed in az in deg/s, if None, will try to find optimal drift speed
+    boresight_rot: Optional[float]
+        rotation of the boresight in deg
 
     Returns
     -------
@@ -290,6 +292,12 @@ def make_source_ces(block, array_info, el_bore=50,
     assert 'center' in array_info and 'cover' in array_info, 'array_info must contain center and cover'
     q_center = quat.rotation_xieta(*array_info['center'])
     q_cover = quat.rotation_xieta(*array_info['cover'])
+
+    # apply boresight rotation if specified
+    if boresight_rot is not None:
+        q_bore_rot = quat.euler(2, np.deg2rad(boresight_rot))
+        q_center = q_bore_rot * q_center
+        q_cover = q_bore_rot * q_cover
 
     t, az_src, el_src = block.get_az_alt()  # degs
     t_src_interp = interpolate.interp1d(
