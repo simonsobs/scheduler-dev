@@ -106,7 +106,15 @@ class SATPolicy:
         
         # plan source scans
         cal_blocks = {}
-        for source, array_query, el_bore, tagname in self.cal_targets:
+        for cal_target in self.cal_targets:
+            if len(cal_target) == 4:
+                source, array_query, el_bore, tagname = cal_target
+                boresight_rot = None
+            elif len(cal_target) == 5:
+                source, array_query, el_bore, boresight_rot, tagname = cal_target
+            else:
+                raise ValueError("cal_target has an unrecognized format")
+
             assert source in blocks['calibration'], f"source {source} not found in sequence"
 
             array_info = inst.array_info_from_query(self.geometries, array_query)
@@ -114,6 +122,7 @@ class SATPolicy:
                 array_info=array_info, 
                 el_bore=el_bore, 
                 drift=True,
+                boresight_rot=boresight_rot,
             )
 
             if source not in cal_blocks: cal_blocks[source] = []
