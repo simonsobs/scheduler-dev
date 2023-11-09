@@ -176,6 +176,8 @@ def source_block_get_az_alt(block: SourceBlock, time_step: dt.timedelta = dt.tim
     ctimes = np.array([int(t.timestamp()) for t in times])
     az = source.interp_az(ctimes)
     alt = source.interp_alt(ctimes)
+    # make sure az is at a reasonable range
+    az = np.unwrap(np.mod(az, 360), period=360)
     return ctimes, az, alt
 
 def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tuple[float, float]]=None, alt_range:Optional[Tuple[float, float]]=None, time_step:dt.timedelta=dt.timedelta(seconds=30)) -> core.Blocks:
@@ -236,7 +238,7 @@ class ObservingWindow(SourceBlock):
         t0 = u.interp_bounded(alt, self.alt_bore, self.t_start)
         return self.get_scan_at_t0(t0)
 
-def _find_az_bore(el_bore, az_src, el_src, q_point):
+def _find_az_bore(el_bore, az_src, el_src, q_point, atol=0.01):
     """find the boresight, given el_bore, such that q_point (relative to the boresight) is
     intercepted by the trajectory of the source
 
@@ -250,6 +252,9 @@ def _find_az_bore(el_bore, az_src, el_src, q_point):
     res = optimize.minimize(fun, az_bore_init, method='Nelder-Mead')
     assert res.success, 'failed to converge on where to point the boresight'
     az_bore = res.x[0]
+    # extra check
+    if fun(az_bore) > atol:
+        raise ValueError(f'failed to meet convergence tol ({atol}) on where to point the boresight')
     return az_bore
 
 def make_source_ces(block, array_info, el_bore=50, allow_partial=False, v_az=None):
