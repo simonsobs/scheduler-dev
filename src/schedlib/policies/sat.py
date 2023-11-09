@@ -33,30 +33,22 @@ preamble = [
 
 wrap_up = [
     "# go home",
-    "run.acu.move_to(az=220, el=40)",
+    "run.acu.move_to(az=180, el=50)",
     "",
     "time.sleep(1)"
 ]
 
 ufm_relock = [
     "############# Daily Relock ######################",
-    "# unbias dets",
-    "for smurf_instance_id in self.pysmurfs_instance_ids:",
-    "    args = ['--bias', '0.0', '--slot', str(smurf_instance_id.split('s')[-1])]",
-    "    ok, msg, sess = run.smurf.run.start(script='/readout-script-dev/max/site_control/set_det_biases.py', args=args)",
-    "",
     "for smurf in pysmurfs:",
-    "    smurf.run.wait()",
+    "    smurf.zero_biases.start()",
+    "for smurf in pysmurfs:",
+    "    smurf.zero_biases.wait()",
+    "",
     "time.sleep(120)",
     "run.smurf.take_noise(concurrent=True, tag='oper,take_noise,res_check')",
     "",
-    "print('Relocking the UFMs')",
-    "for smurf in pysmurfs:",
-    "    smurf.uxm_relock.start(kwargs={'skip_setup_amps':True})",
-    "for smurf in pysmurfs:",
-    "    smurf.uxm_relock.wait()",
-    "    print(smurf.uxm_relock.status())",
-    "",
+    "run.uxm_relock(concurrent=True)",
     "#################################################", 
 ]
     
