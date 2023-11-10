@@ -48,7 +48,7 @@ ufm_relock = [
     "time.sleep(120)",
     "run.smurf.take_noise(concurrent=True, tag='oper,take_noise,res_check')",
     "",
-    "run.uxm_relock(concurrent=True)",
+    "run.smurf.uxm_relock(concurrent=True)",
     "#################################################", 
 ]
     
