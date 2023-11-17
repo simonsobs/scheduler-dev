@@ -5,7 +5,7 @@ import yaml
 import os.path as op
 from dataclasses import dataclass, field
 import datetime as dt
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Dict
 import jax.tree_util as tu
 import numpy as np
 
@@ -54,9 +54,45 @@ ufm_relock = [
     
 @dataclass
 class SATPolicy:
-    """a more realistic SAT policy."""
+    """a more realistic SAT policy.
+    
+    Parameters
+    ----------
+    blocks : dict
+        a dict of blocks, with keys 'baseline' and 'calibration'
+    rules : dict
+        a dict of rules, specifies rule cfgs for e.g., 'sun-avoidance', 'az-range', 'min-duration'
+    geometries : dict
+        a dict of geometries, with the leave node being dict with keys 'center' and 'radius'
+    cal_targets : list
+        a list of tuples, each tuple specifies a calibration target, with the format
+        (source, array_query, el_bore, boresight_rot, tagname)
+    merge_order : list
+        a list of queries, specifies the order of merging, e.g., ['baseline', 'calibration']
+        indicates that baseline blocks takes precedence over calibration blocks in case of
+        overlap
+    time_costs : dict
+        a dict of time costs, specifies the time cost of various operations, e.g., 'det_setup'
+        specifies the time cost of detector setup
+    ufm_relock : bool
+        whether to relock UFM before the start of the sequence
+    scan_tag : str
+        a tag to be added to all scans
+    az_speed : float
+        the az speed in deg / s
+    az_accel : float
+        the az acceleration in deg / s^2
+    apply_boresight_rot : bool
+        whether to apply boresight rotation
+    allow_partial : bool
+        whether to allow partial source scans
+    
+    # internal use only
+    checkpoints : dict
+        a dict of checkpoints, with keys being checkpoint names and values being blocks 
+    """
     blocks: dict
-    rules: List[core.Rule]
+    rules: Dict[str, core.Rule]
     geometries: List[dict]
     cal_targets: List[tuple]
     merge_order: List[str]
@@ -66,6 +102,7 @@ class SATPolicy:
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
     apply_boresight_rot: bool = False
+    allow_partial: bool = False
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=dict)
     
     def save_checkpoint(self, name, blocks):
@@ -124,6 +161,7 @@ class SATPolicy:
                 el_bore=el_bore, 
                 drift=True,
                 boresight_rot=boresight_rot,
+                allow_partial=self.allow_partial,
             )
 
             if source not in cal_blocks: cal_blocks[source] = []
@@ -140,7 +178,7 @@ class SATPolicy:
                 rules = []
                 for cal_target in self.cal_targets:
                     if len(cal_target) == 4:
-                        source, array_query, el_bore, tagname = cal_target
+                        source_, array_query, el_bore, tagname = cal_target
                         boresight_rot = None
                     elif len(cal_target) == 5:
                         source_, array_query, el_bore, boresight_rot, tagname = cal_target
@@ -155,6 +193,7 @@ class SATPolicy:
                                 el_bore=el_bore,
                                 drift=True,
                                 boresight_rot=boresight_rot,
+                                allow_partial=self.allow_partial,
                             ),
                         )
                     )
