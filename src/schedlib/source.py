@@ -295,7 +295,7 @@ def make_source_ces(block, array_info, el_bore=50,
 
     # apply boresight rotation if specified
     if boresight_rot is not None:
-        q_bore_rot = quat.euler(2, np.deg2rad(boresight_rot))
+        q_bore_rot = quat.euler(2, -np.deg2rad(boresight_rot))
         q_center = q_bore_rot * q_center
         q_cover = q_bore_rot * q_cover
 
