@@ -244,20 +244,28 @@ def _find_az_bore(el_bore, az_src, el_src, q_point, atol=0.01):
 
     """
     def fun(az_bore):
-        az_center, el_center, _ =  quat.decompose_lonlat(quat.rotation_lonlat(-az_bore * u.deg, el_bore * u.deg) * q_point)
+        az_center, el_center, _ =  quat.decompose_lonlat(
+            quat.rotation_lonlat(-az_bore * u.deg, el_bore * u.deg) * q_point
+        )
         az_center *= -1
-        az_expect = interpolate.interp1d(el_src, az_src, fill_value='extrapolate')(el_center / u.deg)
-        return np.abs(az_expect - az_center / u.deg)
-    az_bore_init = interpolate.interp1d(el_src, az_src, fill_value='extrapolate')(el_bore)
+        az_expect = interpolate.interp1d(
+            el_src, az_src, fill_value='extrapolate'
+        )(el_center / u.deg)
+        return np.mod(np.abs(az_expect - az_center / u.deg),360)
+    az_bore_init = interpolate.interp1d(
+        el_src, az_src, fill_value='extrapolate'
+    )(el_bore)
     res = optimize.minimize(fun, az_bore_init, method='Nelder-Mead')
     assert res.success, 'failed to converge on where to point the boresight'
     az_bore = res.x[0]
     # extra check
     if fun(az_bore) > atol:
-        raise ValueError(f'failed to meet convergence tol ({atol}) on where to point the boresight')
+        raise ValueError(f"failed to meet convergence tol ({atol}) on where to point the boresight")
     return az_bore
 
-def make_source_ces(block, array_info, el_bore=50, allow_partial=False, v_az=None):
+def make_source_ces(block, array_info, el_bore=50, 
+        allow_partial=False, v_az=None
+    ):
     """make a ces scan of a source
 
     Parameters
@@ -284,7 +292,9 @@ def make_source_ces(block, array_info, el_bore=50, allow_partial=False, v_az=Non
     q_cover = quat.rotation_xieta(*array_info['cover'])
 
     t, az_src, el_src = block.get_az_alt()  # degs
-    t_src_interp = interpolate.interp1d(el_src, t, kind='linear', fill_value='extrapolate')
+    t_src_interp = interpolate.interp1d(
+        el_src, t, kind='linear', fill_value='extrapolate'
+    )
 
     # work out boresight
     az_bore = _find_az_bore(el_bore, az_src, el_src, q_center)
