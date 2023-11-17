@@ -65,6 +65,7 @@ class SATPolicy:
     scan_tag: Optional[str] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
+    apply_boresight_rot: bool = False
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=dict)
     
     def save_checkpoint(self, name, blocks):
@@ -257,7 +258,7 @@ class SATPolicy:
                         f"run.wait_until('{block.t0.isoformat()}')"
                     ]
 
-                    if block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
+                    if self.apply_boresight_rot and block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
                         commands += [
                             f"run.acu.set_boresight({block.boresight_angle})",
                         ]
@@ -286,7 +287,7 @@ class SATPolicy:
                         f"run.wait_until('{t_start.isoformat()}')",
                     ]
 
-                    if block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
+                    if self.apply_boresight_rot and block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
                         commands += [
                             f"run.acu.set_boresight({block.boresight_angle})",
                         ]
