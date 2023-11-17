@@ -362,11 +362,13 @@ class MakeCESourceScan(MappableRule):
     array_info : dict. array information, contains 'center' and 'radius' keys
     el_bore : float. elevation of the boresight in degrees 
     drift : bool. whether to enable drift mode
+    allow_partial : bool. whether to allow partial scans
 
     """
     array_info: dict
     el_bore: float  # deg
     drift: bool = True
+    allow_partial: bool = False
 
     def apply_block(self, block: core.Block) -> core.Block: 
         if isinstance(block, src.SourceBlock):
@@ -374,7 +376,9 @@ class MakeCESourceScan(MappableRule):
             # so that it will be automatically calculated. Otherwise, we pass
             # in a zero v_az, which effectively has no drift.
             v_az = 0 if not self.drift else None
-            return src.make_source_ces(block, array_info=self.array_info, el_bore=self.el_bore, v_az=v_az)
+            return src.make_source_ces(block, array_info=self.array_info, 
+                                       allow_partial=self.allow_partial,
+                                       el_bore=self.el_bore, v_az=v_az)
         else:
             return block
 
