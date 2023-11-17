@@ -137,17 +137,27 @@ class SATPolicy:
             # if not, let's alternate between targets
             if core.seq_has_overlap(cal_blocks[source]):
                 # one target per source block (e.g. per transit)
-                rules = [
-                    (
-                        tagname,
-                        ru.MakeCESourceScan(
-                            array_info=inst.array_info_from_query(self.geometries, array_query),
-                            el_bore=el_bore,
-                            drift=True
-                        ),
+                rules = []
+                for cal_target in self.cal_targets:
+                    if len(cal_target) == 4:
+                        source, array_query, el_bore, tagname = cal_target
+                        boresight_rot = None
+                    elif len(cal_target) == 5:
+                        source_, array_query, el_bore, boresight_rot, tagname = cal_target
+                    else:
+                        raise ValueError("cal_target has an unrecognized format")
+                    if source_ != source: continue
+                    rules.append(
+                        (
+                            tagname,
+                            ru.MakeCESourceScan(
+                                array_info=inst.array_info_from_query(self.geometries, array_query),
+                                el_bore=el_bore,
+                                drift=True,
+                                boresight_rot=boresight_rot,
+                            ),
+                        )
                     )
-                    for source_, array_query, el_bore, tagname in self.cal_targets if source_ == source 
-                ]
 
                 new_blocks = []
                 rule_i = 0
