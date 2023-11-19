@@ -9,7 +9,7 @@ from so3g.proj import quat
 
 from . import core, utils as u
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, unsafe_hash=True)
 class ScanBlock(core.NamedBlock):
     az: float        # deg
     alt: float       # deg
@@ -18,6 +18,7 @@ class ScanBlock(core.NamedBlock):
     boresight_angle: Optional[float] = None # deg
     subtype: str = ""
     tag: str = ""
+    array_query: str = ""
 
 @dataclass(frozen=True)
 class IVBlock(core.NamedBlock): pass

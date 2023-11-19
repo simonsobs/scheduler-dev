@@ -370,6 +370,7 @@ class MakeCESourceScan(MappableRule):
     drift: bool = True
     allow_partial: bool = False
     boresight_rot: Optional[float] = None
+    array_query: str = ""
 
     def apply_block(self, block: core.Block) -> core.Block: 
         if isinstance(block, src.SourceBlock):
@@ -380,7 +381,8 @@ class MakeCESourceScan(MappableRule):
             return src.make_source_ces(block, array_info=self.array_info, 
                                        allow_partial=self.allow_partial,
                                        el_bore=self.el_bore, v_az=v_az,
-                                       boresight_rot=self.boresight_rot)
+                                       boresight_rot=self.boresight_rot,
+                                       array_query=self.array_query)
         else:
             return block
 

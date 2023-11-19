@@ -162,6 +162,7 @@ class SATPolicy:
                 drift=True,
                 boresight_rot=boresight_rot,
                 allow_partial=self.allow_partial,
+                array_query=array_query,
             )
 
             if source not in cal_blocks: cal_blocks[source] = []
@@ -194,6 +195,7 @@ class SATPolicy:
                                 drift=True,
                                 boresight_rot=boresight_rot,
                                 allow_partial=self.allow_partial,
+                                array_query=array_query,
                             ),
                         )
                     )

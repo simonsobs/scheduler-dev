@@ -264,7 +264,8 @@ def _find_az_bore(el_bore, az_src, el_src, q_point, atol=0.01):
     return az_bore
 
 def make_source_ces(block, array_info, el_bore=50, 
-        allow_partial=False, v_az=None, boresight_rot=None
+        allow_partial=False, v_az=None, boresight_rot=None,
+        array_query="",
     ):
     """make a ces scan of a source
 
@@ -373,7 +374,8 @@ def make_source_ces(block, array_info, el_bore=50,
             t1=u.ct2dt(float(t1)),
             az_drift=v_az,
             boresight_angle=boresight_rot,
-            tag=f"{block.name},{block.mode}"
+            tag=f"{block.name},{block.mode}",
+            array_query = array_query,
         )
     except ValueError:
         print("Failed to find optimal drift, using median az speed instead")
