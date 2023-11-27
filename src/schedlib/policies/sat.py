@@ -8,6 +8,7 @@ import datetime as dt
 from typing import List, Union, Optional, Dict
 import jax.tree_util as tu
 import numpy as np
+from collections import OrderedDict
 
 from .. import config as cfg, core, source as src, rules as ru, commands as cmd, instrument as inst
 
@@ -103,7 +104,7 @@ class SATPolicy:
     az_accel: float = 2. # deg / s^2
     apply_boresight_rot: bool = False
     allow_partial: bool = False
-    checkpoints: dict[str, core.BlocksTree] = field(default_factory=dict)
+    checkpoints: dict[str, core.BlocksTree] = field(default_factory=OrderedDict)
     
     def save_checkpoint(self, name, blocks):
         self.checkpoints[name] = blocks
@@ -136,6 +137,9 @@ class SATPolicy:
         return core.seq_trim(blocks, t0, t1)
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        # save the original blocks
+        self.save_checkpoint('original', blocks)
+
         # sun avoidance
         if 'sun-avoidance' in self.rules:
             rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
@@ -246,6 +250,8 @@ class SATPolicy:
             rule = ru.make_rule('min-duration', **self.rules['min-duration'])
             seq = rule(seq)
 
+        # save the result
+        self.save_checkpoint('final', seq)
         return core.seq_sort(seq)
 
     def seq2cmd(self, seq: core.Blocks, t0: dt.datetime, t1: dt.datetime):
