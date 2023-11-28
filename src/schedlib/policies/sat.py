@@ -5,9 +5,10 @@ import yaml
 import os.path as op
 from dataclasses import dataclass, field
 import datetime as dt
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Dict
 import jax.tree_util as tu
 import numpy as np
+from collections import OrderedDict
 
 from .. import config as cfg, core, source as src, rules as ru, commands as cmd, instrument as inst
 
@@ -54,9 +55,45 @@ ufm_relock = [
     
 @dataclass
 class SATPolicy:
-    """a more realistic SAT policy."""
+    """a more realistic SAT policy.
+    
+    Parameters
+    ----------
+    blocks : dict
+        a dict of blocks, with keys 'baseline' and 'calibration'
+    rules : dict
+        a dict of rules, specifies rule cfgs for e.g., 'sun-avoidance', 'az-range', 'min-duration'
+    geometries : dict
+        a dict of geometries, with the leave node being dict with keys 'center' and 'radius'
+    cal_targets : list
+        a list of tuples, each tuple specifies a calibration target, with the format
+        (source, array_query, el_bore, boresight_rot, tagname)
+    merge_order : list
+        a list of queries, specifies the order of merging, e.g., ['baseline', 'calibration']
+        indicates that baseline blocks takes precedence over calibration blocks in case of
+        overlap
+    time_costs : dict
+        a dict of time costs, specifies the time cost of various operations, e.g., 'det_setup'
+        specifies the time cost of detector setup
+    ufm_relock : bool
+        whether to relock UFM before the start of the sequence
+    scan_tag : str
+        a tag to be added to all scans
+    az_speed : float
+        the az speed in deg / s
+    az_accel : float
+        the az acceleration in deg / s^2
+    apply_boresight_rot : bool
+        whether to apply boresight rotation
+    allow_partial : bool
+        whether to allow partial source scans
+    
+    # internal use only
+    checkpoints : dict
+        a dict of checkpoints, with keys being checkpoint names and values being blocks 
+    """
     blocks: dict
-    rules: List[core.Rule]
+    rules: Dict[str, core.Rule]
     geometries: List[dict]
     cal_targets: List[tuple]
     merge_order: List[str]
@@ -65,7 +102,9 @@ class SATPolicy:
     scan_tag: Optional[str] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
-    checkpoints: dict[str, core.BlocksTree] = field(default_factory=dict)
+    apply_boresight_rot: bool = False
+    allow_partial: bool = False
+    checkpoints: dict[str, core.BlocksTree] = field(default_factory=OrderedDict)
     
     def save_checkpoint(self, name, blocks):
         self.checkpoints[name] = blocks
@@ -98,6 +137,9 @@ class SATPolicy:
         return core.seq_trim(blocks, t0, t1)
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        # save the original blocks
+        self.save_checkpoint('original', blocks)
+
         # sun avoidance
         if 'sun-avoidance' in self.rules:
             rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
@@ -106,7 +148,15 @@ class SATPolicy:
         
         # plan source scans
         cal_blocks = {}
-        for source, array_query, el_bore, tagname in self.cal_targets:
+        for cal_target in self.cal_targets:
+            if len(cal_target) == 4:
+                source, array_query, el_bore, tagname = cal_target
+                boresight_rot = None
+            elif len(cal_target) == 5:
+                source, array_query, el_bore, boresight_rot, tagname = cal_target
+            else:
+                raise ValueError("cal_target has an unrecognized format")
+
             assert source in blocks['calibration'], f"source {source} not found in sequence"
 
             array_info = inst.array_info_from_query(self.geometries, array_query)
@@ -114,6 +164,8 @@ class SATPolicy:
                 array_info=array_info, 
                 el_bore=el_bore, 
                 drift=True,
+                boresight_rot=boresight_rot,
+                allow_partial=self.allow_partial,
             )
 
             if source not in cal_blocks: cal_blocks[source] = []
@@ -127,17 +179,28 @@ class SATPolicy:
             # if not, let's alternate between targets
             if core.seq_has_overlap(cal_blocks[source]):
                 # one target per source block (e.g. per transit)
-                rules = [
-                    (
-                        tagname,
-                        ru.MakeCESourceScan(
-                            array_info=inst.array_info_from_query(self.geometries, array_query),
-                            el_bore=el_bore,
-                            drift=True
-                        ),
+                rules = []
+                for cal_target in self.cal_targets:
+                    if len(cal_target) == 4:
+                        source_, array_query, el_bore, tagname = cal_target
+                        boresight_rot = None
+                    elif len(cal_target) == 5:
+                        source_, array_query, el_bore, boresight_rot, tagname = cal_target
+                    else:
+                        raise ValueError("cal_target has an unrecognized format")
+                    if source_ != source: continue
+                    rules.append(
+                        (
+                            tagname,
+                            ru.MakeCESourceScan(
+                                array_info=inst.array_info_from_query(self.geometries, array_query),
+                                el_bore=el_bore,
+                                drift=True,
+                                boresight_rot=boresight_rot,
+                                allow_partial=self.allow_partial,
+                            ),
+                        )
                     )
-                    for source_, array_query, el_bore, tagname in self.cal_targets if source_ == source 
-                ]
 
                 new_blocks = []
                 rule_i = 0
@@ -187,6 +250,8 @@ class SATPolicy:
             rule = ru.make_rule('min-duration', **self.rules['min-duration'])
             seq = rule(seq)
 
+        # save the result
+        self.save_checkpoint('final', seq)
         return core.seq_sort(seq)
 
     def seq2cmd(self, seq: core.Blocks, t0: dt.datetime, t1: dt.datetime):
@@ -212,6 +277,7 @@ class SATPolicy:
         t_cur = t0 + dt.timedelta(seconds=time_cost)
 
         is_det_setup = False
+        cur_boresight_angle = None
         for block in seq:
             # det setup
             if t_cur + dt.timedelta(seconds=self.time_costs['det_setup']) > block.t1:
@@ -244,7 +310,16 @@ class SATPolicy:
                     commands += [
                         "",
                         "#~~~~~~~~~~~~~~~~~~~~~~~",
-                        f"run.wait_until('{block.t0.isoformat()}')",
+                        f"run.wait_until('{block.t0.isoformat()}')"
+                    ]
+
+                    if self.apply_boresight_rot and block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
+                        commands += [
+                            f"run.acu.set_boresight({block.boresight_angle})",
+                        ]
+                        cur_boresight_angle = block.boresight_rot
+
+                    commands += [
                         f"run.acu.move_to(az={round(block.az,3)}, el={round(block.alt,3)})",
                          "run.smurf.bias_step(concurrent=True)",
                          "run.seq.scan(",
@@ -265,6 +340,15 @@ class SATPolicy:
                         "#################### Detector Setup #########################",
                         f"print('Waiting until {t_start} to start detector setup')",
                         f"run.wait_until('{t_start.isoformat()}')",
+                    ]
+
+                    if self.apply_boresight_rot and block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
+                        commands += [
+                            f"run.acu.set_boresight({block.boresight_angle})",
+                        ]
+                        cur_boresight_angle = block.boresight_rot
+
+                    commands += [
                         f"run.acu.move_to(az={round(np.mod(block.az,360),3)}, el={round(block.alt,3)})",
                         "run.smurf.take_bgmap(concurrent=True)",
                         "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
