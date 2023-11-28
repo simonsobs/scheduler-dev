@@ -134,6 +134,11 @@ class SATPolicy:
                 raise ValueError(f"unknown sequence type: {loader_cfg['type']}")
         blocks = tu.tree_map(construct_seq, self.blocks, 
                              is_leaf=lambda x: isinstance(x, dict) and 'type' in x)
+        # by default add calibration blocks specified in cal_targets if not already specified
+        for cal_target in self.cal_targets:
+            source = cal_target[0]
+            if source not in blocks['calibration']:
+                blocks['calibration'][source] = src.source_gen_seq(source, t0, t1)
         return core.seq_trim(blocks, t0, t1)
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
@@ -235,6 +240,7 @@ class SATPolicy:
         #########
         # merge #
         #########
+
         seq = None
         for query in self.merge_order[::-1]:
             match, _ = core.seq_partition_with_query(query, blocks)
