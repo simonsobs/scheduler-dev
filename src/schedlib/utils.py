@@ -187,6 +187,7 @@ def match_query(path, query):
 def nested_update(dictionary, update_dict, new_keys_allowed=True):
     """update a nested dictionary recursively but
     never add new keys"""
+    if update_dict is None: return dictionary
     for key, value in update_dict.items():
         if key in dictionary and isinstance(dictionary[key], dict) and isinstance(value, dict):
             nested_update(dictionary[key], value)
