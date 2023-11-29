@@ -87,7 +87,8 @@ class SATPolicy:
         whether to apply boresight rotation
     allow_partial : bool
         whether to allow partial source scans
-    
+    wafer_sets : dict[str, str]
+        a dict of wafer sets definitions
     # internal use only
     checkpoints : dict
         a dict of checkpoints, with keys being checkpoint names and values being blocks 
@@ -104,6 +105,7 @@ class SATPolicy:
     az_accel: float = 2. # deg / s^2
     apply_boresight_rot: bool = False
     allow_partial: bool = False
+    wafer_sets: dict[str, str] = field(default_factory=dict)
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=OrderedDict)
     
     def save_checkpoint(self, name, blocks):
@@ -164,6 +166,12 @@ class SATPolicy:
 
             assert source in blocks['calibration'], f"source {source} not found in sequence"
 
+            # translation: allow array_query to look up from 
+            # wafer_set definitions
+            if array_query in self.wafer_sets:
+                array_query = self.wafer_sets[array_query]
+
+            # build geometry information
             array_info = inst.array_info_from_query(self.geometries, array_query)
             rule = ru.MakeCESourceScan(
                 array_info=array_info, 
@@ -172,7 +180,6 @@ class SATPolicy:
                 boresight_rot=boresight_rot,
                 allow_partial=self.allow_partial,
             )
-
             if source not in cal_blocks: cal_blocks[source] = []
             _blocks = rule(blocks['calibration'][source])
             cal_blocks[source].append(
@@ -194,6 +201,10 @@ class SATPolicy:
                     else:
                         raise ValueError("cal_target has an unrecognized format")
                     if source_ != source: continue
+                    # translation: allow array_query to look up from 
+                    # wafer_set definitions
+                    if array_query in self.wafer_set:
+                        array_query = self.wafer_set[array_query]
                     rules.append(
                         (
                             tagname,
@@ -220,7 +231,9 @@ class SATPolicy:
             else:
                 cal_blocks[source] = core.seq_flatten(cal_blocks[source])
         
-        # store the result back to calibration
+        # store the result back to calibration 
+        # (not in-place so previous checkpoints are not affected)
+        blocks = blocks.copy()
         blocks['calibration'] = cal_blocks
         self.save_checkpoint('add-calibration', blocks)
 
@@ -228,6 +241,7 @@ class SATPolicy:
         if 'az-range' in self.rules:
             rule = ru.make_rule('az-range', **self.rules['az-range'])
             blocks = rule(blocks)
+            self.save_checkpoint('az-range', blocks)
 
         # add proper subtypes
         blocks['calibration'] = core.seq_map(lambda block: block.replace(subtype="cal"), blocks['calibration'])
@@ -250,6 +264,8 @@ class SATPolicy:
             else:
                 # match takes precedence
                 seq = core.seq_merge(seq, match, flatten=True)
+
+        self.save_checkpoint('merge', seq)
 
         # duration cut
         if 'min-duration' in self.rules:
