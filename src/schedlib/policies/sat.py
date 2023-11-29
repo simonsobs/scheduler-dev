@@ -203,8 +203,8 @@ class SATPolicy:
                     if source_ != source: continue
                     # translation: allow array_query to look up from 
                     # wafer_set definitions
-                    if array_query in self.wafer_set:
-                        array_query = self.wafer_set[array_query]
+                    if array_query in self.wafer_sets:
+                        array_query = self.wafer_sets[array_query]
                     rules.append(
                         (
                             tagname,
