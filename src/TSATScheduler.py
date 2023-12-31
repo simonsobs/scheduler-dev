@@ -1,0 +1,193 @@
+from schedlib import policies, config as cfg
+from schedlib.instrument import ScanBlock
+from schedlib import rules, source as src
+
+import argparse
+import copy
+import os
+import matplotlib.pyplot as plt
+
+import numpy as np
+import datetime as dt
+from schedlib.policies import TSATPolicy
+from schedlib import utils as u
+from schedlib import instrument as inst
+
+def make_config(pos='top', elevation=50, caltype='beam'):
+    ufm_mv12_shift = np.degrees([0, 0])
+    ufm_mv35_shift = np.degrees([0, 0])
+    ufm_mv23_shift = np.degrees([0, 0])
+    ufm_mv5_shift  = np.degrees([0, 0])
+    ufm_mv27_shift = np.degrees([0, 0])
+    ufm_mv33_shift = np.degrees([0, 0])
+    ufm_mv17_shift = np.degrees([0, 0])
+
+    d_xi = 10.9624
+    d_eta_side = 6.46363
+    d_eta_mid = 12.634
+
+    geometries = {
+      'ws3': {
+        'center': [-d_xi+ufm_mv12_shift[0], d_eta_side+ufm_mv12_shift[1]],
+        'radius': 6,
+      },
+      'ws2': {
+        'center': [-d_xi+ufm_mv35_shift[0], -d_eta_side+ufm_mv35_shift[1]],
+        'radius': 6,
+      },
+      'ws4': {
+        'center': [0+ufm_mv23_shift[0], d_eta_mid+ufm_mv23_shift[1]],
+        'radius': 6,
+      },
+      'ws0': {
+        'center': [0+ufm_mv5_shift[0], 0+ufm_mv5_shift[1]],
+        'radius': 6,
+      },
+      'ws1': {
+        'center': [0+ufm_mv27_shift[0], -d_eta_mid+ufm_mv27_shift[1]],
+        'radius': 6,
+      },
+      'ws5': {
+        'center': [d_xi+ufm_mv33_shift[0], d_eta_side+ufm_mv33_shift[1]],
+        'radius': 6,
+      },
+      'ws6': {
+        'center': [d_xi+ufm_mv17_shift[0], -d_eta_side+ufm_mv17_shift[1]],
+        'radius': 6,
+      },
+    }
+
+    # top, bottom means the position on the sky
+    left_boresight_0 = 'ws3,ws2'
+    middle_boresight_0 = 'ws0,ws1,ws4'
+    right_boresight_0 = 'ws5,ws6'
+    bottom_boresight_0 = 'ws1,ws2,ws6'
+    top_boresight_0 = 'ws3,ws4,ws5'
+
+    ufms = {
+        'left': ['ws3,ws2', 'Mv12Mv35'],
+        'right': ['ws5,ws6', 'Mv17Mv33'],
+        'middle': ['ws0,ws1,ws4', 'Mv27Mv5Mv23'],
+        'bottom': ['ws1,ws2,ws6', 'Mv17Mv27Mv35'],
+        'top': ['ws3,ws4,ws5', 'Mv33Mv23Mv12'],
+        'center': ['ws0', 'Mv5'],
+    }
+
+    blocks = {
+        'calibration': {
+            'saturn': {
+                'type' : 'source',
+                'name' : 'saturn',
+            },
+            'jupiter': {
+                'type' : 'source',
+                'name' : 'jupiter',
+            },
+            'moon': {
+                'type' : 'source',
+                'name' : 'moon',
+            },
+            'taua': {
+                'type' : 'source',
+                'name' : 'taua',
+            },
+            'galcenter': {
+                'type' : 'source',
+                'name' : 'galcenter',
+            },
+        },
+        'baseline': {
+            'cmb': {
+                'type': 'toast',
+                #'file': '/so/home/kmharrin/public_html/observation_scripts/baseline_schedule_20231031.txt'
+                'file': '/so/home/ykyohei/public_html/schedule/E60_A40_S2023-12-01_F2025-01-01_D-10_-40_L0.86_6.86_12.86_18.86_T65.00_M045_S045.txt'
+            }
+        }
+    }
+
+    # target, location,elevation, boresight, tag-to-add-to-data-files
+    cal_targets = {
+        'beam': [
+            ('jupiter', ufms[pos][0], elevation, 0, ufms[pos][1]),
+            ('saturn', ufms[pos][0], elevation, 0, ufms[pos][1]),
+        ],
+        'pol': [
+            ('taua', ufms[pos][0], elevation, 0, ufms[pos][1]),
+            ('galcenter', ufms[pos][0], elevation, 0, ufms[pos][1]),
+        ],
+        'baseline': [],
+    }
+
+    config = {
+        'blocks': blocks,
+        'geometries': geometries,
+        'rules': {
+            'sun-avoidance': {
+                'min_angle_az': 41, #keep-out angle, i.e. tells script not to build scans within 41 degrees of the sun
+                'min_angle_alt': 41,
+            },
+            'min-duration': {
+                'min_duration': 600
+            },
+            'az-range': {
+                'az_range': [-10, 400], #absolute min and max program can use
+                'trim': True #If set to true, if doing a large az scan (large az drift), will stay within the az bounds specified
+            },
+        },
+        'allow_partial':True,
+        'cal_targets': cal_targets[caltype],
+        'merge_order': {'pol': ['taua', 'galcenter'], 'beam':['jupiter', 'saturn'], 'baseline': 'baseline'}[caltype],
+        'time_costs': {
+            'det_setup': 40*60,
+            'bias_step': 60,
+            'ufm_relock': 15*60,
+        },
+        'ufm_relock': True,
+        'scan_tag': None,
+    }
+    print(cal_targets[caltype])
+
+    return config
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--today', default=True)
+    parser.add_argument('--o', type=str, default='./', help='output directory')
+    args = parser.parse_args()
+
+    # manual
+    t0 = dt.datetime(2023, 12, 22, 0, 0, 0, tzinfo=dt.timezone.utc)
+    t1 = dt.datetime(2023, 12, 23, 3, 0, 0, tzinfo=dt.timezone.utc)
+    if args.today:
+        today = dt.date.today()# + dt.timedelta(days=1)
+        tomrw = today + dt.timedelta(days=1)
+        t0 = dt.datetime(today.year, today.month, today.day, 7, 0, 0, tzinfo=dt.timezone.utc)
+        t1 = dt.datetime(tomrw.year, tomrw.month, tomrw.day, 7, 0, 0, tzinfo=dt.timezone.utc)
+
+    for pos in ['top', 'bottom']:
+        for el in [40, 50, 60]:
+            for caltype in ['beam', 'pol']:
+                config = make_config(pos, el, caltype)
+                policy = TSATPolicy(**config)
+
+                seqs = policy.init_seqs(t0, t1)
+                seqs = policy.apply(seqs)
+                #u.pprint(seqs)
+
+                fname = os.path.join(args.o, t0.strftime(f'%Y%m%d_{pos}_el{el:d}_{caltype}_observations.py'))
+                with open(fname, 'w') as f:
+                    f.write(str(policy.seq2cmd(seqs, t0, t1)))
+                print(fname +' is written.')
+
+    el, caltype = 60, 'baseline'
+    for pos in ['top', 'bottom', 'center']:
+                config = make_config(pos, el, caltype)
+                policy = TSATPolicy(**config)
+
+                seqs = policy.init_seqs(t0, t1)
+                seqs = policy.apply(seqs)
+
+                fname = os.path.join(args.o, t0.strftime(f'%Y%m%d_{pos}_el{el:d}_{caltype}_observations.py'))
+                with open(fname, 'w') as f:
+                    f.write(str(policy.seq2cmd(seqs, t0, t1)))
+                print(fname +' is written.')
