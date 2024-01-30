@@ -30,6 +30,120 @@ preamble = [
     "acu = run.CLIENTS['acu']",
     "pysmurfs = run.CLIENTS['smurf']",
     "",
+    "# HWP Params",
+    "use_pid = True",
+    "forward = True",
+    "hwp_freq = 2.0",
+    "",
+    "def HWPPrep():",
+    "    iboot2 = OCSClient('power-iboot-hwp-2')",
+    "    iboot2.set_outlet(outlet = 1, state = 'on')",
+    "    iboot2.set_outlet(outlet = 2, state = 'on')",
+    "",
+    "    pid = OCSClient('hwp-pid')",
+    "    pmx = OCSClient('hwp-pmx')",
+    "    global use_pid",
+    "    global forward",
+    "",
+    "    if use_pid:",
+    "        pmx.use_ext()",
+    "    else:",
+    "        pmx.ign_ext()",
+    "",
+    "    if forward:",
+    "        pid.set_direction(direction = '0')",
+    "    else:",
+    "        pid.set_direction(direction = '1')",
+    "",
+    "def HWPPost():",
+    "    iboot2 = OCSClient('power-iboot-hwp-2')",
+    "    gripper = OCSClient('hwp-gripper')",
+    "    iboot2.set_outlet(outlet = 1, state = 'off')",
+    "    iboot2.set_outlet(outlet = 2, state = 'off')",
+    "    gripper.force(value = False)",
+    "    gripper.brake(state = True)",
+    "    gripper.power(state = False)",
+    "",
+    "def HWPSpinUp():",
+    "    pid = OCSClient('hwp-pid')",
+    "    pmx = OCSClient('hwp-pmx')",
+    "    global use_pid",
+    "    global forward",
+    "    global hwp_freq",
+    "",
+    "    if use_pid:",
+    "        if forward:",
+    "            pid.set_direction(direction = '0')",
+    "        else:",
+    "            pid.set_direction(direction = '1')",
+    "",
+    "        pid.declare_freq(freq = hwp_freq)",
+    "        pid.tune_freq()",
+    "        pmx.set_on()",
+    "",
+    "        time.sleep(1)",
+    "        cur_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "",
+    "        while abs(cur_freq - hwp_freq) > 0.005:",
+    "            cur_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "            print ('Current Frequency =', cur_freq, 'Hz    ', end = '\\r')",
+    "",
+    "        print('                                    ', end = '\\r')",
+    "        print('Tuning finished')",
+    "    else:",
+    "        print('Error: Not using PID')",
+    "",
+    "def HWPFastStop():",
+    "    iboot2 = OCSClient('power-iboot-hwp-2')",
+    "    pid = OCSClient('hwp-pid')",
+    "    pmx = OCSClient('hwp-pmx')",
+    "    global use_pid",
+    "    global forward",
+    "",
+    "    if use_pid:",
+    "        print('Starting stop')",
+    "        if forward:",
+    "            pid.set_direction(direction = '1')",
+    "        else:",
+    "            pid.set_direction(direction = '0')",
+    "",
+    "        pid.tune_stop()",
+    "        pmx.set_on()",
+    "",
+    "        time.sleep(1)",
+    "        start_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "        time.sleep(15)",
+    "        cur_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "        if cur_freq > start_freq:",
+    "            if forward:",
+    "                pid.set_direction(direction = '0')",
+    "            else:",
+    "                pid.set_direction(direction = '1')",
+    "",
+    "            start_freq = cur_freq",
+    "            time.sleep(15)",
+    "            cur_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "            if cur_freq > start_freq:",
+    "                pmx.set_off()",
+    "                iboot2.set_outlet(outlet = 1, state = 'off')",
+    "                iboot2.set_outlet(outlet = 2, state = 'off')",
+    "                time.sleep(60*30)",
+    "",
+    "        while cur_freq > 0.2:",
+    "            cur_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "            print ('Current Frequency =', cur_freq, 'Hz    ', end = '\\r')",
+    "",
+    "        pmx.set_off()",
+    "        iboot2.set_outlet(outlet = 1, state = 'off')",
+    "        iboot2.set_outlet(outlet = 2, state = 'off')",
+    "        time.sleep(180)",
+    "        iboot2.set_outlet(outlet = 1, state = 'on')",
+    "        iboot2.set_outlet(outlet = 2, state = 'on')",
+    "",
+    "        print('                                    ', end = '\\r')",
+    "        print('CHWP stopped')",
+    "    else:",
+    "        print('Error: Not using PID')",
 ]
 
 wrap_up = [
@@ -52,7 +166,36 @@ ufm_relock = [
     "run.smurf.uxm_relock(concurrent=True)",
     "#################################################", 
 ]
-    
+
+hwp_spin_up = [
+    "############# Start HWP ######################",
+    "HWPPrep()",
+    "forward = True",
+    "hwp_freq = 2.0",
+    "HWPSpinUp()",
+]
+
+hwp_spin_down = [
+    "############# Stop HWP ######################",
+    "HWPFastStop()",
+    "HWPPost()",
+]
+
+def det_setup(az, alt, t_start):
+    return  [
+        "",
+        f"run.wait_until('{t_start.isoformat()}')",
+        "###################Detector Setup######################",
+        f"run.acu.move_to(az={round(az, 3)}, el={round(alt,3)})",
+        "run.smurf.take_bgmap(concurrent=True)",
+        "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
+        "run.smurf.bias_dets(concurrent=True)",
+        "time.sleep(180)",
+        "run.smurf.bias_step(concurrent=True)",
+        "#################### Detector Setup Over ####################",
+        "",
+    ]
+
 @dataclass
 class SATPolicy:
     """a more realistic SAT policy.
@@ -225,8 +368,11 @@ class SATPolicy:
                     tagname, rule = rules[rule_i]
                     block = rule(block)
                     if block is None: continue
-                    new_blocks.append(block.replace(tag=f"{block.tag},{tagname}"))
-                    rule_i = (rule_i + 1) % len(rules)  # alternating between rules
+                    new_blocks.append(
+                        block.replace(tag=f"{block.tag},{tagname}")
+                    )
+                    # alternating between rules
+                    rule_i = (rule_i + 1) % len(rules)  
                 cal_blocks[source] = new_blocks
             else:
                 cal_blocks[source] = core.seq_flatten(cal_blocks[source])
@@ -299,10 +445,21 @@ class SATPolicy:
         t_cur = t0 + dt.timedelta(seconds=time_cost)
 
         is_det_setup = False
+        is_hwp_spinning = False
         cur_boresight_angle = None
         for block in seq:
+            
+            setup_time = 0
+            if not is_det_setup or block.subtype=='cal':
+                setup_time += self.time_costs['det_setup']
+            if not is_hwp_spinning:
+                setup_time += self.time_costs['hwp_spin_up']
+            if is_hwp_spinning and block.subtype=='cal':
+                # we need to spin down HWP to rebias detectors
+                setup_time += self.time_costs['hwp_spin_down']
+                
             # det setup
-            if t_cur + dt.timedelta(seconds=self.time_costs['det_setup']) > block.t1:
+            if t_cur + dt.timedelta(seconds=setup_time) > block.t1:
                 commands += [
                     "\"\"\"",
                     f"Note: {block} skipped due to insufficient time",
@@ -312,22 +469,13 @@ class SATPolicy:
             else:
                 if block.subtype == 'cmb':
                     if not is_det_setup:
-                        t_start = block.t0 - dt.timedelta(seconds=self.time_costs['det_setup'])
-                        f"print('Waiting until {t_start} to start detector setup')",
-                        commands += [
-                            "",
-                            f"run.wait_until('{t_start.isoformat()}')",
-                            "###################Detector Setup######################",
-                            f"run.acu.move_to(az={round(block.az, 3)}, el={round(block.alt,3)})",
-                            "run.smurf.take_bgmap(concurrent=True)",
-                            "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
-                            "run.smurf.bias_dets(concurrent=True)",
-                            "time.sleep(180)",
-                            "run.smurf.bias_step(concurrent=True)",
-                            "#################### Detector Setup Over ####################",
-                            "",
-                        ]
+                        t_start = block.t0 - dt.timedelta(seconds=setup_time)
+                        commands += det_setup(block.az, block.alt, t_start)
                         is_det_setup = True
+
+                    if not is_hwp_spinning:
+                        commands += hwp_spin_up
+                        is_hwp_spinning = True
 
                     commands += [
                         "",
@@ -354,15 +502,18 @@ class SATPolicy:
                          "",
                     ]
                 if block.subtype == 'cal':
-                    t_start = block.t0 - dt.timedelta(seconds=self.time_costs['det_setup'])
+                    t_start = block.t0 - dt.timedelta(seconds=setup_time)
                     
+                    if is_hwp_spinning:
+                        commands += hwp_spin_down
+                        is_hwp_spinning = False
+                        t_start += dt.timedelta(
+                            seconds=self.time_costs['hwp_spin_down']
+                        )
+
                     # setup detectors
-                    commands += [
-                        "",
-                        "#################### Detector Setup #########################",
-                        f"print('Waiting until {t_start} to start detector setup')",
-                        f"run.wait_until('{t_start.isoformat()}')",
-                    ]
+                    commands += det_setup(block.az, block.alt, t_start)
+                    is_det_setup = True
 
                     if self.apply_boresight_rot and block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
                         commands += [
@@ -370,17 +521,10 @@ class SATPolicy:
                         ]
                         cur_boresight_angle = block.boresight_rot
 
-                    commands += [
-                        f"run.acu.move_to(az={round(np.mod(block.az,360),3)}, el={round(block.alt,3)})",
-                        "run.smurf.take_bgmap(concurrent=True)",
-                        "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
-                        "run.smurf.bias_dets(concurrent=True)",
-                        "time.sleep(180)",
-                        "run.smurf.bias_step(concurrent=True)",
-                        "#################### Detector Setup Over ####################",
-                        "",
-                    ]
-                    is_det_setup = True
+                    
+                    if not is_hwp_spinning:
+                        commands += hwp_spin_up
+                        is_hwp_spinning = True
 
                     # start the scan
                     commands += [
@@ -415,8 +559,10 @@ class SATPolicy:
                         "    run.smurf.bias_step(concurrent=True)",
                         "################# Scan Over #############################",
                     ] 
+                
                 t_cur = block.t1 + dt.timedelta(seconds=self.time_costs['bias_step'])
 
+        commands += hwp_spin_down
         commands += wrap_up
 
         return cmd.CompositeCommand(commands)
