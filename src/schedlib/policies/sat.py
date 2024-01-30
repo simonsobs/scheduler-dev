@@ -34,7 +34,7 @@ preamble = [
 
 wrap_up = [
     "# go home",
-    "run.acu.move_to(az=180, el=50)",
+    "run.acu.move_to(az=180, el=48)",
     "",
     "time.sleep(1)"
 ]
