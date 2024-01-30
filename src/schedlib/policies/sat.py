@@ -498,6 +498,7 @@ class SATPolicy:
                         f"        width={round(block.throw,3)}, az_drift=0,",
                         f"        subtype='cmb', tag='{block.tag}',",
                          ")",
+                         "run.smurf.bias_step(concurrent=True)",
                          "#~~~~~~~~~~~~~~~~~~~~~~~",
                          "",
                     ]
