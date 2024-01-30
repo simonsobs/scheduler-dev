@@ -144,6 +144,7 @@ preamble = [
     "        print('CHWP stopped')",
     "    else:",
     "        print('Error: Not using PID')",
+    "",
 ]
 
 wrap_up = [
