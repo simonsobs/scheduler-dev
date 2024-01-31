@@ -25,6 +25,7 @@ preamble = [
     "    import numpy as np",
     "    import sorunlib as run",
     "    run.initialize()",
+    "    from ocs.ocs_client import OCSClient",
     "",
     "UTC = datetime.timezone.utc",
     "acu = run.CLIENTS['acu']",
