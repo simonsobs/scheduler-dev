@@ -252,6 +252,7 @@ class SATPolicy:
     allow_partial: bool = False
     wafer_sets: dict[str, str] = field(default_factory=dict)
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=OrderedDict)
+    debug_mode: bool = False
     
     def save_checkpoint(self, name, blocks):
         self.checkpoints[name] = blocks
@@ -459,7 +460,11 @@ class SATPolicy:
             if is_hwp_spinning and block.subtype=='cal':
                 # we need to spin down HWP to rebias detectors
                 setup_time += self.time_costs['hwp_spin_down']
-                
+                setup_time += self.time_costs['hwp_spin_up']
+            
+            if self.debug_mode:
+                print(f"Planning block {block.name}")
+                print(f"Setup time is {setup_time/60} minutes")
             # det setup
             if t_cur + dt.timedelta(seconds=setup_time) > block.t1:
                 commands += [
