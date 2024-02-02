@@ -474,7 +474,7 @@ class SATPolicy:
                 print(f"Planning block {block.name}")
                 print(f"Setup time is {setup_time/60} minutes")
             # det setup
-            if t_cur + dt.timedelta(seconds=setup_time) > block.t1:
+            if block.subtype == 'cmb' and t_cur + dt.timedelta(seconds=setup_time) > block.t1:
                 commands += [
                     "\"\"\"",
                     f"Note: {block} skipped due to insufficient time",
