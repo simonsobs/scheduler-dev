@@ -18,7 +18,8 @@ from .. import config as cfg, core, source as src, rules as ru, commands as cmd,
 # ==================
 # useful commands
 # ==================
-preamble = [
+
+PREAMBLE = [
     "from nextline import disable_trace",
     "",
     "import time",
@@ -245,7 +246,8 @@ class SATPolicy:
         whether to allow partial source scans
     wafer_sets : dict[str, str]
         a dict of wafer sets definitions
-    # internal use only
+    preamble_file : str
+        a file containing preamble commands to be executed before the start of the sequence
     checkpoints : dict
         a dict of checkpoints, with keys being checkpoint names and values being blocks
         for internal bookkeeping
@@ -263,8 +265,9 @@ class SATPolicy:
     apply_boresight_rot: bool = False
     allow_partial: bool = False
     wafer_sets: dict[str, str] = field(default_factory=dict)
+    preamble_file: Optional[str] = None
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=OrderedDict)
-    
+
     def save_checkpoint(self, name, blocks):
         """
         Save a checkpoint with the given name and blocks, for debugging purpose.
@@ -518,6 +521,12 @@ class SATPolicy:
         time_cost = 0  # secs
         commands = []
 
+        # option to load preamble from a file
+        if self.preamble_file is not None and op.exists(self.preamble_file):
+            with open(self.preamble_file, "r") as f:
+                preamble = [l.strip("\n") for l in f.readlines()]
+        else:
+            preamble = PREAMBLE
         commands += preamble
 
         if self.ufm_relock:
