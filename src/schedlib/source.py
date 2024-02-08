@@ -244,14 +244,54 @@ class SourceBlock(core.NamedBlock):
     def __post_init__(self):
         if not self.mode in ["rising", "setting", "both"]:
             raise ValueError("mode must be rising or setting or both")
-    def get_az_alt(self, time_step: dt.timedelta = dt.timedelta(seconds=30)) -> Tuple[List[dt.datetime], core.Arr, core.Arr]:
+
+    def get_az_alt(self, time_step: dt.timedelta = dt.timedelta(seconds=30)):
         """Return times, az, alt for a source block at a given time step"""
-        return source_block_get_az_alt(self, time_step)
+        source = _PrecomputedSource.for_block(self, time_step=time_step)
+        t0, t1 = self.t0, self.t1
+        times = [t0 + i * time_step for i in range(int((t1 - t0) / time_step))]
+        ctimes = np.array([int(t.timestamp()) for t in times])
+        az = source.interp_az(ctimes)
+        alt = source.interp_alt(ctimes)
+        az = np.unwrap(np.mod(az, 360), period=360)
+        return ctimes, az, alt
+
     def trim_by_az_alt_range(self, az_range: Optional[Tuple[float, float]] = None,
                              alt_range: Optional[Tuple[float, float]] = None,
                              time_step: dt.timedelta = dt.timedelta(seconds=30)):
-        """Trim a source block by azimuth and altitude ranges"""
-        return source_block_trim_by_az_alt_range(self, az_range, alt_range, time_step)
+        """
+        Trim a source block by azimuth and altitude ranges
+
+        Parameters
+        ----------
+        alt_range: (alt_min, alt_max) in radians
+        z_range: (az_min, az_max) in radians
+
+        """
+        if az_range is None and alt_range is None:
+            # not sure why one would want to do this though
+            return [self]
+        times, az, alt = self.get_az_alt(time_step=time_step)
+        mask = np.ones_like(az, dtype=bool)
+        if az_range is not None:
+            az_min, az_max = az_range
+            mask *= (az_min <= az) * (az <= az_max)
+        if alt_range is not None:
+            alt_min, alt_max = alt_range
+            mask *= (alt_min <= alt) * (alt <= alt_max)
+        if not mask.any():
+            return []  # need blocks type
+        blocks = []
+        for (i0, i1) in u.mask2ranges(mask):
+            t0 = u.ct2dt(times[i0])
+            t1 = u.ct2dt(times[i1-1])  # i1 is non-inclusive
+            blocks.append(self.replace(t0=t0, t1=t1))
+        return blocks
+
+    @property
+    def t(self):
+        return self.get_az_alt()[0]
+
     @property
     def az(self):
         return self.get_az_alt()[1]
@@ -330,41 +370,6 @@ def source_gen_seq(source: str, t0: dt.datetime, t1: dt.datetime) -> core.Blocks
     """
     blocks = _PrecomputedSource.for_(source, t0, t1).blocks
     return core.seq_flatten(core.seq_trim(blocks, t0, t1))
-
-def source_block_get_az_alt(block: SourceBlock, time_step: dt.timedelta = dt.timedelta(seconds=30)) -> Tuple[core.Arr[int], core.Arr[float], core.Arr[float]]:
-    """Get altitude and azimuth for a source block."""
-    source = _PrecomputedSource.for_block(block, time_step=time_step)
-    t0, t1 = block.t0, block.t1
-    times = [t0 + i * time_step for i in range(int((t1 - t0) / time_step))]
-    ctimes = np.array([int(t.timestamp()) for t in times])
-    az = source.interp_az(ctimes)
-    alt = source.interp_alt(ctimes)
-    # make sure az is at a reasonable range
-    az = np.unwrap(np.mod(az, 360), period=360)
-    return ctimes, az, alt
-
-def source_block_trim_by_az_alt_range(block: SourceBlock, az_range:Optional[Tuple[float, float]]=None, alt_range:Optional[Tuple[float, float]]=None, time_step:dt.timedelta=dt.timedelta(seconds=30)) -> core.Blocks:
-    """alt_range: (alt_min, alt_max) in radians
-    az_range: (az_min, az_max) in radians"""
-    if az_range is None and alt_range is None:
-        # not sure why one would want to do this though
-        return [block]
-    times, az, alt = source_block_get_az_alt(block)
-    mask = np.ones_like(az, dtype=bool)
-    if az_range is not None:
-        az_min, az_max = az_range
-        mask *= (az_min <= az) * (az <= az_max)
-    if alt_range is not None:
-        alt_min, alt_max = alt_range
-        mask *= (alt_min <= alt) * (alt <= alt_max)
-    if not mask.any():
-        return []  # need blocks type
-    blocks = []
-    for (i0, i1) in u.mask2ranges(mask):
-        t0 = u.ct2dt(times[i0])
-        t1 = u.ct2dt(times[i1-1])  # i1 is non-inclusive
-        blocks.append(block.replace(t0=t0, t1=t1))
-    return blocks
 
 def block_get_matching_sun_block(block: core.Block) -> SourceBlock:
     """
