@@ -10,6 +10,9 @@ import jax.tree_util as tu
 import numpy as np
 from collections import OrderedDict
 
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
 from .. import config as cfg, core, source as src, rules as ru, commands as cmd, instrument as inst
 
 # ==================
@@ -261,7 +264,6 @@ class SATPolicy:
     allow_partial: bool = False
     wafer_sets: dict[str, str] = field(default_factory=dict)
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=OrderedDict)
-    debug_mode: bool = False
     
     def save_checkpoint(self, name, blocks):
         """
@@ -549,9 +551,9 @@ class SATPolicy:
                 setup_time += self.time_costs['hwp_spin_down']
                 setup_time += self.time_costs['hwp_spin_up']
             
-            if self.debug_mode:
-                print(f"Planning block {block.name}")
-                print(f"Setup time is {setup_time/60} minutes")
+            logging.debug(f"Planning block {block.name}")
+            logging.debug(f"Setup time is {setup_time/60} minutes")
+
             # det setup
             if block.subtype == 'cmb' and t_cur + dt.timedelta(seconds=setup_time) > block.t1:
                 commands += [
