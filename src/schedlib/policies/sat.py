@@ -244,7 +244,8 @@ class SATPolicy:
         a dict of wafer sets definitions
     # internal use only
     checkpoints : dict
-        a dict of checkpoints, with keys being checkpoint names and values being blocks 
+        a dict of checkpoints, with keys being checkpoint names and values being blocks
+        for internal bookkeeping
     """
     blocks: dict
     rules: Dict[str, core.Rule]
@@ -263,12 +264,32 @@ class SATPolicy:
     debug_mode: bool = False
     
     def save_checkpoint(self, name, blocks):
+        """
+        Save a checkpoint with the given name and blocks, for debugging purpose.
+
+        Parameters
+        ----------
+        name : str
+            The name of the checkpoint.
+        blocks : dict
+            The blocks to be saved as the checkpoint.
+        """
         self.checkpoints[name] = blocks
 
     @classmethod
     def from_config(cls, config: Union[dict, str]):
-        """populate policy object from a yaml config file or a string yaml
-        config or a dict"""
+        """
+        Constructs a policy object from a YAML configuration file, a YAML string, or a dictionary.
+
+        Parameters
+        ----------
+        config : Union[dict, str]
+            The configuration to populate the policy object.
+
+        Returns
+        -------
+        The constructed policy object.
+        """
         if isinstance(config, str):
             loader = cfg.get_loader()
             if op.isfile(config):
@@ -276,11 +297,24 @@ class SATPolicy:
                     config = yaml.load(f.read(), Loader=loader)
             else:
                 config = yaml.load(config, Loader=loader)
-
-        # now we can construct the policy
         return cls(**config)
 
     def init_seqs(self, t0: dt.datetime, t1: dt.datetime) -> core.BlocksTree:
+        """
+        Initialize the sequences for the scheduler to process.
+
+        Parameters
+        ----------
+        t0 : datetime.datetime
+            The start time of the sequences.
+        t1 : datetime.datetime
+            The end time of the sequences.
+
+        Returns
+        -------
+        BlocksTree (nested dict / list of blocks)
+            The initialized sequences
+        """
         def construct_seq(loader_cfg):
             if loader_cfg['type'] == 'source':
                 return src.source_gen_seq(loader_cfg['name'], t0, t1)
@@ -288,16 +322,35 @@ class SATPolicy:
                 return inst.parse_sequence_from_toast(loader_cfg['file'])
             else:
                 raise ValueError(f"unknown sequence type: {loader_cfg['type']}")
+
+        # construct seqs by traversing the blocks definition dict
         blocks = tu.tree_map(construct_seq, self.blocks, 
                              is_leaf=lambda x: isinstance(x, dict) and 'type' in x)
+
         # by default add calibration blocks specified in cal_targets if not already specified
         for cal_target in self.cal_targets:
             source = cal_target[0]
             if source not in blocks['calibration']:
                 blocks['calibration'][source] = src.source_gen_seq(source, t0, t1)
+
         return core.seq_trim(blocks, t0, t1)
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
+        """
+        Applies a set of observing rules to the a tree of blocks such as modifying
+        it with sun avoidance constraints and planning source scans for calibration.
+
+        Parameters
+        ----------
+        blocks : BlocksTree
+            The original blocks tree structure defining observing sequences and constraints.
+
+        Returns
+        -------
+        BlocksTree
+            New blocks tree after applying the specified observing rules.
+
+        """
         # save the original blocks
         self.save_checkpoint('original', blocks)
 
@@ -434,6 +487,32 @@ class SATPolicy:
         return core.seq_sort(seq)
 
     def seq2cmd(self, seq: core.Blocks, t0: dt.datetime, t1: dt.datetime):
+        """
+        Converts a sequence of blocks into a list of commands to be executed
+        between two given times.
+
+        This method is responsible for generating commands based on a given
+        sequence of observing blocks, considering specific hardware settings and
+        constraints. It also includes timing considerations, such as time to
+        relock a UFM or boresight angles, and ensures proper settings for
+        azimuth speed and acceleration. It is assumed that the provided sequence
+        is sorted in time.
+
+        Parameters
+        ----------
+        seq : core.Blocks
+            A tree-like sequence of Blocks representing the observation schedule
+        t0 : datetime.datetime
+            The starting datetime for the command sequence.
+        t1 : datetime.datetime
+            The ending datetime for the command sequence
+
+        Returns
+        -------
+        list of str
+            A list of command strings that will be executed by the telescope
+
+        """
         time_cost = 0  # secs
         commands = []
 
