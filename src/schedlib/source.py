@@ -96,6 +96,10 @@ def _source_get_az_alt(source: str, times: List[dt.datetime]) -> Tuple[np.ndarra
         alt.append(np.rad2deg(source.alt))
     az, alt = np.array(az), np.array(alt)
     az = np.unwrap(az, period=360)
+    az_min = np.min(az)
+    # prefer close to 0
+    # az_min = (az_min + 180) % 360 - 180
+    az = (az - az_min) % 360 + az_min
     return az, alt
 
 
@@ -129,7 +133,7 @@ def _source_az_alt_interpolators(
     """
     times = [t0 + i * time_step for i in range(int((t1 - t0) / time_step))]
     az, alt = _source_get_az_alt(source, times)
-    times = [int(t.timestamp()) for t in times]
+    times = [u.dt2ct(t) for t in times]
     interp_az = interpolate.interp1d(times, az, kind='cubic')
     interp_alt = interpolate.interp1d(times, alt, kind='cubic')
     return interp_az, interp_alt
@@ -496,21 +500,23 @@ def _find_az_bore(el_bore, az_src, el_src, q_point, atol: float = 0.01) -> float
         The boresight angle
 
     """
+    az_interp = interpolate.interp1d(el_src, az_src, kind='linear',
+                                     fill_value='extrapolate',
+                                     assume_sorted=False)
     def fun(az_bore):
         az_center, el_center, _ =  quat.decompose_lonlat(
             quat.rotation_lonlat(-az_bore * u.deg, el_bore * u.deg) * q_point
         )
         az_center *= -1
-        az_expect = interpolate.interp1d(
-            el_src, az_src, fill_value='extrapolate'
-        )(el_center / u.deg)
-        return np.mod(np.abs(az_expect - az_center / u.deg),360)
-    az_bore_init = interpolate.interp1d(
-        el_src, az_src, fill_value='extrapolate'
-    )(el_bore)
+        az_expect = az_interp(el_center / u.deg)
+        diff = (az_expect - az_center/u.deg)
+        diff = (diff + 180) % 360 - 180
+        return np.abs(diff)
+
+    az_bore_init = az_interp(el_bore)
     res = optimize.minimize(fun, az_bore_init, method='Nelder-Mead')
-    assert res.success, 'failed to converge on where to point the boresight'
     az_bore = res.x[0]
+
     # extra check
     if fun(az_bore) > atol:
         raise ValueError(f"failed to meet convergence tol ({atol}) on where to point the boresight")
@@ -545,6 +551,8 @@ def make_source_ces(
 
     """
     assert 'center' in array_info and 'cover' in array_info, 'array_info must contain center and cover'
+    assert block.mode in ['rising', 'setting'], 'unsupported scan mode'
+
     q_center = quat.rotation_xieta(*array_info['center'])
     q_cover = quat.rotation_xieta(*array_info['cover'])
 
@@ -555,8 +563,17 @@ def make_source_ces(
         q_cover = q_bore_rot * q_cover
 
     t, az_src, el_src = block.get_az_alt()  # degs
+    # make sure we are in a monotonic range
+    if block.mode == 'rising':
+        i_beg = np.argmin(el_src)
+        i_end = np.argmax(el_src) + 1
+    else:
+        i_beg = np.argmax(el_src)
+        i_end = np.argmin(el_src) + 1
+    t, az_src, el_src = t[i_beg:i_end], az_src[i_beg:i_end], el_src[i_beg:i_end]
+
     t_src_interp = interpolate.interp1d(
-        el_src, t, kind='linear', fill_value='extrapolate'
+        el_src, t, kind='cubic', fill_value='extrapolate', assume_sorted=False
     )
 
     # work out boresight
