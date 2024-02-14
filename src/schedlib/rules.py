@@ -249,43 +249,77 @@ class MakeSourcePlan(core.MappableRule):
         if len(blocks) == 1: return blocks[0]
 
 @dataclass(frozen=True)
-    """Avoid sources that are too close to the Sun.
 class SunAvoidance(core.MappableRule):
+    """Avoid sources that are too close to the Sun. This rule is
+    applicable to both source and scan blocks. Note that any other
+    block types will automatically passthrough.
 
     Parameters
     ----------
-    min_angle_az : float. minimum angle in deg
-    min_angle_alt: float. minimum angle in deg
-    n_buffer: int. number of time steps to buffer the sun mask
-    time_step : int. time step in seconds
+    min_angle : float
+        The minimum angle in degrees for the azimuth.
+    time_step : int, optional
+        The time step in seconds, by default 1.
+    cut_buffer : int, optional
+        Buffers added to each sun cut in seconds, default is 60, i.e., 1 minute
+        buffer is added to each side of the sun cut.
+
+    Examples
+    --------
+    To apply sun avoidance the minimum angle in altitude of 15 degrees,
+    and a buffer of 5 time steps:
+
+    >>> sun_avoidance = SunAvoidance(min_angle)
+    >>> blocks = sun_avoidance(blocks)
+
     """
-    min_angle_az: float
-    min_angle_alt: float
-    n_buffer: int = 10
-    time_step: int = 30
+    min_angle: float
+    time_step: int = 1
+    cut_buffer: int = 60
 
     def apply_block(self, block: core.Block) -> core.Blocks:
-        """Calculate the distance between a block and a sun block."""
-        if not isinstance(block, (inst.ScanBlock, src.SourceBlock)): return block
+        """This function defines how this rule transform a block. Currently
+        it only supports source and scan blocks. Other block types will be
+        automatically passed through.
 
+        """
+        if not isinstance(block, (inst.ScanBlock, src.SourceBlock)):
+            return block
+
+        # get locations of the Sun
         sun_block = src.block_get_matching_sun_block(block)
-        t, az_sun, alt_sun = sun_block.get_az_alt(time_step = dt.timedelta(seconds=self.time_step))
 
         if isinstance(block, inst.ScanBlock):
-            daz, dalt = ((block.az - az_sun) + 180) % 360 - 180, block.alt - alt_sun
-            daz, dalt = np.abs(daz) - block.throw, np.abs(dalt)
-        elif isinstance(block, src.SourceBlock):  # no throw for source blocks
-            az_interp, alt_interp = block.get_az_alt_interpolators()
-            az, alt = az_interp(t), alt_interp(t)
-            daz, dalt = ((az - az_sun) + 180) % 360 - 180, alt - alt_sun
-            daz, dalt = np.abs(daz), np.abs(dalt)
-        else:
-            raise ValueError("Unknown block type")
-        ok = np.logical_or(daz > self.min_angle_az, dalt > self.min_angle_alt)
-        safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.n_buffer, len(az_sun)), len(az_sun))
-        if len(safe_intervals) == 0: return None
-        # if the whole block is safe, return it
-        if np.all(safe_intervals[0] == [0, len(az_sun)]): return block
+            time_step = self.time_step
+        elif isinstance(block, src.SourceBlock):
+            time_step = 60  # source is slow
+
+        # calculate distance to the Sun
+        t, az_sun, alt_sun = sun_block.get_az_alt(time_step=time_step)
+        _, az_scan, alt_scan = block.get_az_alt(ctimes=t)
+        r = src.radial_distance(t, az_scan, alt_scan, az_sun, alt_sun)
+        ok = r > self.min_angle
+
+        # if the whole block is safe, nothing to do
+        if np.all(ok): return block
+
+        # find safe intervals
+        n_buffer = self.cut_buffer // time_step
+        safe_intervals = utils.ranges_complement(
+            utils.ranges_pad(
+                utils.mask2ranges(~ok),
+                n_buffer,
+                len(az_sun)),
+            len(az_sun))
+
+        # it's possible that adding the buffer will make entire block unsafe
+        if len(safe_intervals) == 0:
+            return None
+
+        # if the whole block is safe, return it (don't think it will happen here)
+        if np.all(safe_intervals[0] == [0, len(az_sun)]):
+            return block
+
         # otherwise, split it up into safe intervals
         return [block.replace(t0=utils.ct2dt(t[i0]), t1=utils.ct2dt(t[i1-1])) for i0, i1 in safe_intervals]
 

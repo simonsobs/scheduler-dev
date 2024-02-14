@@ -9,7 +9,7 @@ import datetime as dt
 from typing import Union, Callable, NamedTuple, List, Tuple, Optional
 import numpy as np
 from scipy import interpolate, optimize
-from so3g.proj import quat
+from so3g.proj import quat, CelestialSightLine
 
 from . import core, utils as u, instrument as inst
 
@@ -640,3 +640,27 @@ def make_source_ces(
     except ValueError:
         logging.error("Failed to find optimal drift, using median az speed instead")
         return None
+
+def radial_distance(t, az1, alt1, az2, alt2):
+    """
+    Calculate the radial distance between two celestial sight lines.
+
+    Parameters
+    ----------
+    t : np.ndarray
+        The time at which the sight lines are taken.
+    az1, alt1 : np.ndarray
+        The azimuth and altitude of the first object, in degrees.
+    az2, alt2 : np.ndarray
+        The azimuth and altitude of the second object, in degrees.
+
+    Returns
+    -------
+    r : np.ndarray
+        The radial distance between the two sight lines, in degrees.
+
+    """
+    csl1 = CelestialSightLine.az_el(t, az1*u.deg, alt1*u.deg, 0, weather='vacuum')
+    csl2 = CelestialSightLine.az_el(t, az2*u.deg, alt2*u.deg, 0, weather='vacuum')
+    r = quat.decompose_iso(~csl1.Q * csl2.Q)[0] / u.deg
+    return r
