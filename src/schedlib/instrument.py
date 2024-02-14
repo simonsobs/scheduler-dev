@@ -43,8 +43,34 @@ class ScanBlock(core.NamedBlock):
     subtype: str = ""
     tag: str = ""
 
-@dataclass(frozen=True)
-class IVBlock(core.NamedBlock): pass
+    def replace(self, **kwargs) -> "ScanBlock":
+        """
+        Update the parameters of the ScanBlock and ensure consistency between azimuth and drift when t0 is changed.
+
+        Parameters
+        ----------
+        kwargs : keyword arguments
+            Keyword arguments representing the parameters to update.
+
+        Returns
+        -------
+        ScanBlock
+            Updated ScanBlock object.
+
+        Notes
+        -----
+        Updating the t0 parameter will trigger the recalculation of azimuth (az) based on drift (az_drift) if it is not zero. 
+        If azimuth (az) is also provided in the kwargs, the consistency between azimuth and t0 will be checked.
+
+        """
+        # when t0 is changed, az should be updated to reflect the drift
+        if "t0" in kwargs and self.az_drift != 0:
+            new_az = (kwargs["t0"] - self.t0).total_seconds() * self.az_drift + self.az
+            if "az" in kwargs:
+                assert np.isclose(kwargs["az"], new_az), "inconsistent az and t0"
+            kwargs['az'] = new_az
+        return super().replace(**kwargs)
+
 
 # dummy type variable for readability
 Spec = TypeVar('Spec')
