@@ -217,6 +217,8 @@ def parse_sequence_from_toast(ifile):
             alt=row['el'],
             az=row['az_min'],
             throw=np.abs(row['az_max'] - row['az_min']),
+            boresight_angle=row['rotation'],
         )
         blocks.append(block)
     return blocks
+
