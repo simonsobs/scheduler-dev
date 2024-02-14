@@ -8,12 +8,12 @@ import datetime as dt
 from typing import List, Union, Optional, Dict
 import jax.tree_util as tu
 import numpy as np
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 
-import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+from .. import config as cfg, core, source as src, rules as ru
+from .. import commands as cmd, instrument as inst, utils as u
 
-from .. import config as cfg, core, source as src, rules as ru, commands as cmd, instrument as inst
+logger = u.init_logger("sat-policy")
 
 # ==================
 # useful commands
@@ -340,11 +340,26 @@ class SATPolicy:
 
         # update az speed in scan blocks
         blocks = core.seq_map_when(
-            lambda b: isinstance(b, core.ScanBlock),
+            lambda b: isinstance(b, inst.ScanBlock),
             lambda b: b.replace(az_speed=self.az_speed),
             blocks
         )
-        return core.seq_trim(blocks, t0, t1)
+
+        # trim to given time range
+        blocks = core.seq_trim(blocks, t0, t1)
+
+        # ok to drop Nones
+        blocks = tu.tree_map(
+            lambda x: [x_ for x_ in x if x_ is not None],
+            blocks,
+            is_leaf=lambda x: isinstance(x, list)
+        )
+
+        # give some feedbacks to the user
+        c = Counter(core.seq_map(lambda x: type(x), core.seq_flatten(blocks)))
+        logger.info(f"Number of blocks initialized: {dict(c)}")
+
+        return blocks
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
         """
@@ -566,8 +581,8 @@ class SATPolicy:
                 setup_time += self.time_costs['hwp_spin_down']
                 setup_time += self.time_costs['hwp_spin_up']
             
-            logging.debug(f"Planning block {block.name}")
-            logging.debug(f"Setup time is {setup_time/60} minutes")
+            logger.debug(f"Planning block {block.name}")
+            logger.debug(f"Setup time is {setup_time/60} minutes")
 
             # det setup
             if block.subtype == 'cmb' and t_cur + dt.timedelta(seconds=setup_time) > block.t1:

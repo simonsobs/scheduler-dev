@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging, sys
 from datetime import datetime, timezone
 import pandas as pd
 import numpy as np
@@ -219,3 +220,19 @@ def nested_update(dictionary, update_dict, new_keys_allowed=True):
             if key in dictionary or new_keys_allowed:
                 dictionary[key] = value
     return dictionary
+
+# ------------------
+# logging utils
+# ------------------
+
+def init_logger(name):
+    logger = logging.getLogger(name)
+    logger.propagate = False
+
+    ch = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s ')
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+    return logger
