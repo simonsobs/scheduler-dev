@@ -71,6 +71,50 @@ class ScanBlock(core.NamedBlock):
             kwargs['az'] = new_az
         return super().replace(**kwargs)
 
+    def get_az_alt(self, time_step=1, ctimes=None):
+        """
+        Calculate the azimuth and altitude for the scan block.
+
+        Parameters
+        ----------
+        time_step : float, optional
+            The time step between each calculated azimuth and altitude.
+            Default is 1.
+        ctimes : iterable, optional
+            A list of times to calculate the azimuth and altitude for.
+            Default is None, in which case the times are calculated
+            automatically. Otherwise time_step is ignored.
+
+        Returns
+        -------
+        t : numpy.ndarray
+            A 1D array of times.
+        az : numpy.ndarray
+            A 1D array of azimuths.
+        alt : numpy.ndarray
+            A 1D array of altitudes.
+
+        """
+        t0, t1 = u.dt2ct(self.t0), u.dt2ct(self.t1)
+
+        # allow passing in a list of ctimes
+        if ctimes is not None:
+            t = ctimes
+        else:
+            t = np.arange(t0, t1+time_step, time_step)  # inclusive
+
+        # find left and right az limits, accounting for drift
+        drift = self.az_drift * (t-t0)
+        left = self.az - self.throw + drift
+        right = self.az + self.throw + drift
+
+        # calculate the phase of the scan, assuming it
+        # moves at a constant speed from az to az+throw
+        phase = (t - t0) / (self.throw / self.az_speed) % 2
+        phase[m] = 2 - phase[(m:=(phase>1))]
+        az = phase*left + (1-phase)*right
+
+        return t, az, az*0 + self.alt
 
 # dummy type variable for readability
 Spec = TypeVar('Spec')
