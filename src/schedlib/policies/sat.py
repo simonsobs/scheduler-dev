@@ -338,6 +338,12 @@ class SATPolicy:
             if source not in blocks['calibration']:
                 blocks['calibration'][source] = src.source_gen_seq(source, t0, t1)
 
+        # update az speed in scan blocks
+        blocks = core.seq_map_when(
+            lambda b: isinstance(b, core.ScanBlock),
+            lambda b: b.replace(az_speed=self.az_speed),
+            blocks
+        )
         return core.seq_trim(blocks, t0, t1)
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:

@@ -9,12 +9,36 @@ from so3g.proj import quat
 
 from . import core, utils as u
 
+
 @dataclass(frozen=True)
 class ScanBlock(core.NamedBlock):
+    """
+    Dataclass representing a scan block.
+
+    Parameters
+    ----------
+    az : float
+        Azimuth angle in degrees.
+    alt : float
+        Altitude angle in degrees.
+    throw : float
+        Throw angle in degrees.
+    az_drift : float, optional
+        Azimuth drift rate in degrees per second (default is 0).
+    az_speed : float, optional
+        Azimuth speed in degrees per second (default is 1).
+    boresight_angle : float, optional
+        Boresight angle in degrees (default is None).
+    subtype : str, optional
+        Subtype of the scan block (default is an empty string).
+    tag : str, optional
+        Tag for the scan block (default is an empty string).
+    """
     az: float        # deg
     alt: float       # deg
     throw: float     # deg
     az_drift: float = 0. # deg / s
+    az_speed: float = 1. # deg / s
     boresight_angle: Optional[float] = None # deg
     subtype: str = ""
     tag: str = ""
