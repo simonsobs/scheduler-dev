@@ -266,14 +266,14 @@ class SourceBlock(core.NamedBlock):
 
     def trim_by_az_alt_range(self, az_range: Optional[Tuple[float, float]] = None,
                              alt_range: Optional[Tuple[float, float]] = None,
-                             time_step: dt.timedelta = dt.timedelta(seconds=30)):
+                             time_step: float = 30):
         """
         Trim a source block by azimuth and altitude ranges
 
         Parameters
         ----------
-        alt_range: (alt_min, alt_max) in radians
-        z_range: (az_min, az_max) in radians
+        alt_range: (alt_min, alt_max) in degrees
+        z_range: (az_min, az_max) in degrees
 
         """
         if az_range is None and alt_range is None:

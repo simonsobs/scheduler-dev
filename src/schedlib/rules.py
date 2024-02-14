@@ -38,7 +38,8 @@ class AzRange(core.MappableRule):
 
     def apply_block(self, block: core.Block) -> core.Block:
         # passthrough if not a scan block which has az and throw
-        if not isinstance(block, inst.ScanBlock): return block
+        if not isinstance(block, inst.ScanBlock):
+            return block
 
         def is_good(az, throw):
             return (az >= self.az_range[0]) and (az + throw <= self.az_range[1])

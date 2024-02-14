@@ -197,9 +197,17 @@ def parse_sequence_from_toast(ifile):
     """
     Parameters
     ----------
-    ifile: input master schedule from toast
+    ifile : str
+        Path to the input master schedule from toast.
+
+    Returns
+    -------
+    list of ScanBlock
+        List of ScanBlock objects parsed from the input file.
+
     """
     columns = ["start_utc", "stop_utc", "rotation", "patch", "az_min", "az_max", "el", "pass", "sub"]
+
     # count the number of lines to skip
     with open(ifile) as f:
         for i, l in enumerate(f):

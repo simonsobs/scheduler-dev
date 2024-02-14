@@ -39,7 +39,7 @@ class Block:
         return block_trim_left_to(self, t)
     def trim_right_to(self, t: dt.datetime) -> List["Block"]:
         return block_trim_right_to(self, t)
-    def isa(self, block_type: "BlockType") -> bool:
+    def isa(self, block_type) -> bool:
         return block_isa(block_type)(self)
     def replace(self, **kwargs) -> "Block":
         return dc_replace(self, **kwargs)

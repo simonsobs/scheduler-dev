@@ -45,6 +45,29 @@ def dt2ct(dtime):
             raise ValueError(f"dtime should be datetime or iterable, not {type(dtime)}")
 
 def mask2ranges(mask):
+    """
+    Convert a boolean mask to a set of ranges.
+
+    This function takes a boolean mask and returns an array of start and end indices
+    that define the true regions of the mask. Note that the end index is exclusive.
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        A 1-D boolean mask.
+
+    Returns
+    -------
+    ranges : np.ndarray
+        2-D array of start and end indices for the true regions of the mask.
+
+    Examples
+    --------
+    >>> mask = np.array([0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0])
+    >>> mask2ranges(mask)
+    array([[2, 5],
+           [7, 11]])
+    """
     # handle a bunch of special cases first
     if len(mask) == 0: return np.empty((0, 2), dtype=int)
     if np.all(mask): return np.array([[0, len(mask)]], dtype=int)
