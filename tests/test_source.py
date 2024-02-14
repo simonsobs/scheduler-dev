@@ -141,7 +141,7 @@ def test_source_block_get_az_alt():
         name='uranus',
         mode='setting'
     )
-    times, az, alt = src.source_block_get_az_alt(srcblk)
-    assert len(times) == 67
+    times, az, alt = srcblk.get_az_alt(time_step=30)
+    assert len(times) == 69
     assert np.allclose(az[:5], [0.00580815, -0.18562059, -0.37705974, -0.56848984, -0.75989556])
     assert np.allclose(alt[:5], [51.01486071, 51.01468336, 51.01411836, 51.01316534, 51.01183098])

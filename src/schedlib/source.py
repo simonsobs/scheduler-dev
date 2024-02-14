@@ -245,15 +245,23 @@ class SourceBlock(core.NamedBlock):
         if not self.mode in ["rising", "setting", "both"]:
             raise ValueError("mode must be rising or setting or both")
 
-    def get_az_alt(self, time_step: dt.timedelta = dt.timedelta(seconds=30)):
+    def get_az_alt(self, time_step=30, ctimes=None):
         """Return times, az, alt for a source block at a given time step"""
-        source = _PrecomputedSource.for_block(self, time_step=time_step)
-        t0, t1 = self.t0, self.t1
-        times = [t0 + i * time_step for i in range(int((t1 - t0) / time_step))]
-        ctimes = np.array([int(t.timestamp()) for t in times])
+        source = _PrecomputedSource.for_block(self, time_step=dt.timedelta(seconds=time_step))
+
+        # if ctimes is not provided, we will calculate it
+        # based on the time step
+        if ctimes is None:
+            t0, t1 = u.dt2ct(self.t0), u.dt2ct(self.t1)
+            ctimes = np.arange(t0, t1+time_step, time_step)
+
         az = source.interp_az(ctimes)
         alt = source.interp_alt(ctimes)
-        az = np.unwrap(np.mod(az, 360), period=360)
+        az = np.unwrap(az, period=360)
+        # prefer close to 0
+        # az_min = (np.min(az) + 180) % 360 - 180
+        az_min = np.min(az)
+        az = (az - az_min) % 360 + az_min
         return ctimes, az, alt
 
     def trim_by_az_alt_range(self, az_range: Optional[Tuple[float, float]] = None,
