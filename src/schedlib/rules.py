@@ -1,52 +1,12 @@
 from typing import Tuple, Dict, List, Optional
 import numpy as np
-from abc import ABC, abstractmethod
 import datetime as dt
 from dataclasses import dataclass
 
 from . import core, source as src, instrument as inst, utils
 
 @dataclass(frozen=True)
-class GreenRule(core.BlocksTransformation, ABC):
-    """GreenRule preserves trees. A check is explicitly made to ensure
-    that the input and output are both trees."""
-    def __call__(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        out = self.apply(blocks)
-        assert core.seq_is_nested(out) == core.seq_is_nested(blocks), "GreenRule must preserve trees"
-        return out
-
-@dataclass(frozen=True)
-class ConstrainedRule(GreenRule):
-    """ConstrainedRule applies a rule to a subset of blocks. Here
-    constraint is a fnmatch pattern that matches to the `key` of a
-    block. This is implemented by first partitioning the tree into
-    one part that matches the constraint and one part that doesn't,
-    and then applying the rule to the matching part before combining
-    the two parts back together. 
-
-    Parameters
-    ----------
-    rule : core.Rule. the rule to apply to the matching blocks
-    constraint : str. fnmatch pattern that matches to the `key` of a block
-    """
-    rule: core.Rule
-    constraint: str
-    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        matched, unmatched = core.seq_partition_with_query(self.constraint, blocks)
-        return core.seq_combine(self.rule(matched), unmatched)
-
-@dataclass(frozen=True)
-class MappableRule(GreenRule, ABC):
-    """MappableRule applies the same rule to all blocks in a tree. One needs
-    to implement the `apply_block` method to define how the rule is applied
-    to a single block."""
-    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        return core.seq_map(self.apply_block, blocks)
-    @abstractmethod
-    def apply_block(self, block) -> core.Blocks: ...
-
-@dataclass(frozen=True)
-class AltRange(MappableRule):
+class AltRange(core.MappableRule):
     """Restrict the altitude range of source blocks. 
 
     Parameters
@@ -55,15 +15,17 @@ class AltRange(MappableRule):
     """
     alt_range: Tuple[float, float]
 
-    def apply_block(self, block:core.Block) -> core.Block:
+    def apply_block(self, block: core.Block) -> core.Block:
         if isinstance(block, src.SourceBlock):
             return block.trim_by_az_alt_range(alt_range=self.alt_range)
         else:
             return block
 
 @dataclass(frozen=True)
-class AzRange(MappableRule):
+class AzRange(core.MappableRule):
     """Restrict the azimuth range of scan blocks
+
+    TODO: fix drift
     
     Parameters
     ----------
@@ -129,7 +91,7 @@ class AzRange(MappableRule):
             raise RuntimeError("This should not happen")
             
 @dataclass(frozen=True)
-class DayMod(GreenRule):
+class DayMod(core.GreenRule):
     """Restrict the blocks to a specific day of the week.
     (day, day_mod): (0, 1) means everyday, (4, 7) means every 4th day in a week, ...
 
@@ -152,7 +114,7 @@ class DayMod(GreenRule):
         return np.floor((t - self.day_ref).total_seconds() / utils.sidereal_day).astype(int)
 
 @dataclass(frozen=True)
-class DriftMode(MappableRule):
+class DriftMode(core.MappableRule):
     """Restrict the blocks to a specific drift mode.
     
     Parameters
@@ -168,7 +130,7 @@ class DriftMode(MappableRule):
             return block if block.mode == self.mode else None
 
 @dataclass(frozen=True)
-class MinDuration(GreenRule):
+class MinDuration(core.GreenRule):
     """Restrict the minimum block size.
     
     Parameters
@@ -182,7 +144,7 @@ class MinDuration(GreenRule):
         return core.seq_filter(filt, blocks)
 
 @dataclass(frozen=True)
-class RephaseFirst(GreenRule):
+class RephaseFirst(core.GreenRule):
     """Randomize the phase of the first block"""
     max_fraction: float
     min_block_size: float  # in seconds
@@ -198,7 +160,7 @@ class RephaseFirst(GreenRule):
         return core.seq_replace_block(blocks, src, tgt)
 
 @dataclass(frozen=True)
-class MakeSourcePlan(MappableRule):
+class MakeSourcePlan(core.MappableRule):
     """Convert source blocks to scan blocks"""
     specs: List[Dict[str, List[float]]]
     spec_shape: str
@@ -286,8 +248,8 @@ class MakeSourcePlan(MappableRule):
         if len(blocks) == 1: return blocks[0]
 
 @dataclass(frozen=True)
-class SunAvoidance(MappableRule):
     """Avoid sources that are too close to the Sun.
+class SunAvoidance(core.MappableRule):
 
     Parameters
     ----------
@@ -327,7 +289,7 @@ class SunAvoidance(MappableRule):
         return [block.replace(t0=utils.ct2dt(t[i0]), t1=utils.ct2dt(t[i1-1])) for i0, i1 in safe_intervals]
 
 @dataclass(frozen=True)
-class MakeSourceScan(MappableRule):
+class MakeSourceScan(core.MappableRule):
     """convert observing window to actual scan blocks and allow for
     rephasing of the block. Applicable to only ObservingWindow blocks.
     """
@@ -353,7 +315,7 @@ class MakeSourceScan(MappableRule):
         return scan
 
 @dataclass(frozen=True)
-class MakeCESourceScan(MappableRule):
+class MakeCESourceScan(core.MappableRule):
     """Transform SourceBlock into fixed-elevation ScanBlocks that support
     az drift mode.
    
@@ -411,5 +373,5 @@ def make_rule(name: str, **kwargs) -> core.Rule:
     assert name in RULES, f"unknown rule {name}"
     block_query = kwargs.pop('block_query', None)
     if block_query is not None:
-        return ConstrainedRule(make_rule(name, **kwargs), block_query)
+        return core.ConstrainedRule(make_rule(name, **kwargs), block_query)
     return get_rule(name)(**kwargs)

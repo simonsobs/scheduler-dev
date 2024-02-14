@@ -10,7 +10,7 @@ from .. import config as cfg, core, utils, source as src, rules as ru, commands 
 
 
 @dataclass(frozen=True)
-class FlexPolicy(basic.BasePolicy):
+class FlexPolicy(core.BasePolicy):
     """a flexible policy. `config` is a string yaml config *content*"""
     blocks: dict
     rules: List[core.Rule]
@@ -47,7 +47,7 @@ class FlexPolicy(basic.BasePolicy):
                 block_query = rule_cfg.pop('block_query')
                 rule = ru.MakeCESourceScan.from_config(rule_cfg)
                 if block_query is not None:
-                    rule = ru.ConstrainedRule(rule, block_query)
+                    rule = core.ConstrainedRule(rule, block_query)
             else:
                 rule = ru.make_rule(rule_name, **rule_cfg)
             rules += [rule]

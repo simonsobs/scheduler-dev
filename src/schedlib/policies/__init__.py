@@ -1,3 +1,3 @@
-from .basic import BasePolicy, BasicPolicy
+from ..core import BasePolicy
 from .flex import FlexPolicy
 from .sat import SATPolicy

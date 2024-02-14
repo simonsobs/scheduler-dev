@@ -681,6 +681,46 @@ Rule = Union[BlocksTransformation, Callable[[Blocks], Blocks]]
 RuleSet = List[Rule]
 
 @dataclass(frozen=True)
+class GreenRule(BlocksTransformation, ABC):
+    """GreenRule preserves trees. A check is explicitly made to ensure
+    that the input and output are both trees."""
+    def __call__(self, blocks: BlocksTree) -> BlocksTree:
+        out = self.apply(blocks)
+        assert seq_is_nested(out) == seq_is_nested(blocks), "GreenRule must preserve trees"
+        return out
+
+@dataclass(frozen=True)
+class ConstrainedRule(GreenRule):
+    """ConstrainedRule applies a rule to a subset of blocks. Here
+    constraint is a fnmatch pattern that matches to the `key` of a
+    block. This is implemented by first partitioning the tree into
+    one part that matches the constraint and one part that doesn't,
+    and then applying the rule to the matching part before combining
+    the two parts back together.
+
+    Parameters
+    ----------
+    rule : Rule. the rule to apply to the matching blocks
+    constraint : str. fnmatch pattern that matches to the `key` of a block
+    """
+    rule: Rule
+    constraint: str
+    def apply(self, blocks: BlocksTree) -> BlocksTree:
+        matched, unmatched = seq_partition_with_query(self.constraint, blocks)
+        return seq_combine(self.rule(matched), unmatched)
+
+
+@dataclass(frozen=True)
+class MappableRule(GreenRule, ABC):
+    """MappableRule applies the same rule to all blocks in a tree. One needs
+    to implement the `apply_block` method to define how the rule is applied
+    to a single block."""
+    def apply(self, blocks: BlocksTree) -> BlocksTree:
+        return seq_map(self.apply_block, blocks)
+    @abstractmethod
+    def apply_block(self, block) -> Blocks: ...
+
+@dataclass(frozen=True)
 class Policy(BlocksTransformation, ABC):
     """apply: apply policy to a tree of blocks"""
     # initialize a tree of blocks
@@ -688,6 +728,30 @@ class Policy(BlocksTransformation, ABC):
     def init_seqs(self) -> BlocksTree: ...
     @abstractmethod
     def apply(self, blocks: BlocksTree) -> Blocks: ...
+
+@dataclass(frozen=True)
+class BasePolicy(Policy, ABC):
+    """we split the policy into two parts: transform and merge where
+    transform are the part that preserves nested structure and merge
+    is the part that flattens the nested structure into a single
+    sequence. This is mostly for visualization purposes, so that we
+    preserve the nested structure for the user to see, but we can
+    also flatten the structure for the scheduler to consume."""
+
+    def transform(self, blocks: BlocksTree) -> BlocksTree:
+        return blocks
+
+    def merge(self, blocks: BlocksTree) -> Blocks:
+        return blocks
+
+    def apply(self, blocks: BlocksTree) -> Blocks:
+        """main interface"""
+        blocks = self.transform(blocks)
+        blocks = self.merge(blocks)
+        return blocks
+
+    @abstractmethod
+    def seq2cmd(self, seq: Blocks) -> str: ...
 
 # ===============================
 # Others convenience types alias
