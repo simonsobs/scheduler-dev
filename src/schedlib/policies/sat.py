@@ -6,14 +6,20 @@ import os.path as op
 from dataclasses import dataclass, field
 import datetime as dt
 from typing import List, Union, Optional, Dict
-import jax.tree_util as tu
 import numpy as np
 from collections import OrderedDict, Counter
+from enum import Flag, auto
+import jax.tree_util as tu
 
 from .. import config as cfg, core, source as src, rules as ru
 from .. import commands as cmd, instrument as inst, utils as u
 
 logger = u.init_logger("sat-policy")
+
+
+class SchedMode(Flag):
+    PreObs = auto()
+    PostObs = auto()
 
 # ==================
 # useful commands
@@ -273,7 +279,7 @@ class SATPolicy:
         blocks : dict
             The blocks to be saved as the checkpoint.
         """
-        self.checkpoints[name] = blocks
+        self.checkpoints[name] = blocks.copy()
 
     @classmethod
     def from_config(cls, config: Union[dict, str]):
@@ -380,10 +386,10 @@ class SATPolicy:
         #   - likely won't affect scan blocks because master schedule already
         #     takes care of this
         # -----------------------------------------------------------------
-        if 'sun-avoidance' in self.rules:
-            rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
-            blocks = rule(blocks)
-            self.save_checkpoint('sun-avoidance-1', blocks)
+        assert 'sun-avoidance' in self.rules
+        sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
+        blocks = sun_rule(blocks)
+        self.save_checkpoint('sun-avoidance-1', blocks)
         
         # -----------------------------------------------------------------
         # step 2: plan calibration scans
@@ -433,32 +439,57 @@ class SATPolicy:
         #   by cycling through the calibration targets and add scan blocks
         #   successively in the order given in the cal_targets config.
         # -----------------------------------------------------------------
+
+        # to determine overlap, calculate how much pre-obs and post-obs operations
+        # are possible
+        pre_ops = tu.tree_map(
+            lambda x: x if SchedMode.PreObs in x.sched_mode else None, 
+            self.operations
+        )
+        pre_sec = tu.tree_reduce(
+            lambda x, y: x.duration + y.duration,
+            pre_ops
+        )
+        post_ops = tu.tree_map(
+            lambda x: x if SchedMode.PostObs in x.sched_mode else None, 
+            self.operations
+        )
+        post_sec = tu.tree_reduce(
+            lambda x, y: x.duration + y.duration,
+            post_ops
+        )
+        # make a buffered set of blocks with one-to-one correspondence
+        # this will be used to determine overlap
+        cal_blocks_buffered = core.seq_map(
+            lambda b: core.Block(
+                t0=b.t0-dt.timedelta(seconds=pre_sec), 
+                t1=b.t1+dt.timedelta(seconds=post_sec)
+            ),
+            cal_blocks
+        ) 
+
         try:
-            cal_policy = {'round-robin': u.round_robin}[self.cal_policy]
+            # currently only implemented round-robin approach, but can be extended
+            # to other strategies
+            cal_policy = {
+                'round-robin': round_robin
+            }[self.cal_policy]
         except KeyError:
             raise ValueError(f"unsupported calibration policy: {self.cal_policy}")
 
-        merged = []
-        for scan in cal_policy(cal_blocks):
-            # TODO: account for how much preparation time is needed
-            buffered = core.Block(
-                t0=scan.t0,  # TODO: add buffer
-                t1=scan.t1
-            )
-            if not core.seq_has_overlap_with_block(merged, buffered):
-                merged.append(scan)
-            else:
-                logger.info(f"Skipping scan {scan} due to overlap")
-        
-        # store the result back to calibration 
-        # (not in-place so previous checkpoints are not affected)
-        blocks = blocks.copy()
-        blocks['calibration'] = merged
+        # done with the calibration blocks
+        blocks['calibration'] = list(cal_policy(
+            cal_blocks_buffered, 
+            cal_blocks, 
+            sun_avoidance=sun_rule
+        ))
         self.save_checkpoint('add-calibration', blocks)
 
         # -----------------------------------------------------------------
         # step 4: add operations
         # -----------------------------------------------------------------
+
+
 
         # -----------------------------------------------------------------
         # step 5: final touch: metadata, tags, etc.
@@ -677,3 +708,99 @@ class SATPolicy:
         commands += wrap_up
 
         return cmd.CompositeCommand(commands)
+
+
+# ------------------------
+# utilities
+# ------------------------
+def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
+    """
+    Perform a round robin scheduling over sequences of time blocks, yielding non-overlapping blocks.
+
+    This function goes through sequences of "query" time blocks (`seqs_q`) in a round robin fashion, checking for overlap 
+    between the blocks. An optional sequence of "value" time blocks (`seqs_v`) can be provided, which will be returned 
+    instead of the query blocks. The use case for having `seqs_v` different from `seqs_q` is that `seqs_q` can represent 
+    buffered time blocks used for determining overlap conditions, while `seqs_v`, representing the actual unbuffered time 
+    blocks, gets returned.
+
+    Parameters
+    ----------
+    seqs_q : list of lists
+        The query sequences. Each sub-list contains time blocks that are checked for overlap.
+    seqs_v : list of lists, optional
+        The value sequences. Each sub-list contains time blocks that are returned when their corresponding `seqs_q` block 
+        doesn't overlap with existing blocks.
+    sun_avoidance : function / rule, optional
+        If provided, a block is scheduled only if it satisfies this condition, this means the block is unchanged after
+        the rule is applied.
+
+    Yields
+    ------
+    block
+        Blocks from `seqs_v` that don't overlap with previously yielded blocks, as per the conditions defined.
+
+    Notes
+    -----
+    This generator function exhaustively attempts to yield all non-overlapping time blocks from the provided sequences
+    in a round robin order. The scheduling respects the order of sequences and the order of blocks within each sequence.
+    It supports an optional sun avoidance condition to filter out undesirable time blocks based on external criteria
+    (for example, blocks that are in direct sunlight).
+
+    Examples
+    --------
+    >>> seqs_q = [[[1, 2], [3, 4]], [[5, 6]]]
+    >>> list(round_robin(seqs_q))
+    [[1, 2], [5, 6], [3, 4]]
+
+    >>> def avoid_sun(block):
+    ...     return block if block[0] % 2 == 0 else block
+    >>> seqs_q = [[[1,3], [2, 4]], [[6, 7]]]
+    >>> seqs_v = [[[10, 15], [20, 25]], [[30, 35]]]
+    >>> list(round_robin(seqs_q, seqs_v=seqs_v, sun_avoidance=avoid_sun))
+    [[20, 25], [30, 35]]
+
+    """
+    if seqs_v is None:
+        seqs_v = seqs_q
+    assert len(seqs_q) == len(seqs_v)
+
+    n_seq = len(seqs_q)
+    block_idx = [0]*n_seq
+    seq_i = 0
+    block_i = [0] * n_seq
+
+    merged = []
+    while True:
+        # return if we have exhausted all scans in all seqs
+        if all([block_idx[i] >= len(seqs_q[i]) for i in range(n_seq)]):
+            return
+
+        # cycle through seq -> add the latest non-overlaping block -> continue to next seq
+        # skip if we have exhaused all scans in a sequence
+        if block_i[seq_i] >= len(seqs_q[seq_i]):
+            seq_i = (seq_i + 1) % n_seq
+            continue
+
+        seq_q = seqs_q[seq_i]
+        seq_v = seqs_v[seq_i]
+        block_q = seq_q[block_i[seq_i]]
+        block_v = seq_v[block_i[seq_i]]
+
+        # can we schedule this block?
+        #  yes if: 
+        #  - it doesn't overlap with existing blocks
+        #  - it satisfies sun avoidance condition if specified
+        ok = not core.seq_has_overlap_with_block(merged, block_q)
+        if sun_avoidance is not None:
+            ok *= block_q == sun_avoidance(block_q)
+        
+        if ok:
+            # schedule and move on to next seq
+            yield block_v
+            merged += [block_q]
+            seq_i = (seq_i + 1) % n_seq
+        else:
+            # unsuccess, retry with next block
+            logger.info(f"Calibration block {block_v} overlaps with existing blocks, skipping...")
+
+        block_i[seq_i] += 1
