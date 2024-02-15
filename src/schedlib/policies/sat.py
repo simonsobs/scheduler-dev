@@ -15,7 +15,8 @@ from .. import config as cfg, core, source as src, rules as ru, commands as cmd,
 # ==================
 # useful commands
 # ==================
-preamble = [
+def preamble(hwp_cfg):
+    return [
     "from nextline import disable_trace",
     "",
     "import time",
@@ -37,12 +38,12 @@ preamble = [
     "hwp_freq = 2.0",
     "",
     "def HWPPrep():",
-    "    iboot2 = OCSClient('power-iboot-hwp-2')",
+    f"    iboot2 = OCSClient({hwp_cfg['iboot2']})",
     "    iboot2.set_outlet(outlet = 1, state = 'on')",
     "    iboot2.set_outlet(outlet = 2, state = 'on')",
     "",
-    "    pid = OCSClient('hwp-pid')",
-    "    pmx = OCSClient('hwp-pmx')",
+    f"    pid = OCSClient({hwp_cfg['pid']})",
+    f"    pmx = OCSClient({hwp_cfg['hwp-pmx']})",
     "    pid.acq.stop()",
     "    global use_pid",
     "    global forward",
@@ -59,8 +60,8 @@ preamble = [
     "    pid.acq.start()",
     "",
     "def HWPPost():",
-    "    iboot2 = OCSClient('power-iboot-hwp-2')",
-    "    gripper = OCSClient('hwp-gripper')",
+    f"    iboot2 = OCSClient('{hwp_cfg['iboot2']}')",
+    f"    gripper = OCSClient('{hwp_cfg['gripper']}')",
     "    iboot2.set_outlet(outlet = 1, state = 'off')",
     "    iboot2.set_outlet(outlet = 2, state = 'off')",
     "    gripper.force(value = False)",
@@ -68,8 +69,8 @@ preamble = [
     "    gripper.power(state = False)",
     "",
     "def HWPSpinUp():",
-    "    pid = OCSClient('hwp-pid')",
-    "    pmx = OCSClient('hwp-pmx')",
+    f"    pid = OCSClient('{hwp_cfg['pid']}')",
+    f"    pmx = OCSClient('{hwp_cfg['pmx']}')",
     "    pid.acq.stop()",
     "    global use_pid",
     "    global forward",
@@ -100,9 +101,9 @@ preamble = [
     "    pid.acq.start()",
     "",
     "def HWPFastStop():",
-    "    iboot2 = OCSClient('power-iboot-hwp-2')",
-    "    pid = OCSClient('hwp-pid')",
-    "    pmx = OCSClient('hwp-pmx')",
+    f"    iboot2 = OCSClient('{hwp_cfg['iboot2']}')",
+    f"    pid = OCSClient('{hwp_cfg['pid']}')",
+    f"    pmx = OCSClient('{hwp_cfg['pmx']}')",
     "    pid.acq.stop()",
     "    global use_pid",
     "    global forward",
@@ -253,6 +254,7 @@ class SATPolicy:
     merge_order: List[str]
     time_costs: dict[str, float]
     ufm_relock: bool
+    hwp_cfg: dict[str]
     scan_tag: Optional[str] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
@@ -437,7 +439,7 @@ class SATPolicy:
         time_cost = 0  # secs
         commands = []
 
-        commands += preamble
+        commands += preamble(self.hwp_cfg)
 
         if self.ufm_relock:
             commands += ufm_relock
