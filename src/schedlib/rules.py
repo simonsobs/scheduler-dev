@@ -402,7 +402,10 @@ RULES = {
     'az-range': AzRange,
 }
 def get_rule(name: str) -> core.Rule:
-    return RULES[name]
+    if name in RULES:
+        return RULES[name]
+    else:
+        raise ValueError(f"{name} is not a registered rule")
 
 def make_rule(name: str, **kwargs) -> core.Rule:
     assert name in RULES, f"unknown rule {name}"

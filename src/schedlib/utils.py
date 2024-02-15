@@ -221,6 +221,62 @@ def nested_update(dictionary, update_dict, new_keys_allowed=True):
                 dictionary[key] = value
     return dictionary
 
+def round_robin(lists):
+    """
+    Iterate over several lists in a round-robin fashion.
+
+    This generator function takes a list of lists as input and yields elements from each list
+    in a round-robin order, cycling through the lists until all elements are exhausted.
+
+    Parameters
+    ----------
+    lists : list of lists
+        A list of lists from which elements will be yielded in a round-robin manner.
+
+    Yields
+    ------
+    element :
+        The next element in the round-robin sequence. The type of `element` depends on the
+        content of the input `lists`.
+
+    Examples
+    --------
+    >>> lists = [[1, 2, 3], ['a', 'b'], [10.1, 10.2]]
+    >>> for element in round_robin(lists):
+    ...     print(element)
+    ...
+    1
+    a
+    10.1
+    2
+    b
+    10.2
+    3
+
+    Notes
+    -----
+    - The function cycles through each list, yielding one element at a time from each list, before
+      moving to the next list in the sequence.
+    - If the lists are of unequal length, the function will continue cycling through the shorter lists
+      until all lists are fully exhausted.
+    - The function internally manages the index of each list to keep track of the next element to yield.
+      Once all elements from all lists have been yielded, the generator stops.
+
+    """
+    n = len(lists)  # Number of lists
+    idxs = [0] * n  # Index tracker for each list
+    while True:
+        for i in range(n):
+            if idxs[i] < len(lists[i]):
+                yield lists[i][idxs[i]]  # Yield the next element from the current list
+                idxs[i] += 1
+            elif all(idxs[i] >= len(lists[i]) for i in range(n)):
+                return
+            else:
+                continue  # Move to the next list if the current one is exhausted
+
+
+
 # ------------------
 # logging utils
 # ------------------

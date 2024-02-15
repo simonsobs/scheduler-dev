@@ -25,11 +25,11 @@ PREAMBLE = [
     "import time",
     "import datetime",
     "",
-    "with disable_trace():",
-    "    import numpy as np",
-    "    import sorunlib as run",
-    "    run.initialize()",
-    "    from ocs.ocs_client import OCSClient",
+    "import numpy as np",
+    "import sorunlib as run",
+    "from ocs.ocs_client import OCSClient",
+    "",
+    "run.initialize()",
     "",
     "UTC = datetime.timezone.utc",
     "acu = run.CLIENTS['acu']",
@@ -196,10 +196,10 @@ hwp_spin_down = [
 ]
 
 def det_setup(az, alt, t_start):
-    return  [
+    return [
         "",
         f"run.wait_until('{t_start.isoformat()}')",
-        "###################Detector Setup######################",
+        "################### Detector Setup######################",
         f"run.acu.move_to(az={round(az, 3)}, el={round(alt,3)})",
         "run.smurf.take_bgmap(concurrent=True)",
         "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
@@ -229,11 +229,6 @@ class SATPolicy:
         a list of queries, specifies the order of merging, e.g., ['baseline', 'calibration']
         indicates that baseline blocks takes precedence over calibration blocks in case of
         overlap
-    time_costs : dict
-        a dict of time costs, specifies the time cost of various operations, e.g., 'det_setup'
-        specifies the time cost of detector setup
-    ufm_relock : bool
-        whether to relock UFM before the start of the sequence
     scan_tag : str
         a tag to be added to all scans
     az_speed : float
@@ -256,9 +251,7 @@ class SATPolicy:
     rules: Dict[str, core.Rule]
     geometries: List[dict]
     cal_targets: List[tuple]
-    merge_order: List[str]
-    time_costs: dict[str, float]
-    ufm_relock: bool
+    cal_policy: str = 'round-robin'
     scan_tag: Optional[str] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
@@ -266,6 +259,7 @@ class SATPolicy:
     allow_partial: bool = False
     wafer_sets: dict[str, str] = field(default_factory=dict)
     preamble_file: Optional[str] = None
+    operations: dict[str, str] = field(default_factory=dict)
     checkpoints: dict[str, core.BlocksTree] = field(default_factory=OrderedDict)
 
     def save_checkpoint(self, name, blocks):
@@ -380,32 +374,41 @@ class SATPolicy:
         # save the original blocks
         self.save_checkpoint('original', blocks)
 
-        # sun avoidance
+        # -----------------------------------------------------------------
+        # step 1: preliminary sun avoidance
+        #   - get rid of source observing windows too close to the sun
+        #   - likely won't affect scan blocks because master schedule already
+        #     takes care of this
+        # -----------------------------------------------------------------
         if 'sun-avoidance' in self.rules:
             rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
             blocks = rule(blocks)
-            self.save_checkpoint('sun-avoidance', blocks)
+            self.save_checkpoint('sun-avoidance-1', blocks)
         
-        # plan source scans
-        cal_blocks = {}
-        for cal_target in self.cal_targets:
-            if len(cal_target) == 4:
-                source, array_query, el_bore, tagname = cal_target
-                boresight_rot = None
-            elif len(cal_target) == 5:
-                source, array_query, el_bore, boresight_rot, tagname = cal_target
-            else:
-                raise ValueError("cal_target has an unrecognized format")
+        # -----------------------------------------------------------------
+        # step 2: plan calibration scans
+        #   - refer to each target specified in cal_targets
+        #   - same source can be observed multiple times with different
+        #     array configurations (i.e. using array_query)
+        # -----------------------------------------------------------------
+        cal_blocks = []
 
+        for cal_target in self.cal_targets:
+            source, array_query, el_bore, boresight_rot, tagname = cal_target
             assert source in blocks['calibration'], f"source {source} not found in sequence"
 
-            # translation: allow array_query to look up from 
-            # wafer_set definitions
+            # digest array_query: it could be a fnmatch pattern matching the path
+            # in the geometry dict, or it could be looked up from a predefined
+            # wafer_set dict. Here we account for the latter case:
+            # look up predefined query in wafer_set
             if array_query in self.wafer_sets:
                 array_query = self.wafer_sets[array_query]
 
-            # build geometry information
+            # build array geometry information based on the query
             array_info = inst.array_info_from_query(self.geometries, array_query)
+
+            # apply MakeCESourceScan rule to transform known observing windows into
+            # actual scans
             rule = ru.MakeCESourceScan(
                 array_info=array_info, 
                 el_bore=el_bore, 
@@ -413,72 +416,53 @@ class SATPolicy:
                 boresight_rot=boresight_rot,
                 allow_partial=self.allow_partial,
             )
-            if source not in cal_blocks: cal_blocks[source] = []
-            _blocks = rule(blocks['calibration'][source])
-            cal_blocks[source].append(
-                core.seq_map(lambda block: block.replace(tag=f"{block.tag},{tagname}"), _blocks)
+            source_scans = rule(blocks['calibration'][source])
+
+            # add tags to the scans
+            cal_blocks.append(
+                core.seq_map(
+                    lambda block: block.replace(tag=f"{block.tag},{tagname}"), 
+                    source_scans
+                )
             )
 
-        # can we simply merge these blocks for each source?
-        for source in cal_blocks:
-            # if not, let's alternate between targets
-            if core.seq_has_overlap(cal_blocks[source]):
-                # one target per source block (e.g. per transit)
-                rules = []
-                for cal_target in self.cal_targets:
-                    if len(cal_target) == 4:
-                        source_, array_query, el_bore, tagname = cal_target
-                        boresight_rot = None
-                    elif len(cal_target) == 5:
-                        source_, array_query, el_bore, boresight_rot, tagname = cal_target
-                    else:
-                        raise ValueError("cal_target has an unrecognized format")
-                    if source_ != source: continue
-                    # translation: allow array_query to look up from 
-                    # wafer_set definitions
-                    if array_query in self.wafer_sets:
-                        array_query = self.wafer_sets[array_query]
-                    rules.append(
-                        (
-                            tagname,
-                            ru.MakeCESourceScan(
-                                array_info=inst.array_info_from_query(self.geometries, array_query),
-                                el_bore=el_bore,
-                                drift=True,
-                                boresight_rot=boresight_rot,
-                                allow_partial=self.allow_partial,
-                            ),
-                        )
-                    )
+        # -----------------------------------------------------------------
+        # step 3: resolve calibration target conflicts 
+        #   currently we adopt a simple round-robin strategy to resolve
+        #   conflicts between multiple calibration targets. This is done
+        #   by cycling through the calibration targets and add scan blocks
+        #   successively in the order given in the cal_targets config.
+        # -----------------------------------------------------------------
+        try:
+            cal_policy = {'round-robin': u.round_robin}[self.cal_policy]
+        except KeyError:
+            raise ValueError(f"unsupported calibration policy: {self.cal_policy}")
 
-                new_blocks = []
-                rule_i = 0
-                for block in blocks['calibration'][source]:
-                    if block is None: continue
-                    tagname, rule = rules[rule_i]
-                    block = rule(block)
-                    if block is None: continue
-                    new_blocks.append(
-                        block.replace(tag=f"{block.tag},{tagname}")
-                    )
-                    # alternating between rules
-                    rule_i = (rule_i + 1) % len(rules)  
-                cal_blocks[source] = new_blocks
+        merged = []
+        for scan in cal_policy(cal_blocks):
+            # TODO: account for how much preparation time is needed
+            buffered = core.Block(
+                t0=scan.t0,  # TODO: add buffer
+                t1=scan.t1
+            )
+            if not core.seq_has_overlap_with_block(merged, buffered):
+                merged.append(scan)
             else:
-                cal_blocks[source] = core.seq_flatten(cal_blocks[source])
+                logger.info(f"Skipping scan {scan} due to overlap")
         
         # store the result back to calibration 
         # (not in-place so previous checkpoints are not affected)
         blocks = blocks.copy()
-        blocks['calibration'] = cal_blocks
+        blocks['calibration'] = merged
         self.save_checkpoint('add-calibration', blocks)
 
-        # az range fix
-        if 'az-range' in self.rules:
-            rule = ru.make_rule('az-range', **self.rules['az-range'])
-            blocks = rule(blocks)
-            self.save_checkpoint('az-range', blocks)
+        # -----------------------------------------------------------------
+        # step 4: add operations
+        # -----------------------------------------------------------------
 
+        # -----------------------------------------------------------------
+        # step 5: final touch: metadata, tags, etc.
+        # -----------------------------------------------------------------
         # add proper subtypes
         blocks['calibration'] = core.seq_map(lambda block: block.replace(subtype="cal"), blocks['calibration'])
         blocks['baseline']['cmb'] = core.seq_map(lambda block: block.replace(subtype="cmb", tag=f"{block.az:.0f}-{block.az+block.throw:.0f}"), blocks['baseline']['cmb'])
