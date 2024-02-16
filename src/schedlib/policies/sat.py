@@ -9,6 +9,7 @@ from typing import List, Union, Optional, Dict
 import numpy as np
 from collections import OrderedDict, Counter
 from enum import Flag, auto
+from enum import Enum
 import jax.tree_util as tu
 
 from .. import config as cfg, core, source as src, rules as ru
@@ -16,18 +17,20 @@ from .. import commands as cmd, instrument as inst, utils as u
 
 logger = u.init_logger("sat-policy")
 
+class SchedMode(Enum):
+    PreObs = 'pre_obs'
+    PostObs = 'post_obs'
+    PreSession = 'pre_session'
+    PostSession = 'post_session'
 
-class SchedMode(Flag):
-    PreObs = auto()
-    PostObs = auto()
 
 # ==================
 # useful commands
 # ==================
 
-PREAMBLE = [
-    "from nextline import disable_trace",
-    "",
+@cmd.operation(name="preamble", duration=0)
+def preamble(hwp_cfg: Dict[str, str]) -> List[str]:
+    return [
     "import time",
     "import datetime",
     "",
@@ -47,12 +50,12 @@ PREAMBLE = [
     "hwp_freq = 2.0",
     "",
     "def HWPPrep():",
-    "    iboot2 = OCSClient('power-iboot-hwp-2')",
+    f"    iboot2 = OCSClient('{hwp_cfg['iboot2']}')",
     "    iboot2.set_outlet(outlet = 1, state = 'on')",
     "    iboot2.set_outlet(outlet = 2, state = 'on')",
     "",
-    "    pid = OCSClient('hwp-pid')",
-    "    pmx = OCSClient('hwp-pmx')",
+    f"    pid = OCSClient('{hwp_cfg['pid']}')",
+    f"    pmx = OCSClient('{hwp_cfg['pmx']}')",
     "    pid.acq.stop()",
     "    time.sleep(5)",
     "    global use_pid",
@@ -70,8 +73,8 @@ PREAMBLE = [
     "    pid.acq.start()",
     "",
     "def HWPPost():",
-    "    iboot2 = OCSClient('power-iboot-hwp-2')",
-    "    gripper = OCSClient('hwp-gripper')",
+    f"    iboot2 = OCSClient('{hwp_cfg['iboot2']}')",
+    f"    gripper = OCSClient('{hwp_cfg['gripper']}')",
     "    iboot2.set_outlet(outlet = 1, state = 'off')",
     "    iboot2.set_outlet(outlet = 2, state = 'off')",
     "    gripper.force(value = False)",
@@ -79,8 +82,8 @@ PREAMBLE = [
     "    gripper.power(state = False)",
     "",
     "def HWPSpinUp():",
-    "    pid = OCSClient('hwp-pid')",
-    "    pmx = OCSClient('hwp-pmx')",
+    f"    pid = OCSClient('{hwp_cfg['pid']}')",
+    f"    pmx = OCSClient('{hwp_cfg['pmx']}')",
     "    pid.acq.stop()",
     "    time.sleep(5)",
     "    global use_pid",
@@ -111,9 +114,9 @@ PREAMBLE = [
     "        print('Error: Not using PID')",
     "",
     "def HWPFastStop():",
-    "    iboot2 = OCSClient('power-iboot-hwp-2')",
-    "    pid = OCSClient('hwp-pid')",
-    "    pmx = OCSClient('hwp-pmx')",
+    f"    iboot2 = OCSClient('{hwp_cfg['iboot2']}')",
+    f"    pid = OCSClient('{hwp_cfg['pid']}')",
+    f"    pmx = OCSClient('{hwp_cfg['pmx']}')",
     "    pid.acq.stop()",
     "    time.sleep(5)",
     "    global use_pid",
@@ -164,57 +167,124 @@ PREAMBLE = [
     "        print('CHWP stopped')",
     "    else:",
     "        print('Error: Not using PID')",
-]
-
-wrap_up = [
-    "# go home",
-    "run.acu.move_to(az=180, el=48)",
     "",
-    "time.sleep(1)"
-]
-
-ufm_relock = [
-    "############# Daily Relock ######################",
-    "for smurf in pysmurfs:",
-    "    smurf.zero_biases.start()",
-    "for smurf in pysmurfs:",
-    "    smurf.zero_biases.wait()",
+    "    pid.acq.start()",
     "",
-    "time.sleep(120)",
-    "run.smurf.take_noise(concurrent=True, tag='oper,take_noise,res_check')",
-    "",
-    "run.smurf.uxm_relock(concurrent=True)",
-    "#################################################", 
-]
-
-hwp_spin_up = [
-    "############# Start HWP ######################",
-    "HWPPrep()",
-    "forward = True",
-    "hwp_freq = 2.0",
-    "HWPSpinUp()",
-]
-
-hwp_spin_down = [
-    "############# Stop HWP ######################",
-    "HWPFastStop()",
-    "HWPPost()",
-]
-
-def det_setup(az, alt, t_start):
-    return [
-        "",
-        f"run.wait_until('{t_start.isoformat()}')",
-        "################### Detector Setup######################",
-        f"run.acu.move_to(az={round(az, 3)}, el={round(alt,3)})",
-        "run.smurf.take_bgmap(concurrent=True)",
-        "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
-        "run.smurf.bias_dets(concurrent=True)",
-        "time.sleep(180)",
-        "run.smurf.bias_step(concurrent=True)",
-        "#################### Detector Setup Over ####################",
-        "",
     ]
+
+@cmd.operation(name='wrap-up')
+def wrap_up(state):
+    state.update({
+        'az_now': 180,
+        'el_now': 48
+    })
+    return [
+        "# go home",
+        "run.acu.move_to(az=180, el=48)",
+        "",
+        "time.sleep(1)"
+    ]
+
+@cmd.operation(name='ufm-relock', return_duration=True)
+def ufm_relock(state):
+    if state['last_ufm_relock'] is None:
+        doit = True
+    elif (state['curr_time'] - state['last_ufm_relock']).total_seconds() > 12*u.hour:
+        doit = True
+    else:
+        doit = False
+
+    if doit:
+        state.update({
+            'last_ufm_relock': state['curr_time']
+        })
+        return 15*u.minute, [
+            "############# Daily Relock ######################",
+            "for smurf in pysmurfs:",
+            "    smurf.zero_biases.start()",
+            "for smurf in pysmurfs:",
+            "    smurf.zero_biases.wait()",
+            "",
+            "time.sleep(120)",
+            "run.smurf.take_noise(concurrent=True, tag='oper,take_noise,res_check')",
+            "",
+            "run.smurf.uxm_relock(concurrent=True)",
+            "#################################################",
+        ]
+    else:
+        return 0, ["# no ufm relock needed at this time"]
+
+@cmd.operation(name='hwp-spin-up', return_duration=True)
+def hwp_spin_up(state, disable_hwp):
+    if not disable_hwp and not state['hwp_spinning']:
+        state.update({
+            'hwp_spinning': True
+        })
+        return 20*u.minute, [
+            "############# Start HWP ######################",
+            "HWPPrep()",
+            "forward = True",
+            "hwp_freq = 2.0",
+            "HWPSpinUp()",
+        ]
+    return 0, ["# hwp disabled or already spinning"]
+
+@cmd.operation(name='hwp-spin-down', return_duration=True)
+def hwp_spin_down(state, disable_hwp):
+    if not disable_hwp and state['hwp_spinning']:
+        state.update({
+            'hwp_spinning': False
+        })
+        return 10*u.minute, [
+            "############# Stop HWP ######################",
+            "HWPFastStop()",
+            "HWPPost()",
+            "hwp_freq = 0.0",
+        ]
+    return 0, ["# hwp disabled or not spinning"]
+
+@cmd.operation(name='set-scan-params')
+def set_scan_params(state, az_speed, az_accel):
+    if az_speed != state['az_speed_now'] or az_accel != state['az_accel_now']:
+        state.update({
+            'az_speed_now': az_speed,
+            'az_accel_now': az_accel
+        })
+        return [
+            f"run.acu.set_scan_params({az_speed}, {az_accel})",
+        ]
+    return []
+
+@cmd.operation(name='det-setup', return_duration=True)
+def det_setup(state, t0, az, alt, disable_hwp=False):
+    # only do it if boresight has changed
+    duration = 0
+    commands = []
+    if az != state['az_now'] or alt != state['el_now']:
+        if not disable_hwp and state['hwp_spinning']:
+            d, c = hwp_spin_down(state)
+            commands += c
+            duration += d
+        commands += [
+            "",
+            f"run.wait_until('{t0.isoformat()}')"
+            "################### Detector Setup######################",
+            f"run.acu.move_to(az={round(az, 3)}, el={round(alt,3)})",
+            "run.smurf.take_bgmap(concurrent=True)",
+            "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
+            "run.smurf.bias_dets(concurrent=True)",
+            "time.sleep(180)",
+            "run.smurf.bias_step(concurrent=True)",
+            "#################### Detector Setup Over ####################",
+            "",
+        ]
+        duration += 60
+        if not disable_hwp and not state['hwp_spinning']:
+            d, c = hwp_spin_up(state, disable_hwp=disable_hwp)
+            commands += c
+            duration += d
+
+    return duration, commands
 
 @dataclass
 class SATPolicy:
