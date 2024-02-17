@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import inspect
 
+from . import core
+
 
 @dataclass(frozen=True)
 class Operation:
@@ -165,6 +167,15 @@ def make_op(name, *args, **kwargs):
     """
     op_cls = get_operation_cls(name)
     return op_cls(*args, **kwargs)
+
+class OperationBlock(core.NamedBlock):
+    commands: List[str]
+
+# --------------------------
+# Old Command Classes
+#
+# (will be removed soon)
+# --------------------------
 
 @dataclass(frozen=True)
 class Command:
