@@ -707,14 +707,13 @@ def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
     assert len(seqs_q) == len(seqs_v)
 
     n_seq = len(seqs_q)
-    block_idx = [0]*n_seq
     seq_i = 0
     block_i = [0] * n_seq
 
     merged = []
     while True:
         # return if we have exhausted all scans in all seqs
-        if all([block_idx[i] >= len(seqs_q[i]) for i in range(n_seq)]):
+        if all([block_i[i] >= len(seqs_q[i]) for i in range(n_seq)]):
             return
 
         # cycle through seq -> add the latest non-overlaping block -> continue to next seq
