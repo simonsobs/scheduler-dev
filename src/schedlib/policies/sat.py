@@ -7,8 +7,7 @@ from dataclasses import dataclass, field
 import datetime as dt
 from typing import List, Union, Optional, Dict
 import numpy as np
-from collections import OrderedDict, Counter
-from enum import Flag, auto
+from collections import Counter
 from enum import Enum
 import jax.tree_util as tu
 
@@ -358,10 +357,7 @@ class SATPolicy:
     cal_targets : list
         a list of tuples, each tuple specifies a calibration target, with the format
         (source, array_query, el_bore, boresight_rot, tagname)
-    merge_order : list
-        a list of queries, specifies the order of merging, e.g., ['baseline', 'calibration']
-        indicates that baseline blocks takes precedence over calibration blocks in case of
-        overlap
+    cal_policy : str
     scan_tag : str
         a tag to be added to all scans
     az_speed : float
@@ -393,20 +389,6 @@ class SATPolicy:
     wafer_sets: dict[str, str] = field(default_factory=dict)
     preamble_file: Optional[str] = None
     operations: dict[str, str] = field(default_factory=dict)
-    checkpoints: dict[str, core.BlocksTree] = field(default_factory=OrderedDict)
-
-    def save_checkpoint(self, name, blocks):
-        """
-        Save a checkpoint with the given name and blocks, for debugging purpose.
-
-        Parameters
-        ----------
-        name : str
-            The name of the checkpoint.
-        blocks : dict
-            The blocks to be saved as the checkpoint.
-        """
-        self.checkpoints[name] = blocks.copy()
 
     @classmethod
     def from_config(cls, config: Union[dict, str]):
@@ -504,9 +486,6 @@ class SATPolicy:
             New blocks tree after applying the specified observing rules.
 
         """
-        # save the original blocks
-        self.save_checkpoint('original', blocks)
-
         # -----------------------------------------------------------------
         # step 1: preliminary sun avoidance
         #   - get rid of source observing windows too close to the sun
@@ -515,8 +494,7 @@ class SATPolicy:
         # -----------------------------------------------------------------
         assert 'sun-avoidance' in self.rules
         sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
-        blocks = sun_rule(blocks)
-        self.save_checkpoint('sun-avoidance-1', blocks)
+        blocks['calibration'] = sun_rule(blocks['calibration'])
         
         # -----------------------------------------------------------------
         # step 2: plan calibration scans
@@ -567,34 +545,6 @@ class SATPolicy:
         #   successively in the order given in the cal_targets config.
         # -----------------------------------------------------------------
 
-        # to determine overlap, calculate how much pre-obs and post-obs operations
-        # are possible
-        pre_ops = tu.tree_map(
-            lambda x: x if SchedMode.PreObs in x.sched_mode else None, 
-            self.operations
-        )
-        pre_sec = tu.tree_reduce(
-            lambda x, y: x.duration + y.duration,
-            pre_ops
-        )
-        post_ops = tu.tree_map(
-            lambda x: x if SchedMode.PostObs in x.sched_mode else None, 
-            self.operations
-        )
-        post_sec = tu.tree_reduce(
-            lambda x, y: x.duration + y.duration,
-            post_ops
-        )
-        # make a buffered set of blocks with one-to-one correspondence
-        # this will be used to determine overlap
-        cal_blocks_buffered = core.seq_map(
-            lambda b: core.Block(
-                t0=b.t0-dt.timedelta(seconds=pre_sec), 
-                t1=b.t1+dt.timedelta(seconds=post_sec)
-            ),
-            cal_blocks
-        ) 
-
         try:
             # currently only implemented round-robin approach, but can be extended
             # to other strategies
@@ -606,53 +556,35 @@ class SATPolicy:
 
         # done with the calibration blocks
         blocks['calibration'] = list(cal_policy(
-            cal_blocks_buffered, 
             cal_blocks, 
             sun_avoidance=sun_rule
         ))
-        self.save_checkpoint('add-calibration', blocks)
 
         # -----------------------------------------------------------------
-        # step 4: add operations
-        # -----------------------------------------------------------------
-
-
-
-        # -----------------------------------------------------------------
-        # step 5: final touch: metadata, tags, etc.
+        # step 4: tags
         # -----------------------------------------------------------------
         # add proper subtypes
-        blocks['calibration'] = core.seq_map(lambda block: block.replace(subtype="cal"), blocks['calibration'])
-        blocks['baseline']['cmb'] = core.seq_map(lambda block: block.replace(subtype="cmb", tag=f"{block.az:.0f}-{block.az+block.throw:.0f}"), blocks['baseline']['cmb'])
+        blocks['calibration'] = core.seq_map(
+            lambda block: block.replace(subtype="cal"),
+            blocks['calibration']
+        )
+
+        blocks['baseline']['cmb'] = core.seq_map(
+            lambda block: block.replace(
+                subtype="cmb",
+                tag=f"{block.az:.0f}-{block.az+block.throw:.0f}"
+            ),
+            blocks['baseline']['cmb']
+        )
 
         # add scan tag if supplied
         if self.scan_tag is not None:
-            blocks['baseline'] = core.seq_map(lambda block: block.replace(tag=f"{block.tag},{self.scan_tag}"), blocks['baseline'])
+            blocks['baseline'] = core.seq_map(
+                lambda block: block.replace(tag=f"{block.tag},{self.scan_tag}"),
+                blocks['baseline']
+            )
 
-        #########
-        # merge #
-        #########
-
-        seq = None
-        for query in self.merge_order[::-1]:
-            match, _ = core.seq_partition_with_query(query, blocks)
-            if seq is None: 
-                seq = match
-                continue
-            else:
-                # match takes precedence
-                seq = core.seq_merge(seq, match, flatten=True)
-
-        self.save_checkpoint('merge', seq)
-
-        # duration cut
-        if 'min-duration' in self.rules:
-            rule = ru.make_rule('min-duration', **self.rules['min-duration'])
-            seq = rule(seq)
-
-        # save the result
-        self.save_checkpoint('final', seq)
-        return core.seq_sort(seq)
+        return blocks
 
     def seq2cmd(self, seq: core.Blocks, t0: dt.datetime, t1: dt.datetime):
         """
