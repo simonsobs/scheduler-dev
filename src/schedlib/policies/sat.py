@@ -586,7 +586,17 @@ class SATPolicy:
 
         return blocks
 
-    def seq2cmd(self, seq: core.Blocks, t0: dt.datetime, t1: dt.datetime):
+    def init_state(self, t0):
+        return {
+            'curr_time': t0,
+            'az_now': 180,
+            'el_now': 48,
+            'last_ufm_relock': None,
+            'hwp_spinning': False,
+            'az_speed_now': None,
+            'az_accel_now': None
+        }
+
         """
         Converts a sequence of blocks into a list of commands to be executed
         between two given times.
