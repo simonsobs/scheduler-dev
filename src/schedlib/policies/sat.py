@@ -597,6 +597,7 @@ class SATPolicy:
             'az_accel_now': None
         }
 
+    def seq2cmd(self, seq: core.Blocks, t0: dt.datetime):
         """
         Converts a sequence of blocks into a list of commands to be executed
         between two given times.
@@ -623,158 +624,30 @@ class SATPolicy:
             A list of command strings that will be executed by the telescope
 
         """
-        time_cost = 0  # secs
+        # -----------------------------------------------------------------
+        # 1. pre-session operations
+        # -----------------------------------------------------------------
+
+        op_blocks = []
         commands = []
+        state = self.init_state(t0)
 
-        # option to load preamble from a file
-        if self.preamble_file is not None and op.exists(self.preamble_file):
-            with open(self.preamble_file, "r") as f:
-                preamble = [l.strip("\n") for l in f.readlines()]
-        else:
-            preamble = PREAMBLE
-        commands += preamble
+        ops = [op for op in self.operations if op.pop('sched_mode') == SchedMode.PreSession]
+        for op_cfg in ops:
+            sched_mode = op_cfg.pop('sched_mode')
+            op = cmd.make_op(**op_cfg)
+            dur, com = op(state)
+            logger.info(f"planning operation: mode: {sched_mode} name: {op_cfg['name']} duration: {dur} seconds")
 
-        if self.ufm_relock:
-            commands += ufm_relock
-            time_cost += self.time_costs['ufm_relock']
+            # add comment and some empty lines for readability
+            commands += ['', f'# op mode: {sched_mode} op name: {op_cfg["name"]}'] + com + ['']
+            state['curr_time'] += dt.timedelta(seconds=dur)
 
-        # set az speed and accel
-        commands += [
-            "",
-            f"run.acu.set_scan_params({self.az_speed}, {self.az_accel})",
-            "",
-        ] 
-        
-        # start to build scans
-        assert core.seq_is_sorted(seq), "seq must be sorted"
+        op_blocks += [core.NamedBlock(name='init', t0=t0, t1=state['curr_time'])]
+        post_init_state = state
 
-        t_cur = t0 + dt.timedelta(seconds=time_cost)
-
-        is_det_setup = False
-        is_hwp_spinning = False
-        cur_boresight_angle = None
-        for block in seq:
-            
-            setup_time = 0
-            if not is_det_setup or block.subtype=='cal':
-                setup_time += self.time_costs['det_setup']
-            if not is_hwp_spinning:
-                setup_time += self.time_costs['hwp_spin_up']
-            if is_hwp_spinning and block.subtype=='cal':
-                # we need to spin down HWP to rebias detectors
-                setup_time += self.time_costs['hwp_spin_down']
-                setup_time += self.time_costs['hwp_spin_up']
-            
-            logger.debug(f"Planning block {block.name}")
-            logger.debug(f"Setup time is {setup_time/60} minutes")
-
-            # det setup
-            if block.subtype == 'cmb' and t_cur + dt.timedelta(seconds=setup_time) > block.t1:
-                commands += [
-                    "\"\"\"",
-                    f"Note: {block} skipped due to insufficient time",
-                    "\"\"\"",
-                ]
-                continue
-            else:
-                if block.subtype == 'cmb':
-                    if not is_det_setup:
-                        t_start = block.t0 - dt.timedelta(seconds=setup_time)
-                        commands += det_setup(block.az, block.alt, t_start)
-                        is_det_setup = True
-
-                    if not is_hwp_spinning:
-                        commands += hwp_spin_up
-                        is_hwp_spinning = True
-
-                    commands += [
-                        "",
-                        "#~~~~~~~~~~~~~~~~~~~~~~~",
-                        f"run.wait_until('{block.t0.isoformat()}')"
-                    ]
-
-                    if self.apply_boresight_rot and block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
-                        commands += [
-                            f"run.acu.set_boresight({block.boresight_angle})",
-                        ]
-                        cur_boresight_angle = block.boresight_rot
-
-                    commands += [
-                        f"run.acu.move_to(az={round(block.az,3)}, el={round(block.alt,3)})",
-                         "run.smurf.bias_step(concurrent=True)",
-                         "run.seq.scan(",
-                        f"        description='{block.name}',",
-                        f"        stop_time='{block.t1.isoformat()}',", 
-                        f"        width={round(block.throw,3)}, az_drift=0,",
-                        f"        subtype='cmb', tag='{block.tag}',",
-                         ")",
-                         "run.smurf.bias_step(concurrent=True)",
-                         "#~~~~~~~~~~~~~~~~~~~~~~~",
-                         "",
-                    ]
-                if block.subtype == 'cal':
-                    t_start = block.t0 - dt.timedelta(seconds=setup_time)
-                    
-                    if is_hwp_spinning:
-                        commands += hwp_spin_down
-                        is_hwp_spinning = False
-                        t_start += dt.timedelta(
-                            seconds=self.time_costs['hwp_spin_down']
                         )
 
-                    # setup detectors
-                    commands += det_setup(block.az, block.alt, t_start)
-                    is_det_setup = True
-
-                    if self.apply_boresight_rot and block.boresight_angle is not None and block.boresight_rot != cur_boresight_angle:
-                        commands += [
-                            f"run.acu.set_boresight({block.boresight_angle})",
-                        ]
-                        cur_boresight_angle = block.boresight_rot
-
-                    
-                    if not is_hwp_spinning:
-                        commands += hwp_spin_up
-                        is_hwp_spinning = True
-
-                    # start the scan
-                    commands += [
-                        "################# Scan #################################",
-                        "",
-                        "now = datetime.datetime.now(tz=UTC)",
-                        f"scan_start = {repr(block.t0)}",
-                        f"scan_stop = {repr(block.t1)}",
-                        f"if now > scan_start:",
-                        "    # adjust scan parameters",
-                        f"    az = {round(np.mod(block.az,360),3)} + {round(block.az_drift,5)}*(now-scan_start).total_seconds()",
-                        f"else: ",
-                        f"    az = {round(np.mod(block.az,360),3)}",
-                        f"if now > scan_stop:",
-                        "    # too late, don't scan",
-                        "    pass",
-                        "else:",
-                        f"    run.acu.move_to(az, {round(block.alt,3)})",
-                        "",
-                        f"    print('Waiting until {block.t0} to start scan')",
-                        f"    run.wait_until('{block.t0.isoformat()}')",
-                        "",
-                        "    run.seq.scan(",
-                        f"        description='{block.name}', ",
-                        f"        stop_time='{block.t1.isoformat()}', ",
-                        f"        width={round(block.throw,3)}, ",
-                        f"        az_drift={round(block.az_drift,5)}, ",
-                        f"        subtype='{block.subtype}',",
-                        f"        tag='{block.tag}',",
-                        "    )",
-                        "    print('Taking Bias Steps')",
-                        "    run.smurf.bias_step(concurrent=True)",
-                        "################# Scan Over #############################",
-                    ] 
-                
-                t_cur = block.t1 + dt.timedelta(seconds=self.time_costs['bias_step'])
-
-        commands += hwp_spin_down
-        commands += wrap_up
 
         return cmd.CompositeCommand(commands)
 
