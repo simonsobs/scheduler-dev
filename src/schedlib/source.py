@@ -96,10 +96,9 @@ def _source_get_az_alt(source: str, times: List[dt.datetime]) -> Tuple[np.ndarra
         alt.append(np.rad2deg(source.alt))
     az, alt = np.array(az), np.array(alt)
     az = np.unwrap(az, period=360)
-    az_min = np.min(az)
     # prefer close to 0
-    # az_min = (az_min + 180) % 360 - 180
-    az = (az - az_min) % 360 + az_min
+    az = (az + 180) % 360 - 180
+    az = (az - az.min()) % 360 + az.min()
     return az, alt
 
 
@@ -263,9 +262,9 @@ class SourceBlock(core.NamedBlock):
         alt = source.interp_alt(ctimes)
         az = np.unwrap(az, period=360)
         # prefer close to 0
-        # az_min = (np.min(az) + 180) % 360 - 180
-        az_min = np.min(az)
-        az = (az - az_min) % 360 + az_min
+        # az_min = (az_min + 180) % 360 - 180
+        az = (az + 180) % 360 - 180
+        az = (az - az.min()) % 360 + az.min()
         return ctimes, az, alt
 
     def trim_by_az_alt_range(self, az_range: Optional[Tuple[float, float]] = None,

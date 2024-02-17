@@ -105,7 +105,7 @@ class ScanBlock(core.NamedBlock):
 
         # find left and right az limits, accounting for drift
         drift = self.az_drift * (t-t0)
-        left = self.az - self.throw + drift
+        left = self.az + drift
         right = self.az + self.throw + drift
 
         # calculate the phase of the scan, assuming it
@@ -229,4 +229,3 @@ def parse_sequence_from_toast(ifile):
         )
         blocks.append(block)
     return blocks
-
