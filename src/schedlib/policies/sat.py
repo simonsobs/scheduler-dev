@@ -18,15 +18,41 @@ from .. import commands as cmd, instrument as inst, utils as u
 logger = u.init_logger("sat-policy")
 
 class SchedMode(Enum):
+    """
+    Enumerates the scheduling modes for satellite operations.
+
+    Attributes
+    ----------
+    PreCal : str
+        'pre_cal'; Operations scheduled before block.t0 for calibration.
+    PreObs : str
+        'pre_obs'; Observations scheduled before block.t0 for observation.
+    InCal : str
+        'in_cal'; Calibration operations scheduled between block.t0 and block.t1.
+    InObs : str
+        'in_obs'; Observation operations scheduled between block.t0 and block.t1.
+    PostCal : str
+        'post_cal'; Calibration operations scheduled after block.t1.
+    PostObs : str
+        'post_obs'; Observations operations scheduled after block.t1.
+    PreSession : str
+        'pre_session'; Represents the start of a session, scheduled from the beginning of the requested t0.
+    PostSession : str
+        'post_session'; Indicates the end of a session, scheduled after the last operation.
+
+    """
+    PreCal = 'pre_cal'
     PreObs = 'pre_obs'
+    InCal = 'in_cal'
+    InObs = 'in_obs'
+    PostCal = 'post_cal'
     PostObs = 'post_obs'
     PreSession = 'pre_session'
     PostSession = 'post_session'
 
-
-# ==================
-# useful commands
-# ==================
+# ====================
+# register operations
+# ====================
 
 @cmd.operation(name="preamble", duration=0)
 def preamble(hwp_cfg: Dict[str, str]) -> List[str]:
@@ -255,21 +281,22 @@ def set_scan_params(state, az_speed, az_accel):
         ]
     return []
 
+# per block operation: block will be passed in as parameter
 @cmd.operation(name='det-setup', return_duration=True)
-def det_setup(state, t0, az, alt, disable_hwp=False):
+def det_setup(state, block, disable_hwp=False):
     # only do it if boresight has changed
     duration = 0
     commands = []
-    if az != state['az_now'] or alt != state['el_now']:
+    if block.az != state['az_now'] or block.alt != state['el_now']:
         if not disable_hwp and state['hwp_spinning']:
             d, c = hwp_spin_down(state)
             commands += c
             duration += d
         commands += [
             "",
-            f"run.wait_until('{t0.isoformat()}')"
+            f"run.wait_until('{block.t0.isoformat()}')"
             "################### Detector Setup######################",
-            f"run.acu.move_to(az={round(az, 3)}, el={round(alt,3)})",
+            f"run.acu.move_to(az={round(block.az, 3)}, el={round(block.alt,3)})",
             "run.smurf.take_bgmap(concurrent=True)",
             "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
             "run.smurf.bias_dets(concurrent=True)",
@@ -285,6 +312,36 @@ def det_setup(state, t0, az, alt, disable_hwp=False):
             duration += d
 
     return duration, commands
+
+@cmd.operation(name='setup-boresight', duration=0)  # TODO check duration
+def setup_boresight(state, block, apply_boresight_rot=True):
+    commands = []
+    if apply_boresight_rot and state['boresight_rot_now'] != block.boresight_rot:
+        commands += [f"run.acu.set_boresight({block.boresight_angle}"]
+        state['boresight_rot_now'] = block.boresight_rot
+
+    if block.az != state['az_now'] or block.alt != state['el_now']:
+        commands += [ f"run.acu.move_to(az={round(block.az,3)}, el={round(block.alt,3)})" ]
+        state['az_now'] = block.az
+        state['el_now'] = block.alt
+    return commands
+
+@cmd.operation(name='cmb-scan', return_duration=True)
+def cmb_scan(block):
+    commands = [
+        "run.seq.scan(",
+        f"    description='{block.name}',",
+        f"    stop_time='{block.t1.isoformat()}',",
+        f"    width={round(block.throw,3)}, az_drift=0,",
+        f"    subtype='cmb', tag='{block.tag}',",
+        ")",
+    ]
+    return block.duration, commands
+
+# passthrough any arguments, to be used in any sched-mode
+@cmd.operation(name='bias-det', duration=60)
+def bias_det(*args, **kwargs):
+    return [ "run.smurf.bias_dets(concurrent=True)" ]
 
 @dataclass
 class SATPolicy:
