@@ -4,7 +4,7 @@ import datetime as dt
 import numpy as np
 import jax.tree_util as tu
 import equinox
-from dataclasses import dataclass, replace as dc_replace
+from dataclasses import dataclass, replace as dc_replace, asdict
 
 from . import utils
 
@@ -43,6 +43,9 @@ class Block:
         return block_isa(block_type)(self)
     def replace(self, **kwargs) -> "Block":
         return dc_replace(self, **kwargs)
+    def to_dict(self):
+        # unlike __dict__, it makes deep copy
+        return asdict(self)
 
 BlockType = type(Block)
 Blocks = List[Union[Block, None, "Blocks"]]  # maybe None, maybe nested
