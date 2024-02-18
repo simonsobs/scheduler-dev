@@ -133,15 +133,15 @@ def operation(name, duration=0, return_duration=False):
                 # decide whether duration is provided or will be computed
                 # as part of the operation function
                 if alter_state:
-                    res = operation_fun(state, *self.args, **self.kwargs)
+                    state, *rest = operation_fun(state, *self.args, **self.kwargs)
                 else:
-                    res = operation_fun(*self.args, **self.kwargs)
+                    rest = operation_fun(*self.args, **self.kwargs)
 
                 if return_duration:
-                    return res
+                    duration, commands = rest
                 else:
-                    res = (duration, res)
-                return res
+                    commands = rest
+                return state, duration, commands
 
         return register_operation_cls(name, _Operation)
     return wrapper

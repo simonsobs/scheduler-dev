@@ -3,7 +3,7 @@
 """
 import yaml
 import os.path as op
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dc_replace
 import datetime as dt
 from typing import List, Union, Optional, Dict
 import numpy as np
@@ -49,12 +49,30 @@ class SchedMode(Enum):
     PreSession = 'pre_session'
     PostSession = 'post_session'
 
+@dataclass(frozen=True)
+class State:
+    """Observatory state relevant for operation planning.
+    Made immutable for the piece of mind.
+
+    """
+    curr_time: dt.datetime
+    az_now: float
+    el_now: float
+    hwp_spinning: bool
+    boresight_rot_now: Optional[float] = None
+    # prev_state: Optional["State"] = None
+
+    def replace(self, **kwargs):
+        # enble entire state history for debugging
+        # kwargs = {**kwargs, "prev_state": self}
+        return dc_replace(self, **kwargs)
+
 # ====================
 # register operations
 # ====================
 
 @cmd.operation(name="preamble", duration=0)
-def preamble(hwp_cfg: Dict[str, str]) -> List[str]:
+def preamble(hwp_cfg):
     return [
     "import time",
     "import datetime",
@@ -199,11 +217,8 @@ def preamble(hwp_cfg: Dict[str, str]) -> List[str]:
 
 @cmd.operation(name='wrap-up')
 def wrap_up(state):
-    state.update({
-        'az_now': 180,
-        'el_now': 48
-    })
-    return [
+    state = state.update(az_now=180, el_now=48)
+    return state, [
         "# go home",
         "run.acu.move_to(az=180, el=48)",
         "",
@@ -212,19 +227,16 @@ def wrap_up(state):
 
 @cmd.operation(name='ufm-relock', return_duration=True)
 def ufm_relock(state):
-    if state['last_ufm_relock'] is None:
+    if state.last_ufm_relock is None:
         doit = True
-    elif (state['curr_time'] - state['last_ufm_relock']).total_seconds() > 12*u.hour:
+    elif (state.curr_time - state.last_ufm_relock).total_seconds() > 12*u.hour:
         doit = True
     else:
         doit = False
 
     if doit:
-        state.update({
-            'last_ufm_relock': state['curr_time']
-        })
-        return 15*u.minute, [
-            "############# Daily Relock ######################",
+        state = state.replace(last_ufm_relock=state.curr_time)
+        return state, 15*u.minute, [
             "for smurf in pysmurfs:",
             "    smurf.zero_biases.start()",
             "for smurf in pysmurfs:",
@@ -234,51 +246,41 @@ def ufm_relock(state):
             "run.smurf.take_noise(concurrent=True, tag='oper,take_noise,res_check')",
             "",
             "run.smurf.uxm_relock(concurrent=True)",
-            "#################################################",
         ]
     else:
-        return 0, ["# no ufm relock needed at this time"]
+        return state, 0, ["# no ufm relock needed at this time"]
 
 @cmd.operation(name='hwp-spin-up', return_duration=True)
 def hwp_spin_up(state, disable_hwp):
-    if not disable_hwp and not state['hwp_spinning']:
-        state.update({
-            'hwp_spinning': True
-        })
-        return 20*u.minute, [
-            "############# Start HWP ######################",
+    if not disable_hwp and not state.hwp_spinning:
+        state = state.replace(hwp_spinning=True)
+        return state, 20*u.minute, [
             "HWPPrep()",
             "forward = True",
             "hwp_freq = 2.0",
             "HWPSpinUp()",
         ]
-    return 0, ["# hwp disabled or already spinning"]
+    return state, 0, ["# hwp disabled or already spinning"]
 
 @cmd.operation(name='hwp-spin-down', return_duration=True)
 def hwp_spin_down(state, disable_hwp):
-    if not disable_hwp and state['hwp_spinning']:
-        state.update({
-            'hwp_spinning': False
-        })
-        return 10*u.minute, [
-            "############# Stop HWP ######################",
+    if not disable_hwp and state.hwp_spinning:
+        state = state.replace(hwp_spinning=False)
+        return state, 10*u.minute, [
             "HWPFastStop()",
             "HWPPost()",
             "hwp_freq = 0.0",
         ]
-    return 0, ["# hwp disabled or not spinning"]
+    return state, 0, ["# hwp disabled or not spinning"]
 
-@cmd.operation(name='set-scan-params')
+@cmd.operation(name='set-scan-params', duration=0)
 def set_scan_params(state, az_speed, az_accel):
-    if az_speed != state['az_speed_now'] or az_accel != state['az_accel_now']:
-        state.update({
-            'az_speed_now': az_speed,
-            'az_accel_now': az_accel
-        })
-        return [
+    if az_speed != state.az_speed_now or az_accel != state.az_accel_now:
+        state = state.replace(az_speed_now=az_speed, az_accel_now=az_accel)
+        return state, [
             f"run.acu.set_scan_params({az_speed}, {az_accel})",
         ]
-    return []
+    return state, []
 
 # per block operation: block will be passed in as parameter
 @cmd.operation(name='det-setup', return_duration=True)
@@ -286,9 +288,9 @@ def det_setup(state, block, disable_hwp=False):
     # only do it if boresight has changed
     duration = 0
     commands = []
-    if block.az != state['az_now'] or block.alt != state['el_now']:
-        if not disable_hwp and state['hwp_spinning']:
-            d, c = hwp_spin_down(state)
+    if block.alt != state.el_now:
+        if not disable_hwp and state.hwp_spinning:
+            state, d, c = hwp_spin_down(state)
             commands += c
             duration += d
         commands += [
@@ -305,25 +307,24 @@ def det_setup(state, block, disable_hwp=False):
             "",
         ]
         duration += 60
-        if not disable_hwp and not state['hwp_spinning']:
-            d, c = hwp_spin_up(state, disable_hwp=disable_hwp)
+        if not disable_hwp and not state.hwp_spinning:
+            state, d, c = hwp_spin_up(state)
             commands += c
             duration += d
 
-    return duration, commands
+    return state, duration, commands
 
 @cmd.operation(name='setup-boresight', duration=0)  # TODO check duration
 def setup_boresight(state, block, apply_boresight_rot=True):
     commands = []
-    if apply_boresight_rot and state['boresight_rot_now'] != block.boresight_rot:
+    if apply_boresight_rot and state.boresight_rot_now != block.boresight_rot:
         commands += [f"run.acu.set_boresight({block.boresight_angle}"]
-        state['boresight_rot_now'] = block.boresight_rot
+        state = state.replace(boresight_rot_now=block.boresight_rot)
 
-    if block.az != state['az_now'] or block.alt != state['el_now']:
+    if block.az != state.az_now or block.alt != state.el_now:
         commands += [ f"run.acu.move_to(az={round(block.az,3)}, el={round(block.alt,3)})" ]
-        state['az_now'] = block.az
-        state['el_now'] = block.alt
-    return commands
+        state = state.replace(az_now=block.az, el_now=block.alt)
+    return state, commands
 
 @cmd.operation(name='cmb-scan', return_duration=True)
 def cmb_scan(block):
@@ -340,7 +341,47 @@ def cmb_scan(block):
 # passthrough any arguments, to be used in any sched-mode
 @cmd.operation(name='bias-det', duration=60)
 def bias_det(*args, **kwargs):
-    return [ "run.smurf.bias_dets(concurrent=True)" ]
+    return [
+        "run.smurf.bias_dets(concurrent=True)"
+    ]
+
+@cmd.operation(name='source-scan', return_duration=True)
+def source_scan(state, block):
+    block = block.trim_left_to(state.curr_time)
+    if block is None:
+        return 0, ["# too late, don't scan"]
+    state = state.replace(az_now=block.az, el_now=block.alt)
+    return state, block.duration.total_seconds(), [
+        "################# Scan #################################",
+        "",
+        "now = datetime.datetime.now(tz=UTC)",
+        f"scan_start = {repr(block.t0)}",
+        f"scan_stop = {repr(block.t1)}",
+        f"if now > scan_start:",
+        "    # adjust scan parameters",
+        f"    az = {round(np.mod(block.az,360),3)} + {round(block.az_drift,5)}*(now-scan_start).total_seconds()",
+        f"else: ",
+        f"    az = {round(np.mod(block.az,360),3)}",
+        f"if now > scan_stop:",
+        "    # too late, don't scan",
+        "    pass",
+        "else:",
+        f"    run.acu.move_to(az, {round(block.alt,3)})",
+        "",
+        f"    print('Waiting until {block.t0} to start scan')",
+        f"    run.wait_until('{block.t0.isoformat()}')",
+        "",
+        "    run.seq.scan(",
+        f"        description='{block.name}', ",
+        f"        stop_time='{block.t1.isoformat()}', ",
+        f"        width={round(block.throw,3)}, ",
+        f"        az_drift={round(block.az_drift,5)}, ",
+        f"        subtype='{block.subtype}',",
+        f"        tag='{block.tag}',",
+        "    )",
+        "",
+        "################# Scan Over #############################",
+    ]
 
 @dataclass
 class SATPolicy:
@@ -587,15 +628,19 @@ class SATPolicy:
         return blocks
 
     def init_state(self, t0):
-        return {
-            'curr_time': t0,
-            'az_now': 180,
-            'el_now': 48,
-            'last_ufm_relock': None,
-            'hwp_spinning': False,
-            'az_speed_now': None,
-            'az_accel_now': None
-        }
+        """This function provides some reasonable guess for the initial state, but in practice, 
+        it should be supplied by the observatory controller.
+
+        """
+        return State(
+            curr_time=t0,
+            az_now=180,
+            el_now=48,
+            last_ufm_relock=None,
+            hwp_spinning=False,
+            az_speed_now=None,
+            az_accel_now=None
+        )
 
     def seq2cmd(self, seq: core.Blocks, t0: dt.datetime):
         """
