@@ -1,6 +1,5 @@
-from typing import List
+from typing import List, Dict, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
 import inspect
 
 from . import core
@@ -132,16 +131,18 @@ def operation(name, duration=0, return_duration=False):
             def __call__(self, state):
                 # decide whether duration is provided or will be computed
                 # as part of the operation function
+                _duration = duration
                 if alter_state:
                     state, *rest = operation_fun(state, *self.args, **self.kwargs)
+                    if len(rest) == 1: rest = rest[0]
                 else:
                     rest = operation_fun(*self.args, **self.kwargs)
 
                 if return_duration:
-                    duration, commands = rest
+                    _duration, commands = rest
                 else:
                     commands = rest
-                return state, duration, commands
+                return state, _duration, commands
 
         return register_operation_cls(name, _Operation)
     return wrapper
@@ -168,5 +169,11 @@ def make_op(name, *args, **kwargs):
     op_cls = get_operation_cls(name)
     return op_cls(*args, **kwargs)
 
+@dataclass(frozen=True)
 class OperationBlock(core.NamedBlock):
-    commands: List[str]
+    subtype: Optional[str] = None
+    commands: List[str] = field(default_factory=list, repr=False)
+    parameters: Dict = field(default_factory=dict, repr=False)
+
+    def __hash__(self):
+        return hash((self.name, self.t0, self.t1, self.subtype))

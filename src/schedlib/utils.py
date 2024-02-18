@@ -9,6 +9,7 @@ from scipy import interpolate
 from collections.abc import Iterable
 from jax.tree_util import SequenceKey, DictKey
 import fnmatch
+from equinox import tree_pprint, tree_pformat
 
 minute = 60 # second
 hour = 60 * minute
@@ -157,10 +158,13 @@ def uniform(key: PRNGKey, low=0.0, high=1.0, size=None):
 def daily_static_key(t: datetime):
     return PRNGKey((t.year, t.month, t.day))
 
-def pprint(seq):
+def pprint(seq, **kwargs):
     """pretty print"""
-    from equinox import tree_pprint
-    tree_pprint(seq)
+    tree_pprint(seq, **kwargs)
+
+def pformat(seq, **kwargs):
+    """pretty format"""
+    return tree_pformat(seq, **kwargs)
 
 # ====================
 # path related
@@ -287,7 +291,6 @@ def init_logger(name):
 
     ch = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s ')
-    ch.setLevel(logging.INFO)
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 

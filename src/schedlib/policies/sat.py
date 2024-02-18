@@ -7,8 +7,6 @@ from dataclasses import dataclass, field, replace as dc_replace
 import datetime as dt
 from typing import List, Union, Optional, Dict
 import numpy as np
-from collections import Counter
-from enum import Enum
 import jax.tree_util as tu
 from functools import reduce
 
@@ -17,7 +15,7 @@ from .. import commands as cmd, instrument as inst, utils as u
 
 logger = u.init_logger("sat-policy")
 
-class SchedMode(Enum):
+class SchedMode:
     """
     Enumerates the scheduling modes for satellite operations.
 
@@ -59,16 +57,16 @@ class State:
     curr_time: dt.datetime
     az_now: float
     el_now: float
-    hwp_spinning: bool
     az_speed_now: Optional[float] = None
     az_accel_now: Optional[float] = None
-    last_ufm_relock: Optional[dt.datetime] = None
     boresight_rot_now: Optional[float] = None
-    # prev_state: Optional["State"] = None
+    hwp_spinning: bool = False
+    last_ufm_relock: Optional[dt.datetime] = None
+    prev_state: Optional["State"] = field(default=None, repr=False)
 
     def replace(self, **kwargs):
         # enble entire state history for debugging
-        # kwargs = {**kwargs, "prev_state": self}
+        kwargs = {**kwargs, "prev_state": self}
         return dc_replace(self, **kwargs)
 
     def increment_time(self, dt):
@@ -431,7 +429,7 @@ class SATPolicy:
     blocks: dict
     rules: Dict[str, core.Rule]
     geometries: List[dict]
-    cal_targets: List[tuple]
+    cal_targets: List[tuple] = field(default_factory=list)
     cal_policy: str = 'round-robin'
     scan_tag: Optional[str] = None
     az_speed: float = 1. # deg / s
@@ -515,10 +513,6 @@ class SATPolicy:
             is_leaf=lambda x: isinstance(x, list)
         )
 
-        # give some feedbacks to the user
-        c = Counter(core.seq_map(lambda x: type(x), core.seq_flatten(blocks)))
-        logger.info(f"Number of blocks initialized: {dict(c)}")
-
         return blocks
 
     def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
@@ -543,9 +537,13 @@ class SATPolicy:
         #   - likely won't affect scan blocks because master schedule already
         #     takes care of this
         # -----------------------------------------------------------------
-        assert 'sun-avoidance' in self.rules
-        sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
-        blocks['calibration'] = sun_rule(blocks['calibration'])
+        if 'sun-avoidance' in self.rules:
+            sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
+            blocks = sun_rule(blocks)
+            # blocks['calibration'] = sun_rule(blocks['calibration'])
+        else:
+            sun_rule = None
+            logger.warning("no sun avoidance rule specified!")
 
         # -----------------------------------------------------------------
         # step 2: plan calibration scans
@@ -685,21 +683,26 @@ class SATPolicy:
             A list of command strings that will be executed by the telescope
 
         """
-        op_blocks = []
+        op_seq = []
 
         # create state if not provided
         if state is None:
             state = self.init_state(t0)
+            logger.debug(f"initial state: {u.pformat(state)}")
 
         # -----------------------------------------------------------------
         # 1. pre-session operations
         # -----------------------------------------------------------------
+        logger.debug("---------- step 1: planning pre-session ops ----------")
 
         ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PreSession]
-        state, _, commands = self._add_ops(state, ops)
-        op_blocks += [cmd.OperationBlock(name=SchedMode.PreSession, t0=t0, t1=state.curr_time, commands=commands)]
+        state, _, block_ops = self._apply_ops(state, ops)
+        op_seq += block_ops
 
         post_init_state = state
+
+        logger.debug(f"post-init op_seq: {u.pformat(op_seq)}")
+        logger.debug(f"post-init state: {u.pformat(state)}")
 
         # -----------------------------------------------------------------
         # 2. calibration scans
@@ -713,11 +716,12 @@ class SATPolicy:
         #    try to get hwp back to spinning when the operations are done.
         #
         # -----------------------------------------------------------------
+        logger.debug("---------- step 2: planning calibration scans ----------")
 
         cal_blocks = core.seq_sort(seq['calibration'], flatten=True)
 
         # cal_ops = {
-        #     cat: (mode_name, [op for op in self.operations if op['sched_mode'] == mode_name])
+        #     cat: [op for op in self.operations if op['sched_mode'] == mode_name]
         #     for (cat, mode_name) in zip(
         #         [ 'pre', 'in', 'post' ],
         #         [
@@ -733,14 +737,16 @@ class SATPolicy:
         in_ops   = [op for op in self.operations if op['sched_mode'] == SchedMode.InCal]
         post_ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostCal]
 
-        cal_ops = { 'pre':  (SchedMode.PreCal, pre_ops),
-                    'in':   (SchedMode.InCal, in_ops),
-                    'post': (SchedMode.PostCal, post_ops) }
+        cal_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
+
+        logger.debug(f"cal_ops to plan: {cal_ops}")
+        logger.debug(f"pre-cal state: {u.pformat(state)}")
 
         for block in cal_blocks:
-
+            logger.debug(f"-> planning cal block: {block}")
             # skip if we are already past the block
             if state.curr_time >= block.t1:
+                logger.debug(f"--> skipping cal block {block.name} because it's already past")
                 continue
 
             # constraint: calibration blocks take highest priority, so for simplicity,
@@ -749,10 +755,15 @@ class SATPolicy:
 
             # plan pre-, in-cal, post-cal operations for the block under constraint
             # -> returns the new state, and a list of OperationBlock
-            state, block_ops = self._plan_block_operations(state, block, cal_ops, constraint)
+            state, block_ops = self._plan_block_operations(state, block, constraint, **cal_ops)
 
-            if len(block_ops) > 0:
-                op_blocks += block_ops
+            logger.debug(f"-> post-block ops: {u.pformat(block_ops)}")
+            logger.debug(f"-> post-block state: {u.pformat(state)}")
+
+            op_seq += block_ops
+
+        logger.debug(f"post-cal op_seq: {u.pformat(op_seq)}")
+        logger.debug(f"post-cal state: {u.pformat(state)}")
 
         # -----------------------------------------------------------------
         # 3. cmb scans
@@ -760,76 +771,76 @@ class SATPolicy:
         # Note: for cmb scans, we will avoid overlapping with calibrations;
         # this means we will tend to overwrite into cmb blocks more often
         # -----------------------------------------------------------------
+        logger.debug("---------- step 3: planning cmb ops ----------")
 
         # calibration always take precedence, so we remove the overlapping region
         # from cmb scans first: this is done by first merging cal ops into cmb seq
         # and then filtering out non-cmb blocks
         cmb_blocks = core.seq_flatten(core.seq_filter(
-            lambda b: b.subtype == 'cmb',
-            core.seq_merge(seq['baseline']['cmb'], op_blocks, flatten=True)
+            lambda b: isinstance(b, inst.ScanBlock) and b.subtype == 'cmb',
+            core.seq_merge(seq['baseline']['cmb'], op_seq, flatten=True)
         ))
 
         pre_ops  = [op for op in self.operations if op['sched_mode'] == SchedMode.PreObs]
         in_ops   = [op for op in self.operations if op['sched_mode'] == SchedMode.InObs]
         post_ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostObs]
 
-        cmb_ops = {
-            'pre': (SchedMode.PreObs, pre_ops),
-            'in': (SchedMode.InObs, in_ops),
-            'post': (SchedMode.PostObs, post_ops)
-        }
+        cmb_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
 
         # assume we are starting from the end of initialization
         state = post_init_state
+
+        logger.debug(f"cmb_ops to plan: {cmb_ops}")
+        logger.debug(f"pre-planning state: {state}")
 
         # avoid pre-cmb operations from colliding with calibration, so we will
         # fast-forward our watch to the closest non-colliding time
         full_interval = core.NamedBlock(name='_dummy', t0=t0, t1=t1)
         non_overlapping = core.seq_flatten(core.seq_filter(
             lambda b: b.name == '_dummy',
-            core.seq_merge([full_interval], op_blocks, flatten=True)
+            core.seq_merge([full_interval], op_seq, flatten=True)
         ))
 
         for block in cmb_blocks:
-
+            logger.debug(f"-> planning cmb block: {block}")
             # skip if we are already past the block
             if state.curr_time >= block.t1:
+                logger.debug(f"--> skipping cmb block {block.name} because it's already past")
                 continue
 
             # look for covering non-overlapping interval
             constraint = [b for b in non_overlapping if b.t0 <= block.t0 and block.t1 <= b.t1][0]
+            logger.debug(f"--> constraint: {constraint.t0} to {constraint.t1}")
 
             # plan pre- / in- / post-cmb operations for the block under constraint
-            state, block_ops = self._plan_block_operations(state, block, cmb_ops, constraint)
+            state, block_ops = self._plan_block_operations(state, block, constraint, **cmb_ops)
 
-            op_blocks += block_ops
+            logger.debug(f"--> post-block ops: {u.pformat(block_ops)}")
+            logger.debug(f"--> post-block state: {u.pformat(state)}")
 
+            op_seq += block_ops
+
+        logger.debug(f"post-cmb op_seq: {u.pformat(op_seq)}")
+        logger.debug(f"post-cmb state: {state}")
         # -----------------------------------------------------------------
         # 4. post-session operations
         # -----------------------------------------------------------------
-        t_start = state.curr_time
+        logger.debug("---------- step 4: planning post-session ops ----------")
 
         ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostSession]
-        state, _, commands = self._add_ops(state, ops)
-        if len(commands) > 0:
-            op_block = cmd.OperationBlock(
-                name=SchedMode.PostSession,
-                t0=t_start,
-                t1=state.curr_time
-                commands=commands
-            )
-            op_blocks += [op_block]
+        state, _, post_session_ops = self._apply_ops(state, ops)
+        op_seq += post_session_ops
 
-        # -----------------------------------------------------------------
-        # 5. wrap-up
-        # -----------------------------------------------------------------
-        commands = reduce(lambda x, y: x+y, [op.commands for op in op_blocks])
+        logger.debug(f"post-session state: {state}")
+        logger.debug(f"post-session ops: {u.pformat(post_session_ops)}")
 
-        return '\n'.join(commands)
+        logger.debug("---------- finished planning ----------")
 
-    def _add_ops(self, state, ops, block=None):
+        return op_seq
+
+    def _apply_ops(self, state, op_cfgs, block=None):
         """
-        Adds a series of operations to the current planning state, computing
+        Apply a series of operations to the current planning state, computing
         the updated state, the total duration, and resulting commands of the
         operations.
 
@@ -838,7 +849,7 @@ class SATPolicy:
         state : State
             The current planning state. It must be an object capable of tracking
             the mission's state and supporting time increment operations.
-        ops : list of operation configs (dict)
+        op_cfgs : list of operation configs (dict)
             A list of operation configurations, where each configuration is a
             dictionary specifying the operation's parameters. Each operation
             configuration dict must have a 'sched_mode' key
@@ -858,51 +869,70 @@ class SATPolicy:
             indentation.
 
         """
-        commands = []
+        op_blocks = []
         duration = 0
-        for op_cfg in ops:
-            # add block to the operation config if needed
-            block_cfg = {'block': block} if block is not None else {}
-            op_cfg = {**op_cfg, **block_cfg}  # copy
 
-            # get some non-operation specific parameters
+        for op_cfg in op_cfgs:
+            op_cfg = op_cfg.copy()
+
+            # sanity check
+            for k in ['name', 'sched_mode']:
+                assert k in op_cfg, f"operation config must have a '{k}' key"
+
+            # pop some non-operation kwargs
+            op_name = op_cfg.pop('name')
             sched_mode = op_cfg.pop('sched_mode')
-            indent = op_cfg.pop('indent', 0)  # n spaces for indentation
+            indent = op_cfg.pop('indent', 0)        # n spaces for indentation
+            divider = op_cfg.pop('divider', False)  # whether to add a divider
 
-            # build the operation object and apply it to the state
-            op = cmd.make_op(**op_cfg)
+            # add block to the operation config if provided
+            block_cfg = {'block': block} if block is not None else {}
+            op_cfg = {**op_cfg, **block_cfg}  # make copy
+
+            # apply operation
+            t_start = state.curr_time
+            op = cmd.make_op(op_name, **op_cfg)
             state, dur, com = op(state)
 
             # add indentation if needed
             com = [f"{' '*indent}{c}" for c in com]
 
             # add divider if needed
-            # commands += ['# '+'-'*68, '#', f'# op mode: {sched_mode} op name: {op_cfg["name"]}', ''] + \
-            #             com + \
-            #             ['', '# '+'-'*68]
+            if divider:
+                com = ['# '+'-'*68, '#', f'# op mode: {sched_mode} op name: {op_name}', ''] + \
+                       com + \
+                      ['', '# '+'-'*68]
 
-            commands += com
+            # commands += com
             duration += dur
             state = state.increment_time(dt.timedelta(seconds=dur))
-            logger.info(f"planning operation: mode: {sched_mode} name: {op_cfg['name']} duration: {dur} seconds")
+            op_blocks.append(cmd.OperationBlock(
+                name=op_name,
+                subtype=sched_mode,
+                t0=t_start,
+                t1=state.curr_time,
+                commands=com,
+                parameters=op_cfg
+            ))
 
-        return state, duration, commands
+        return state, duration, op_blocks
 
-    def _plan_block_operations(self, state, block, ops, constraint):
+    def _plan_block_operations(self, state, block, constraint, pre_ops, in_ops, post_ops):
         # if we already pass the block or our constraint, nothing to do
         if state.curr_time >= block.t1 or state.curr_time >= constraint.t1:
+            logger.debug(f"--> skipping block {block.name} because it's already past")
             return state, []
 
         # fast forward to within the constraint time block
         state = state.replace(curr_time=max(constraint.t0, state.curr_time))
         initial_state = state
+        logger.debug(f"--> with constraint: planning {block.name} from {state.curr_time} to {block.t1}")
 
-        block_ops = []
+        op_seq = []
 
         # +++++++++++++++++++++
         # pre-block operations
         # +++++++++++++++++++++
-
 
         # need a multi-pass approach because we don't know a priori how long
         # the pre-block operations will take, so we will need a first pass to
@@ -911,15 +941,21 @@ class SATPolicy:
         i_pass = 0
         need_retry = True
         while need_retry:
+            logger.debug(f"--> planning pre-block operations, pass {i_pass+1}")
             assert i_pass < 2, "needing more than two passes, unexpected, check code!"
 
             # did we already pass the block?
             t_start = state.curr_time
             if t_start >= block.t1:
+                logger.debug(f"---> skipping block {block.name} because it's already past")
                 return initial_state, []
 
-            mode_name, pre_ops = ops['pre']
-            state, duration, commands = self._add_ops(state, pre_ops, block=block)
+            # opbs -> operation blocks
+            state, duration, block_ops = self._apply_ops(state, pre_ops, block=block)
+
+            logger.debug(f"---> pre-block ops duration: {duration} seconds")
+            logger.debug(f"---> pre-block ops: {u.pformat(block_ops)}")
+            logger.debug(f"---> pre-block curr state: {u.pformat(state)}")
 
             # what time are we starting?
             # -> start from t_start or block.t0-duration, whichever is later
@@ -928,29 +964,35 @@ class SATPolicy:
 
             # did we extend into the block?
             if state.curr_time >= block.t0:
+                logger.debug(f"---> curr_time extended into block {block.name}")
                 # did we extend past entire block?
                 if state.curr_time < block.t1:
-                    op_block = cmd.OperationBlock(
-                        name=mode_name,
-                        t0=t_start,
-                        t1=state.curr_time,
-                        commands=commands
-                    )
-                    block_ops += [op_block]
+                    logger.debug(f"---> curr_time did not extend past block {block.name}")
+                    op_seq += block_ops
                     block = block.trim_left_to(state.curr_time)
+                    logger.debug(f"---> trimmed block: {block}")
                     need_retry = False
             else:
+                logger.debug(f"---> gap is large enough for pre-block operations")
                 # if there is more time than we need to prepare for calibration,
                 # let's wait to start later: need to regenerate commands with
                 # a new t_start (time may have been encoded in the commands)
                 state = initial_state.replace(curr_time=block.t0-dt.timedelta(seconds=duration))
+                logger.debug(f"---> replanning with a later start time: {state.curr_time}")
                 need_retry = True  # for readability
 
+            logger.debug("---> need second pass? " + ("yes" if need_retry else "no"))
             i_pass += 1
+
+        logger.debug(f"--> post pre-block state: {u.pformat(state)}")
+        logger.debug(f"--> post pre-block op_seq: {u.pformat(op_seq)}")
 
         # +++++++++++++++++++
         # in-block operations
         # +++++++++++++++++++
+
+        logger.debug(f"--> planning in-block operations from {state.curr_time} to {block.t1}")
+        logger.debug(f"--> pre-planning state: {u.pformat(state)}")
 
         t_start = state.curr_time
 
@@ -958,9 +1000,8 @@ class SATPolicy:
         # -> discard pre-block operations
         # -> revert to initial_state
         if t_start > block.t1:
+            logger.debug(f"--> skipping in-block operations because we are already past the block")
             return initial_state, []
-
-        mode_name, in_ops = ops['in']
 
         # need a multi-pass approach because we don't know a priori how long
         # the post-block operations will take. If post-block operations run into
@@ -970,16 +1011,13 @@ class SATPolicy:
         need_retry = True
         state_before = state
         while need_retry:
-            state, duration, commands = self._add_ops(state, in_ops, block=block)
+            logger.debug(f"--> planning in-block operations, pass {i_pass+1}")
 
-            # fully cover the block to avoid gaps
-            # (is it necessary?)
-            op_in_block = cmd.OperationBlock(
-                name=mode_name,
-                t0=t_start,
-                t1=block.t1,
-                commands=commands
-            )
+            state, duration, op_in_block = self._apply_ops(state, in_ops, block=block)
+
+            logger.debug(f"---> in-block ops duration: {duration} seconds")
+            logger.debug(f"---> in-block ops: {u.pformat(op_in_block)}")
+            logger.debug(f"---> in-block curr state: {u.pformat(state)}")
 
             # sanity check: if fail, it means post-cal operations are mixed into in-cal
             # operations
@@ -989,34 +1027,38 @@ class SATPolicy:
             # advance to the end of the block
             state = state.replace(curr_time=block.t1)
 
+            logger.debug(f"---> post in-block state: {u.pformat(state)}")
+
             # +++++++++++++++++++++
             # post-block operations
             # +++++++++++++++++++++
-
+            logger.debug(f"--> planning post-block operations, pass {i_pass+1}")
             t_start = state.curr_time
-            mode_name, post_ops = ops['post']
 
-            state, duration, commands = self._add_ops(state, post_ops, block=block)
+            state, duration, op_post_block = self._apply_ops(state, post_ops, block=block)
+
+            logger.debug(f"---> post-block ops duration: {duration} seconds")
+            logger.debug(f"---> post-block ops: {u.pformat(op_post_block)}")
+            logger.debug(f"---> post-block curr state: {u.pformat(state)}")
 
             # have we extended past our constraint?
             if state.curr_time > constraint.t1:
+                logger.debug(f"---> post-block ops extended past constraint")
                 # shrink our block to make space for post-block operation and
                 # revert to an old state before retrying
                 block = block.shrink_right(state.curr_time - constraint.t1)
                 state = state_before
+                logger.debug(f"---> need to shrink block to: {block}")
+                logger.debug(f"---> replanning from state: {u.pformat(state)}")
                 need_retry = True  # for readability
             else:
-                if len(commands) > 0:
-                    op_post_block = cmd.OperationBlock(
-                        name=mode_name,
-                        t0=t_start,
-                        t1=state.curr_time,
-                        commands=commands
-                    )
-                    block_ops += [op_in_block, op_post_block]
+                op_seq += op_in_block
+                op_seq += op_post_block
                 need_retry = False
 
-        return state, block_ops
+            logger.debug("---> need second pass? " + ("yes" if need_retry else "no"))
+
+        return state, op_seq
 
 # ------------------------
 # utilities
