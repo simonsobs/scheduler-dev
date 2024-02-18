@@ -97,24 +97,9 @@ class FlexPolicy(core.BasePolicy):
 
         return core.seq_sort(seq)
 
-    def block2cmd(self, block: core.Block):
-        if isinstance(block, inst.ScanBlock):
-            return cmd.CompositeCommand([
-                    f"# {block.name}",
-                    cmd.Goto(block.az, block.alt),
-                    cmd.BiasDets(),
-                    cmd.Wait(block.t0),
-                    cmd.BiasStep(),
-                    cmd.Scan(block.name, block.t1, block.throw, block.az_drift),
-                    cmd.BiasStep(),
-                    "",
-            ])
-
     def seq2cmd(self, seq: core.Blocks):
         """map a scan to a command"""
-        commands = core.seq_flatten(core.seq_map(self.block2cmd, seq))
-        commands = [cmd.Preamble()] + commands
-        return cmd.CompositeCommand(commands)
+        raise NotImplementedError
 
     def get_drift_scans(self, t0, t1, el_bore, array_query):
         """a convenience function to build drift source scans from a policy.
