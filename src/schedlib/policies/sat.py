@@ -10,6 +10,7 @@ import numpy as np
 from collections import Counter
 from enum import Enum
 import jax.tree_util as tu
+from functools import reduce
 
 from .. import config as cfg, core, source as src, rules as ru
 from .. import commands as cmd, instrument as inst, utils as u
@@ -59,6 +60,9 @@ class State:
     az_now: float
     el_now: float
     hwp_spinning: bool
+    az_speed_now: Optional[float] = None
+    az_accel_now: Optional[float] = None
+    last_ufm_relock: Optional[dt.datetime] = None
     boresight_rot_now: Optional[float] = None
     # prev_state: Optional["State"] = None
 
@@ -712,7 +716,7 @@ class SATPolicy:
 
         cal_blocks = core.seq_sort(seq['calibration'], flatten=True)
 
-        # ops = {
+        # cal_ops = {
         #     cat: (mode_name, [op for op in self.operations if op['sched_mode'] == mode_name])
         #     for (cat, mode_name) in zip(
         #         [ 'pre', 'in', 'post' ],
@@ -765,11 +769,11 @@ class SATPolicy:
             core.seq_merge(seq['baseline']['cmb'], op_blocks, flatten=True)
         ))
 
-        pre_ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PreObs]
-        in_ops = [op for op in self.operations if op['sched_mode'] == SchedMode.InObs]
+        pre_ops  = [op for op in self.operations if op['sched_mode'] == SchedMode.PreObs]
+        in_ops   = [op for op in self.operations if op['sched_mode'] == SchedMode.InObs]
         post_ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostObs]
 
-        ops = {
+        cmb_ops = {
             'pre': (SchedMode.PreObs, pre_ops),
             'in': (SchedMode.InObs, in_ops),
             'post': (SchedMode.PostObs, post_ops)
@@ -792,19 +796,34 @@ class SATPolicy:
             if state.curr_time >= block.t1:
                 continue
 
-            # because we have merged cal ops into cmb seq, we can just look for
+            # look for covering non-overlapping interval
             constraint = [b for b in non_overlapping if b.t0 <= block.t0 and block.t1 <= b.t1][0]
 
             # plan pre- / in- / post-cmb operations for the block under constraint
-            state, block_ops = self._plan_block_operations(state, block, ops, constraint)
+            state, block_ops = self._plan_block_operations(state, block, cmb_ops, constraint)
 
-            if len(block_ops) > 0:
-                op_blocks += block_ops
+            op_blocks += block_ops
 
         # -----------------------------------------------------------------
         # 4. post-session operations
         # -----------------------------------------------------------------
+        t_start = state.curr_time
 
+        ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostSession]
+        state, _, commands = self._add_ops(state, ops)
+        if len(commands) > 0:
+            op_block = cmd.OperationBlock(
+                name=SchedMode.PostSession,
+                t0=t_start,
+                t1=state.curr_time
+                commands=commands
+            )
+            op_blocks += [op_block]
+
+        # -----------------------------------------------------------------
+        # 5. wrap-up
+        # -----------------------------------------------------------------
+        commands = reduce(lambda x, y: x+y, [op.commands for op in op_blocks])
 
         return '\n'.join(commands)
 
@@ -816,7 +835,7 @@ class SATPolicy:
 
         Parameters
         ----------
-        state : StateObject
+        state : State
             The current planning state. It must be an object capable of tracking
             the mission's state and supporting time increment operations.
         ops : list of operation configs (dict)
@@ -874,15 +893,16 @@ class SATPolicy:
         if state.curr_time >= block.t1 or state.curr_time >= constraint.t1:
             return state, []
 
-        initial_state = state.copy()
-        op_blocks = []
+        # fast forward to within the constraint time block
+        state = state.replace(curr_time=max(constraint.t0, state.curr_time))
+        initial_state = state
+
+        block_ops = []
 
         # +++++++++++++++++++++
         # pre-block operations
         # +++++++++++++++++++++
 
-        # fast forward to within the constraint time block
-        state.curr_time = max(constraint.t0, state.curr_time)
 
         # need a multi-pass approach because we don't know a priori how long
         # the pre-block operations will take, so we will need a first pass to
@@ -916,14 +936,14 @@ class SATPolicy:
                         t1=state.curr_time,
                         commands=commands
                     )
-                    op_blocks += [op_block]
-                    state.curr_time = block.t1
+                    block_ops += [op_block]
+                    block = block.trim_left_to(state.curr_time)
                     need_retry = False
             else:
                 # if there is more time than we need to prepare for calibration,
                 # let's wait to start later: need to regenerate commands with
                 # a new t_start (time may have been encoded in the commands)
-                state.curr_time = block.t0 - dt.timedelta(seconds=duration)
+                state = initial_state.replace(curr_time=block.t0-dt.timedelta(seconds=duration))
                 need_retry = True  # for readability
 
             i_pass += 1
@@ -934,37 +954,44 @@ class SATPolicy:
 
         t_start = state.curr_time
 
-        # skip if we are already past the block
+        # skip if we are already past the block:
+        # -> discard pre-block operations
+        # -> revert to initial_state
         if t_start > block.t1:
-            return state, []
+            return initial_state, []
 
         mode_name, in_ops = ops['in']
 
         # need a multi-pass approach because we don't know a priori how long
         # the post-block operations will take. If post-block operations run into
         # the boundary of the constraint, we will need to shrink the in-block
-        # operations to fit into the constraint
+        # operations to fit within the given constraint
         i_pass = 0
         need_retry = True
-        state_save = state.copy()
+        state_before = state
         while need_retry:
             state, duration, commands = self._add_ops(state, in_ops, block=block)
-            if len(commands) > 0:
-                op_block = cmd.OperationBlock(
-                    name=mode_name,
-                    t0=t_start,
-                    t1=block.t1,
-                    commands=commands
-                )
-                op_blocks += [op_block]
+
+            # fully cover the block to avoid gaps
+            # (is it necessary?)
+            op_in_block = cmd.OperationBlock(
+                name=mode_name,
+                t0=t_start,
+                t1=block.t1,
+                commands=commands
+            )
 
             # sanity check: if fail, it means post-cal operations are mixed into in-cal
             # operations
-            assert state.curr_time <= block.t1, "in-cal operations are probably mixed with post-cal operations"
+            assert state.curr_time <= block.t1, \
+                "in-block operations are probably mixed with post-cal operations"
 
-            # +++++++++++++++++++
+            # advance to the end of the block
+            state = state.replace(curr_time=block.t1)
+
+            # +++++++++++++++++++++
             # post-block operations
-            # +++++++++++++++++++
+            # +++++++++++++++++++++
 
             t_start = state.curr_time
             mode_name, post_ops = ops['post']
@@ -973,28 +1000,28 @@ class SATPolicy:
 
             # have we extended past our constraint?
             if state.curr_time > constraint.t1:
-                # need a second pass
+                # shrink our block to make space for post-block operation and
+                # revert to an old state before retrying
                 block = block.shrink_right(state.curr_time - constraint.t1)
-                state = state_save
+                state = state_before
                 need_retry = True  # for readability
             else:
                 if len(commands) > 0:
-                    op_block = cmd.OperationBlock(
-                        name=SchedMode.PostCal,
+                    op_post_block = cmd.OperationBlock(
+                        name=mode_name,
                         t0=t_start,
-                        t1=t_start + dt.timedelta(seconds=duration),
+                        t1=state.curr_time,
                         commands=commands
                     )
-                    op_blocks += [op_block]
+                    block_ops += [op_in_block, op_post_block]
                 need_retry = False
 
-        return state, op_blocks
-
-
+        return state, block_ops
 
 # ------------------------
 # utilities
 # ------------------------
+
 def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
     """
     Perform a round robin scheduling over sequences of time blocks, yielding non-overlapping blocks.
