@@ -5,7 +5,7 @@ import yaml
 import os.path as op
 from dataclasses import dataclass, field, replace as dc_replace
 import datetime as dt
-from typing import List, Union, Optional, Dict
+from typing import List, Union, Optional, Dict, Any, Tuple
 import numpy as np
 import jax.tree_util as tu
 from functools import reduce
@@ -50,8 +50,39 @@ class SchedMode:
 
 @dataclass(frozen=True)
 class State:
-    """Observatory state relevant for operation planning.
-    Made immutable for the piece of mind.
+    """
+    A dataclass representing the state of an observatory at a specific time. It should
+    contain all relevant information for planning operations,
+
+    Parameters
+    ----------
+    curr_time : datetime.datetime
+        The current timestamp of the state.
+    az_now : float
+        The current azimuth position in degrees.
+    el_now : float
+        The current elevation position in degrees.
+    az_speed_now : Optional[float], optional
+        The current azimuth speed in degrees per second. Default is None.
+    az_accel_now : Optional[float], optional
+        The current azimuth acceleration in degrees per second squared. Default is None.
+    boresight_rot_now : Optional[float], optional
+        The current boresight rotation angle in degrees. Default is None.
+    hwp_spinning : bool, default=False
+        Flag indicating if the half-wave plate is currently spinning.
+    last_ufm_relock : Optional[datetime.datetime], optional
+        The timestamp of the last ultrafine mechanism relock operation. Default is None.
+    prev_state : Optional[State], optional
+        A reference to the previous state for tracking state evolution. Default is None and not included in string representation.
+
+    Methods
+    -------
+    replace(**kwargs)
+        Returns a new State instance with the specified attributes replaced with new values.
+    increment_time(dt)
+        Returns a new State instance with the current time incremented by a datetime.timedelta.
+    increment_time_sec(dt_sec)
+        Returns a new State instance with the current time incremented by a specific number of seconds.
 
     """
     curr_time: dt.datetime
@@ -65,20 +96,95 @@ class State:
     prev_state: Optional["State"] = field(default=None, repr=False)
 
     def replace(self, **kwargs):
-        # enble entire state history for debugging
+        """
+        Creates a new instance of the State class with specified attributes replaced with new values,
+        while automatically setting 'prev_state' to the current state to maintain history.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            Keyword arguments corresponding to the attributes of the State class which are to be replaced.
+
+        Returns
+        -------
+        State
+            A new instance of the State class with updated attributes.
+
+        Examples
+        --------
+        >>> new_state = old_state.replace(az_now=180)
+        """
         kwargs = {**kwargs, "prev_state": self}
         return dc_replace(self, **kwargs)
 
-    def increment_time(self, dt):
+    def increment_time(self, dt: dt.timedelta) -> "State":
+        """
+        Returns a new State instance with the current time incremented by a specified datetime.timedelta.
+
+        Parameters
+        ----------
+        dt : datetime.timedelta
+            The amount of time to increment the current time.
+
+        Returns
+        -------
+        State
+            A new State instance with the incremented current time.
+        """
         return self.replace(curr_time=self.curr_time+dt)
 
-    def increment_time_sec(self, dt_sec):
+    def increment_time_sec(self, dt_sec: float) -> "State":
+        """
+        Increments the current time of the State by a specified number of seconds
+        and returns a new State instance with this updated time.
+
+        Parameters
+        ----------
+        dt_sec : float
+            The number of seconds to increment the current time by.
+
+        Returns
+        -------
+        State
+            A new State instance with the current time incremented by the specified number of seconds.
+        """    
         return self.replace(curr_time=self.curr_time+dt.timedelta(seconds=dt_sec))
 
 
 # ====================
 # register operations
 # ====================
+
+# Registered operations can be three kinds of functions:
+#
+# 1. for operations with static duration, it can be defined as a function
+#    that returns a list of commands, with the static duration specified in
+#    the decorator
+# 2. for operations with dynamic duration, meaning the duration is determined
+#    at runtime, it can be defined as a function that returns a tuple of
+#    duration and commands; the decorator should be informed with the option
+#    `return_duration=True`
+# 3. for operations that depends and/or modifies the state, the operation
+#    function should take the state as the first argument (no renaming allowed)
+#    and return a new state before the rest of the return values
+#
+# For example the following are all valid definitions:
+#  @cmd.operation(name='my-op', duration=10)
+#  def my_op():
+#      return ["do something"]
+#
+#  @cmd.operation(name='my-op', return_duration=True)
+#  def my_op():
+#      return 10, ["do something"]
+#
+#  @cmd.operation(name='my-op')
+#  def my_op(state):
+#      return state, ["do something"]
+#
+#  @cmd.operation(name='my-op', return_duration=True)
+#  def my_op(state):
+#      return state, 10, ["do something"]
+
 
 @cmd.operation(name="preamble", duration=0)
 def preamble(hwp_cfg):
@@ -420,27 +526,24 @@ class SATPolicy:
         whether to allow partial source scans
     wafer_sets : dict[str, str]
         a dict of wafer sets definitions
-    preamble_file : str
-        a file containing preamble commands to be executed before the start of the sequence
-    checkpoints : dict
-        a dict of checkpoints, with keys being checkpoint names and values being blocks
-        for internal bookkeeping
+    operations : List[Dict[str, Any]]
+        an orderred list of operation configurations
     """
-    blocks: dict
-    rules: Dict[str, core.Rule]
-    geometries: List[dict]
-    cal_targets: List[tuple] = field(default_factory=list)
+    blocks: Dict[str, Any] = field(default_factory=dict)
+    rules: Dict[str, core.Rule] = field(default_factory=dict)
+    geometries: List[Dict[str, Any]] = field(default_factory=list)
+    cal_targets: List[Any] = field(default_factory=list)
     cal_policy: str = 'round-robin'
     scan_tag: Optional[str] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
     apply_boresight_rot: bool = False
     allow_partial: bool = False
-    wafer_sets: dict[str, str] = field(default_factory=dict)
-    operations: dict[str, str] = field(default_factory=dict)
+    wafer_sets: Dict[str, Any] = field(default_factory=dict)
+    operations: List[Dict[str, Any]] = field(default_factory=list)
 
     @classmethod
-    def from_config(cls, config: Union[dict, str]):
+    def from_config(cls, config: Union[Dict[str, Any], str]):
         """
         Constructs a policy object from a YAML configuration file, a YAML string, or a dictionary.
 
@@ -634,10 +737,20 @@ class SATPolicy:
 
         return blocks
 
-    def init_state(self, t0):
-        """This function provides some reasonable guess for the initial state, but in practice,
-        it should be supplied by the observatory controller.
+    def init_state(self, t0: dt.datetime) -> State:
+        """
+        Initializes the observatory state with some reasonable guess.
+        In practice it should ideally be replaced with actual data
+        from the observatory controller.
 
+        Parameters
+        ----------
+        t0 : float
+            The initial time for the state, typically representing the current time in a specific format.
+
+        Returns
+        -------
+        State
         """
         return State(
             curr_time=t0,
@@ -675,11 +788,12 @@ class SATPolicy:
             The starting datetime for the command sequence.
         t1 : datetime.datetime
             The ending datetime for the command sequence
+        state : Optional[State], optional
+            The initial state of the observatory, by default None
 
         Returns
         -------
-        list of str
-            A list of command strings that will be executed by the telescope
+        list of OperationBlock
 
         """
         op_seq = []
@@ -904,6 +1018,32 @@ class SATPolicy:
         return state, duration, op_blocks
 
     def _plan_block_operations(self, state, block, constraint, pre_ops, in_ops, post_ops):
+        """
+        Plan block operations based on the current state, block information, constraint, and operational sequences.
+
+        Parameters
+        ----------
+        state : State
+            Current state of the system.
+        block : Block
+            Block information containing start and end times.
+        constraint : Constraint
+            Constraint information containing start and end times.
+        pre_ops : list
+            List of pre-block operations.
+        in_ops : list
+            List of in-block operations.
+        post_ops : list
+            List of post-block operations.
+
+        Returns
+        -------
+        State
+            Updated state after planning the block operations.
+        List[OperationBlock]
+            Sequence of operations planned for the block.
+
+        """
         # if we already pass the block or our constraint, nothing to do
         if state.curr_time >= block.t1 or state.curr_time >= constraint.t1:
             logger.debug(f"--> skipping block {block.name} because it's already past")
@@ -1062,8 +1202,7 @@ class SATPolicy:
 
         Returns
         -------
-        Schedule
-            The constructed schedule object.
+        schedule as a text
 
         """
         # initialize sequences
