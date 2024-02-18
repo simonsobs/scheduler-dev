@@ -1186,6 +1186,23 @@ class SATPolicy:
 
         return state, op_seq
 
+    def cmd2txt(self, op_seq):
+        """
+        Convert a sequence of operation blocks into a text representation.
+
+        Parameters
+        ----------
+        op_seq : list of OperationBlock
+            A sequence of operation blocks.
+
+        Returns
+        -------
+        str
+            A text representation of the sequence of operation blocks.
+
+        """
+        return '\n'.join(reduce(lambda x, y: x + y, [op.commands for op in op_seq], []))
+
     def build_schedule(self, t0: dt.datetime, t1: dt.datetime, state: State = None):
         """
         Run entire scheduling process to build a schedule for a given time range.
@@ -1214,11 +1231,11 @@ class SATPolicy:
         # initialize state
         state = state or self.init_state(t0)
 
-        # plan operations
+        # plan operation seq
         op_seq = self.seq2cmd(seqs, t0, t1, state)
 
         # construct schedule str
-        schedule = '\n'.join(reduce(lambda x, y: x + y, [op.commands for op in op_seq], []))
+        schedule = self.cmd2txt(op_seq)
 
         return schedule
 
