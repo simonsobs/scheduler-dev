@@ -540,7 +540,6 @@ class SATPolicy:
         if 'sun-avoidance' in self.rules:
             sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
             blocks = sun_rule(blocks)
-            # blocks['calibration'] = sun_rule(blocks['calibration'])
         else:
             sun_rule = None
             logger.warning("no sun avoidance rule specified!")
@@ -720,19 +719,6 @@ class SATPolicy:
 
         cal_blocks = core.seq_sort(seq['calibration'], flatten=True)
 
-        # cal_ops = {
-        #     cat: [op for op in self.operations if op['sched_mode'] == mode_name]
-        #     for (cat, mode_name) in zip(
-        #         [ 'pre', 'in', 'post' ],
-        #         [
-        #             SchedMode.PreCal,
-        #             SchedMode.InCal,
-        #             SchedMode.PostCal
-        #         ]
-        #     )
-        # }
-
-        # better readability
         pre_ops  = [op for op in self.operations if op['sched_mode'] == SchedMode.PreCal]
         in_ops   = [op for op in self.operations if op['sched_mode'] == SchedMode.InCal]
         post_ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostCal]
@@ -1059,6 +1045,44 @@ class SATPolicy:
             logger.debug("---> need second pass? " + ("yes" if need_retry else "no"))
 
         return state, op_seq
+
+    def build_schedule(self, t0: dt.datetime, t1: dt.datetime, state: State = None):
+        """
+        Run entire scheduling process to build a schedule for a given time range.
+
+        Parameters
+        ----------
+        t0 : datetime.datetime
+            The start time of the schedule.
+        t1 : datetime.datetime
+            The end time of the schedule.
+        state : Optional[State]
+            The initial state of the observatory. If not provided, a default
+            state will be initialized.
+
+        Returns
+        -------
+        Schedule
+            The constructed schedule object.
+
+        """
+        # initialize sequences
+        seqs = self.init_seqs(t0, t1)
+
+        # apply observing rules
+        seqs = self.apply(seqs)
+
+        # initialize state
+        state = state or self.init_state(t0)
+
+        # plan operations
+        op_seq = self.seq2cmd(seqs, t0, t1, state)
+
+        # construct schedule str
+        schedule = '\n'.join(reduce(lambda x, y: x + y, [op.commands for op in op_seq], []))
+
+        return schedule
+
 
 # ------------------------
 # utilities
