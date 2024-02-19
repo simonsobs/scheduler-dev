@@ -185,7 +185,7 @@ class SATPolicy:
 
             # build array geometry information based on the query
             array_info = inst.array_info_from_query(self.geometries, array_query)
-            logger.debug(f"--> array_info: {array_info}")
+            logger.debug(f"-> array_info: {array_info}")
 
             # apply MakeCESourceScan rule to transform known observing windows into
             # actual scans
@@ -231,6 +231,7 @@ class SATPolicy:
         # -----------------------------------------------------------------
         # step 4: tags
         # -----------------------------------------------------------------
+
         # add proper subtypes
         blocks['calibration'] = core.seq_map(
             lambda block: block.replace(subtype="cal"),
@@ -315,7 +316,7 @@ class SATPolicy:
         # -----------------------------------------------------------------
         # 1. pre-session operations
         # -----------------------------------------------------------------
-        logger.debug("---------- step 1: planning pre-session ops ----------")
+        logger.info("---------- step 1: planning pre-session ops ----------")
 
         ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PreSession]
         state, _, block_ops = self._apply_ops(state, ops)
@@ -324,7 +325,7 @@ class SATPolicy:
         post_init_state = state
 
         logger.debug(f"post-init op_seq: {u.pformat(op_seq)}")
-        logger.debug(f"post-init state: {u.pformat(state)}")
+        logger.info(f"post-init state: {u.pformat(state)}")
 
         # -----------------------------------------------------------------
         # 2. calibration scans
@@ -338,7 +339,7 @@ class SATPolicy:
         #    try to get hwp back to spinning when the operations are done.
         #
         # -----------------------------------------------------------------
-        logger.debug("---------- step 2: planning calibration scans ----------")
+        logger.info("---------- step 2: planning calibration scans ----------")
 
         cal_blocks = core.seq_sort(seq['calibration'], flatten=True)
 
@@ -352,28 +353,48 @@ class SATPolicy:
         logger.debug(f"pre-cal state: {u.pformat(state)}")
 
         for block in cal_blocks:
-            logger.debug(f"-> planning cal block: {block}")
+            logger.info(f"-> planning cal block: {u.pformat(block)}")
 
             # skip if we are already past the block
             if state.curr_time >= block.t1:
-                logger.debug(f"--> skipping cal block {block.name} because it's already past")
+                logger.info(f"--> skipping cal block {block.name} because it's already past")
                 continue
 
-            # constraint: calibration blocks take highest priority, so for simplicity,
-            # we give no constraint
-            constraint = core.Block(t0=t0, t1=t1)
+            # constraint: calibration blocks take highest priority. So, for simplicity
+            # we give no a priori constraint for the starting time by setting it at
+            # the beginning of the time range. For the ending time, because the scan can
+            # stop at any phase of the swipe, it's hard to guarentee sun safety when we 
+            # don't know its exact pointing. There might be a good solution to this but
+            # for now a simple fix is to constrain post-cal operations to complete 
+            # before the end of the block, as we can be sure that the block is sun safe 
+            # after observation rules are applied.
+
+            # what's our constraint from sun safety?
+            # -> we treat the time prior to the block as a stare scan (throw=0)
+            sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
+            sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, state.curr_time), t1=block.t1, az=block.az, alt=block.alt))
+            logger.info(f"--> sun-safe covers: {u.pformat(sun_safe_covers)}")
+            safe_cover = [cover for cover in core.seq_flatten(sun_safe_covers) if cover.t0 <= block.t0 <= cover.t1]
+            if len(safe_cover) == 0:
+                logger.info(f"--> no sun-safe cover found for block {block.name}")
+                logger.info(f"--> constraining pre-cal operations to start within block")
+                constraint = core.Block(t0=block.t0, t1=block.t1)
+            else:
+                assert len(safe_cover) == 1, "unexpected number of sun safe covers"
+                constraint = core.Block(t0=safe_cover[0].t0, t1=block.t1)
+                logger.info(f"--> sun safe cover found: {constraint.t0.isoformat()} to {constraint.t1.isoformat()}")
 
             # plan pre-, in-cal, post-cal operations for the block under constraint
             # -> returns the new state, and a list of OperationBlock
             state, block_ops = self._plan_block_operations(state, block, constraint, **cal_ops)
 
-            logger.debug(f"-> post-block ops: {u.pformat(block_ops)}")
-            logger.debug(f"-> post-block state: {u.pformat(state)}")
+            logger.debug(f"--> post-block ops: {u.pformat(block_ops)}")
+            logger.debug(f"--> post-block state: {u.pformat(state)}")
 
             op_seq += block_ops
 
         post_cal_state = state
-        logger.debug(f"post-cal op_seq: {u.pformat(op_seq)}")
+        # logger.debug(f"post-cal op_seq: {u.pformat(op_seq)}")
         logger.debug(f"post-cal state: {u.pformat(state)}")
 
         # -----------------------------------------------------------------
@@ -382,7 +403,7 @@ class SATPolicy:
         # Note: for cmb scans, we will avoid overlapping with calibrations;
         # this means we will tend to overwrite into cmb blocks more often
         # -----------------------------------------------------------------
-        logger.debug("---------- step 3: planning cmb ops ----------")
+        logger.info("---------- step 3: planning cmb ops ----------")
 
         # calibration always take precedence, so we remove the overlapping region
         # from cmb scans first: this is done by first merging cal ops into cmb seq
@@ -413,7 +434,7 @@ class SATPolicy:
         ))
 
         for block in cmb_blocks:
-            logger.debug(f"-> planning cmb block: {block}")
+            logger.info(f"-> planning cmb block: {u.pformat(block)}")
             # skip if we are already past the block
             if state.curr_time >= block.t1:
                 logger.debug(f"--> skipping cmb block {block.name} because it's already past")
@@ -421,7 +442,8 @@ class SATPolicy:
 
             # look for covering non-overlapping interval
             constraint = [b for b in non_overlapping if b.t0 <= block.t0 and block.t1 <= b.t1][0]
-            logger.debug(f"--> constraint: {constraint.t0} to {constraint.t1}")
+            logger.info(f"--> operational constraint: {constraint.t0} to {constraint.t1}")
+
 
             # plan pre- / in- / post-cmb operations for the block under constraint
             state, block_ops = self._plan_block_operations(state, block, constraint, **cmb_ops)
@@ -432,13 +454,13 @@ class SATPolicy:
             op_seq += block_ops
 
         post_cmb_state = state
-        logger.debug(f"post-cmb op_seq: {u.pformat(op_seq)}")
+        # logger.debug(f"post-cmb op_seq: {u.pformat(op_seq)}")
         logger.debug(f"post-cmb state: {state}")
 
         # -----------------------------------------------------------------
         # 4. post-session operations
         # -----------------------------------------------------------------
-        logger.debug("---------- step 4: planning post-session ops ----------")
+        logger.info("---------- step 4: planning post-session ops ----------")
 
         # decide whether last scan is cmb or calibration
         # note: this assumes cmb and cal operations are independent -> might be too optimistic

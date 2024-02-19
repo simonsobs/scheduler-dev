@@ -288,7 +288,7 @@ def init_logger(name):
     import logging, sys
     logger = logging.getLogger(name)
     logger.propagate = False
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     ch = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s ')
     ch.setFormatter(formatter)
