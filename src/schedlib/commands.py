@@ -1,13 +1,144 @@
-from typing import List, Dict, Optional
-from dataclasses import dataclass, field
+import datetime as dt
+from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass, field, replace as dc_replace
+from abc import ABC, abstractmethod
 import inspect
 
 from . import core
 
 MIN_DURATION = 0.01
 
+
+class SchedMode:
+    """
+    Enumerates the scheduling modes for satellite operations.
+
+    Attributes
+    ----------
+    PreCal : str
+        'pre_cal'; Operations scheduled before block.t0 for calibration.
+    PreObs : str
+        'pre_obs'; Observations scheduled before block.t0 for observation.
+    InCal : str
+        'in_cal'; Calibration operations scheduled between block.t0 and block.t1.
+    InObs : str
+        'in_obs'; Observation operations scheduled between block.t0 and block.t1.
+    PostCal : str
+        'post_cal'; Calibration operations scheduled after block.t1.
+    PostObs : str
+        'post_obs'; Observations operations scheduled after block.t1.
+    PreSession : str
+        'pre_session'; Represents the start of a session, scheduled from the beginning of the requested t0.
+    PostSession : str
+        'post_session'; Indicates the end of a session, scheduled after the last operation.
+
+    """
+    PreCal = 'pre_cal'
+    PreObs = 'pre_obs'
+    InCal = 'in_cal'
+    InObs = 'in_obs'
+    PostCal = 'post_cal'
+    PostObs = 'post_obs'
+    PreSession = 'pre_session'
+    PostSession = 'post_session'
+
+
 @dataclass(frozen=True)
-class Operation:
+class State:
+    """
+    A dataclass representing the state of an observatory at a specific time. It should
+    contain all relevant information for planning operations,
+
+    Parameters
+    ----------
+    curr_time : datetime.datetime
+        The current timestamp of the state.
+    az_now : float
+        The current azimuth position in degrees.
+    el_now : float
+        The current elevation position in degrees.
+    az_speed_now : Optional[float], optional
+        The current azimuth speed in degrees per second. Default is None.
+    az_accel_now : Optional[float], optional
+        The current azimuth acceleration in degrees per second squared. Default is None.
+    prev_state : Optional[State], optional
+        A reference to the previous state for tracking state evolution. Default is None and not included in string representation.
+
+    Methods
+    -------
+    replace(**kwargs)
+        Returns a new State instance with the specified attributes replaced with new values.
+    increment_time(dt)
+        Returns a new State instance with the current time incremented by a datetime.timedelta.
+    increment_time_sec(dt_sec)
+        Returns a new State instance with the current time incremented by a specific number of seconds.
+
+    """
+    curr_time: dt.datetime
+    az_now: Optional[float] = None
+    el_now: Optional[float] = None
+    az_speed_now: Optional[float] = None
+    az_accel_now: Optional[float] = None
+    prev_state: Optional["State"] = field(default=None, repr=False)
+
+    def replace(self, **kwargs):
+        """
+        Creates a new instance of the State class with specified attributes replaced with new values,
+        while automatically setting 'prev_state' to the current state to maintain history.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            Keyword arguments corresponding to the attributes of the State class which are to be replaced.
+
+        Returns
+        -------
+        State
+            A new instance of the State class with updated attributes.
+
+        Examples
+        --------
+        >>> new_state = old_state.replace(az_now=180)
+        """
+        kwargs = {**kwargs, "prev_state": self}
+        return dc_replace(self, **kwargs)
+
+    def increment_time(self, dt: dt.timedelta) -> "State":
+        """
+        Returns a new State instance with the current time incremented by a specified datetime.timedelta.
+
+        Parameters
+        ----------
+        dt : datetime.timedelta
+            The amount of time to increment the current time.
+
+        Returns
+        -------
+        State
+            A new State instance with the incremented current time.
+        """
+        return self.replace(curr_time=self.curr_time+dt)
+
+    def increment_time_sec(self, dt_sec: float) -> "State":
+        """
+        Increments the current time of the State by a specified number of seconds
+        and returns a new State instance with this updated time.
+
+        Parameters
+        ----------
+        dt_sec : float
+            The number of seconds to increment the current time by.
+
+        Returns
+        -------
+        State
+            A new State instance with the current time incremented by the specified number of seconds.
+        """
+        return self.replace(curr_time=self.curr_time+dt.timedelta(seconds=dt_sec))
+
+
+@dataclass(frozen=True)
+class Operation(ABC):
     """
     An operation is a callable object that produces a set of commands to be executed by the observatory.
 
@@ -23,7 +154,7 @@ class Operation:
     Returns
     -------
     tuple
-        A tuple containing an estimated duration and a list of command strings.
+        A tuple containing a new state, an estimated duration, and a list of command strings.
 
     Notes
     -----
@@ -38,8 +169,9 @@ class Operation:
     duration, commands = op(state)
 
     """
-    def __call__(self, state):
-        return 0, []
+    @abstractmethod
+    def __call__(self, state: State) -> Tuple[State, float, List[str]]:
+        ...
 
 OPERATION_REGISTRY = {}
 

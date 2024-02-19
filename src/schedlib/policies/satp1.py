@@ -1,11 +1,376 @@
 import numpy as np
+from typing import Optional
 from dataclasses import dataclass
+import datetime as dt
 
-from .. import source as src, utils as u
+from .. import source as src, utils as u, commands as cmd
 from .sat import SchedMode, SATPolicy
 
 logger = u.init_logger(__name__)
 
+# ----------------------------------------------------
+#
+#     Define satp1 specific state
+#
+# Note: it inherits fields from the generic sat state
+# operations should start with `satp1.`
+#
+# ----------------------------------------------------
+
+@dataclass(frozen=True)
+class SATP1State(cmd.State):
+    """
+    State relevant to SATP1 operations. Inherits other fields:
+    (`curr_time`, `az_now`, `el_now`, `az_speed_now`, `az_accel_now`)
+    from the base State defined in `schedlib.commands`.
+
+    Parameters
+    ----------
+    boresight_rot_now : int
+        The current boresight rotation state.
+    hwp_spinning : bool
+        Whether the high-precision measurement wheel is spinning or not.
+    last_ufm_relock : Optional[datetime.datetime]
+        The last time the UFM was relocked, or None if it has not been relocked.
+    last_bias_step : Optional[datetime.datetime]
+        The last time a bias step was performed, or None if no bias step has been performed.
+    """
+    boresight_rot_now: int = 0
+    hwp_spinning: bool = False
+    last_ufm_relock: Optional[dt.datetime] = None
+    last_bias_step: Optional[dt.datetime] = None
+
+# ----------------------------------------------------
+#
+#     Register satp1 specific operations
+#
+# Note: to avoid naming collisions, all satp1 specific
+# operations should start with `satp1.`
+#
+# ----------------------------------------------------
+
+# Although I have put everything that satp1 uses here, but some of the
+# operations may be generic enough that all platforms can share, so
+# I anticipate moving those out of this module soon.
+
+@cmd.operation(name="satp1.preamble", duration=0)
+def preamble(hwp_cfg):
+    return [
+    "import time",
+    "import datetime",
+    "",
+    "import numpy as np",
+    "import sorunlib as run",
+    "from ocs.ocs_client import OCSClient",
+    "",
+    "run.initialize()",
+    "",
+    "UTC = datetime.timezone.utc",
+    "acu = run.CLIENTS['acu']",
+    "pysmurfs = run.CLIENTS['smurf']",
+    "",
+    "# HWP Params",
+    "use_pid = True",
+    "forward = True",
+    "hwp_freq = 2.0",
+    "",
+    "def HWPPrep():",
+    f"    iboot2 = OCSClient('{hwp_cfg['iboot2']}')",
+    "    iboot2.set_outlet(outlet = 1, state = 'on')",
+    "    iboot2.set_outlet(outlet = 2, state = 'on')",
+    "",
+    f"    pid = OCSClient('{hwp_cfg['pid']}')",
+    f"    pmx = OCSClient('{hwp_cfg['pmx']}')",
+    "    pid.acq.stop()",
+    "    global use_pid",
+    "    global forward",
+    "",
+    "    if use_pid:",
+    "        pmx.use_ext()",
+    "    else:",
+    "        pmx.ign_ext()",
+    "",
+    "    if forward:",
+    "        pid.set_direction(direction = '0')",
+    "    else:",
+    "        pid.set_direction(direction = '1')",
+    "    pid.acq.start()",
+    "",
+    "def HWPPost():",
+    f"    iboot2 = OCSClient('{hwp_cfg['iboot2']}')",
+    f"    gripper = OCSClient('{hwp_cfg['gripper']}')",
+    "    iboot2.set_outlet(outlet = 1, state = 'off')",
+    "    iboot2.set_outlet(outlet = 2, state = 'off')",
+    "    gripper.force(value = False)",
+    "    gripper.brake(state = True)",
+    "    gripper.power(state = False)",
+    "",
+    "def HWPSpinUp():",
+    f"    pid = OCSClient('{hwp_cfg['pid']}')",
+    f"    pmx = OCSClient('{hwp_cfg['pmx']}')",
+    "    pid.acq.stop()",
+    "    global use_pid",
+    "    global forward",
+    "    global hwp_freq",
+    "",
+    "    if use_pid:",
+    "        if forward:",
+    "            pid.set_direction(direction = '0')",
+    "        else:",
+    "            pid.set_direction(direction = '1')",
+    "",
+    "        pid.declare_freq(freq = hwp_freq)",
+    "        pid.tune_freq()",
+    "        pmx.set_on()",
+    "",
+    "        time.sleep(1)",
+    "        cur_freq = float(pid.acq.status().session['data']['current_freq'])",
+    "",
+    "        while abs(cur_freq - hwp_freq) > 0.005:",
+    "            cur_freq = float(pid.acq.status().session['data']['current_freq'])",
+    "            print ('Current Frequency =', cur_freq, 'Hz    ', end = '\\r')",
+    "",
+    "        print('                                    ', end = '\\r')",
+    "        print('Tuning finished')",
+    "    else:",
+    "        print('Error: Not using PID')",
+    "",
+    "    pid.acq.start()",
+    "",
+    "def HWPFastStop():",
+    f"    iboot2 = OCSClient('{hwp_cfg['iboot2']}')",
+    f"    pid = OCSClient('{hwp_cfg['pid']}')",
+    f"    pmx = OCSClient('{hwp_cfg['pmx']}')",
+    "    pid.acq.stop()",
+    "    global use_pid",
+    "    global forward",
+    "",
+    "    if use_pid:",
+    "        print('Starting stop')",
+    "        if forward:",
+    "            pid.set_direction(direction = '1')",
+    "        else:",
+    "            pid.set_direction(direction = '0')",
+    "",
+    "        pid.tune_stop()",
+    "        pmx.set_on()",
+    "",
+    "        time.sleep(1)",
+    "        start_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "        time.sleep(15)",
+    "        cur_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "        if cur_freq > start_freq:",
+    "            if forward:",
+    "                pid.set_direction(direction = '0')",
+    "            else:",
+    "                pid.set_direction(direction = '1')",
+    "",
+    "            start_freq = cur_freq",
+    "            time.sleep(15)",
+    "            cur_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "            if cur_freq > start_freq:",
+    "                pmx.set_off()",
+    "                iboot2.set_outlet(outlet = 1, state = 'off')",
+    "                iboot2.set_outlet(outlet = 2, state = 'off')",
+    "                time.sleep(60*30)",
+    "",
+    "        while cur_freq > 0.2:",
+    "            cur_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "            print ('Current Frequency =', cur_freq, 'Hz    ', end = '\\r')",
+    "",
+    "        pmx.set_off()",
+    "        iboot2.set_outlet(outlet = 1, state = 'off')",
+    "        iboot2.set_outlet(outlet = 2, state = 'off')",
+    "        time.sleep(180)",
+    "        iboot2.set_outlet(outlet = 1, state = 'on')",
+    "        iboot2.set_outlet(outlet = 2, state = 'on')",
+    "",
+    "        print('                                    ', end = '\\r')",
+    "        print('CHWP stopped')",
+    "    else:",
+    "        print('Error: Not using PID')",
+    "",
+    "    pid.acq.start()",
+    "",
+    ]
+
+@cmd.operation(name='satp1.ufm_relock', return_duration=True)
+def ufm_relock(state):
+    if state.last_ufm_relock is None:
+        doit = True
+    elif (state.curr_time - state.last_ufm_relock).total_seconds() > 12*u.hour:
+        doit = True
+    else:
+        doit = False
+
+    if doit:
+        state = state.replace(last_ufm_relock=state.curr_time)
+        return state, 15*u.minute, [
+            "for smurf in pysmurfs:",
+            "    smurf.zero_biases.start()",
+            "for smurf in pysmurfs:",
+            "    smurf.zero_biases.wait()",
+            "",
+            "time.sleep(120)",
+            "run.smurf.take_noise(concurrent=True, tag='oper,take_noise,res_check')",
+            "run.smurf.uxm_relock(concurrent=True)",
+            "",
+        ]
+    else:
+        return state, 0, ["# no ufm relock needed at this time"]
+
+@cmd.operation(name='satp1.hwp_spin_up', return_duration=True)
+def hwp_spin_up(state, disable_hwp=False):
+    if not disable_hwp and not state.hwp_spinning:
+        state = state.replace(hwp_spinning=True)
+        return state, 20*u.minute, [
+            "HWPPrep()",
+            "forward = True",
+            "hwp_freq = 2.0",
+            "HWPSpinUp()",
+        ]
+    return state, 0, ["# hwp disabled or already spinning"]
+
+@cmd.operation(name='satp1.hwp_spin_down', return_duration=True)
+def hwp_spin_down(state, disable_hwp=False):
+    if not disable_hwp and state.hwp_spinning:
+        state = state.replace(hwp_spinning=False)
+        return state, 10*u.minute, [
+            "HWPFastStop()",
+            "HWPPost()",
+            "hwp_freq = 0.0",
+        ]
+    return state, 0, ["# hwp disabled or not spinning"]
+
+# per block operation: block will be passed in as parameter
+@cmd.operation(name='satp1.det_setup', return_duration=True)
+def det_setup(state, block, **hwp_kwargs):
+    # only do it if boresight has changed
+    duration = 0
+    commands = []
+    if block.alt != state.el_now:
+        if state.hwp_spinning:
+            # equivalent to hwp_spin_down(**hwp_kwargs)(state)
+            # use make_op wrapper is more reliable in case of decorator
+            # implementation change in the future
+            state, d, c = cmd.make_op('satp1.hwp_spin_down', **hwp_kwargs)(state)
+            commands += c
+            duration += d
+        commands += [
+            "",
+            "################### Detector Setup######################",
+            f"run.acu.move_to(az={round(block.az, 3)}, el={round(block.alt,3)})",
+            "run.smurf.take_bgmap(concurrent=True)",
+            "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
+            "run.smurf.bias_dets(concurrent=True)",
+            "time.sleep(180)",
+            "run.smurf.bias_step(concurrent=True)",
+            "#################### Detector Setup Over ####################",
+            "",
+        ]
+        state = state.replace(az_now=block.az, el_now=block.alt, last_bias_step=state.curr_time)
+        duration += 60
+        if not state.hwp_spinning:
+            state, d, c = cmd.make_op('satp1.hwp_spin_up', **hwp_kwargs)(state)
+            commands += c
+            duration += d
+
+    return state, duration, commands
+
+@cmd.operation(name='satp1.cmb_scan', return_duration=True)
+def cmb_scan(state, block):
+    commands = [
+        "run.seq.scan(",
+        f"    description='{block.name}',",
+        f"    stop_time='{block.t1.isoformat()}',",
+        f"    width={round(block.throw,3)}, az_drift=0,",
+        f"    subtype='cmb', tag='{block.tag}',",
+        ")",
+    ]
+    return state, (block.t1 - state.curr_time).total_seconds(), commands
+
+@cmd.operation(name='satp1.source_scan', return_duration=True)
+def source_scan(state, block):
+    block = block.trim_left_to(state.curr_time)
+    if block is None:
+        return 0, ["# too late, don't scan"]
+    state = state.replace(az_now=block.az, el_now=block.alt)
+    return state, block.duration.total_seconds(), [
+        "now = datetime.datetime.now(tz=UTC)",
+        f"scan_start = {repr(block.t0)}",
+        f"scan_stop = {repr(block.t1)}",
+        f"if now > scan_start:",
+        "    # adjust scan parameters",
+        f"    az = {round(np.mod(block.az,360),3)} + {round(block.az_drift,5)}*(now-scan_start).total_seconds()",
+        f"else: ",
+        f"    az = {round(np.mod(block.az,360),3)}",
+        f"if now > scan_stop:",
+        "    # too late, don't scan",
+        "    pass",
+        "else:",
+        f"    run.acu.move_to(az, {round(block.alt,3)})",
+        "",
+        f"    print('Waiting until {block.t0} to start scan')",
+        f"    run.wait_until('{block.t0.isoformat()}')",
+        "",
+        "    run.seq.scan(",
+        f"        description='{block.name}', ",
+        f"        stop_time='{block.t1.isoformat()}', ",
+        f"        width={round(block.throw,3)}, ",
+        f"        az_drift={round(block.az_drift,5)}, ",
+        f"        subtype='{block.subtype}',",
+        f"        tag='{block.tag}',",
+        "    )",
+    ]
+
+@cmd.operation(name='satp1.setup_boresight', duration=0)  # TODO check duration
+def setup_boresight(state, block, apply_boresight_rot=True):
+    commands = []
+    if apply_boresight_rot and state.boresight_rot_now != block.boresight_angle:
+        commands += [f"run.acu.set_boresight({block.boresight_angle})"]
+        state = state.replace(boresight_rot_now=block.boresight_angle)
+
+    if block.alt != state.el_now:
+        commands += [ f"run.acu.move_to(az={round(block.az,3)}, el={round(block.alt,3)})" ]
+        state = state.replace(az_now=block.az, el_now=block.alt)
+    return state, commands
+
+# passthrough any arguments, to be used in any sched-mode
+@cmd.operation(name='satp1.bias_step', return_duration=True)
+def bias_step(state, min_interval=10*u.minute):
+    if state.last_bias_step is None or (state.curr_time - state.last_bias_step).total_seconds() > min_interval:
+        state = state.replace(last_bias_step=state.curr_time)
+        return state, 60, [ "run.smurf.bias_step(concurrent=True)" ]
+    else:
+        return state, 0, []
+
+@cmd.operation(name='satp1.wait_until', return_duration=True)
+def wait_until(state, t1: dt.datetime):
+    return state, (t1-state.curr_time).total_seconds(), [
+        f"run.wait_until('{t1.isoformat()}')"
+    ]
+
+@cmd.operation(name='satp1.wrap_up', duration=0)
+def wrap_up(state, az_stow, el_stow):
+    state = state.replace(az_now=az_stow, el_now=el_stow)
+    return state, [
+        "# go home",
+        f"run.acu.move_to(az={az_stow}, el={el_stow})",
+        "time.sleep(1)"
+    ]
+
+@cmd.operation(name='satp1.set_scan_params', duration=0)
+def set_scan_params(state, az_speed, az_accel):
+    if az_speed != state.az_speed_now or az_accel != state.az_accel_now:
+        state = state.replace(az_speed_now=az_speed, az_accel_now=az_accel)
+        return state, [ f"run.acu.set_scan_params({az_speed}, {az_accel})"]
+    return state, []
+
+# ----------------------------------------------------
+#
+#         Setup satp1 specific configs
+#
+# ----------------------------------------------------
 
 def get_geometry():
     ufm_mv19_shift = np.degrees([-0.01583734, 0.00073145])
@@ -140,32 +505,31 @@ def get_blocks(master_file):
 def get_operations(az_speed, az_accel, disable_hwp=False, apply_boresight_rot=True, hwp_cfg=None):
     if hwp_cfg is None:
         hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper' }
-
     pre_session_ops = [
-        { 'name': 'preamble', 'sched_mode': SchedMode.PreSession, 'hwp_cfg': hwp_cfg},
-        { 'name': 'ufm-relock', 'sched_mode': SchedMode.PreSession },
-        { 'name': 'set-scan-params', 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel },
-        { 'name': 'hwp-spin-up', 'sched_mode': SchedMode.PreSession, 'disable_hwp': disable_hwp},
+        { 'name': 'satp1.preamble'        , 'sched_mode': SchedMode.PreSession, 'hwp_cfg': hwp_cfg, },
+        { 'name': 'satp1.ufm_relock'      , 'sched_mode': SchedMode.PreSession, },
+        { 'name': 'satp1.set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
+        { 'name': 'satp1.hwp_spin_up'     , 'sched_mode': SchedMode.PreSession, 'disable_hwp': disable_hwp, },
     ]
     post_session_ops = [
-        { 'name': 'hwp-spin-down', 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp},
-        { 'name': 'wrap-up', 'sched_mode': SchedMode.PostSession },
+        { 'name': 'satp1.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
+        { 'name': 'satp1.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 48},
     ]
     cal_ops = [
-        { 'name': 'hwp-spin-down', 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
-        { 'name': 'det-setup', 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
-        { 'name': 'setup-boresight', 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot},
-        { 'name': 'hwp-spin-up', 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
-        { 'name': 'source-scan', 'sched_mode': SchedMode.InCal },
-        { 'name': 'bias-step', 'sched_mode': SchedMode.PostCal, 'indent': 4},
+        { 'name': 'satp1.hwp_spin_down'   , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, },
+        { 'name': 'satp1.det_setup'       , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, },
+        { 'name': 'satp1.setup_boresight' , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, },
+        { 'name': 'satp1.hwp_spin_up'     , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
+        { 'name': 'satp1.source_scan'     , 'sched_mode': SchedMode.InCal },
+        { 'name': 'satp1.bias_step'       , 'sched_mode': SchedMode.PostCal, 'indent': 4},
     ]
     cmb_ops = [
-        { 'name': 'det-setup', 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp},
-        { 'name': 'hwp-spin-up', 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp },
-        { 'name': 'setup-boresight', 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot },
-        { 'name': 'bias-step', 'sched_mode': SchedMode.PreObs },
-        { 'name': 'cmb-scan', 'sched_mode': SchedMode.InObs },
-        { 'name': 'bias-step', 'sched_mode': SchedMode.PostObs },
+        { 'name': 'satp1.det_setup'       , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, },
+        { 'name': 'satp1.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, },
+        { 'name': 'satp1.setup_boresight' , 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot, },
+        { 'name': 'satp1.bias_step'       , 'sched_mode': SchedMode.PreObs, },
+        { 'name': 'satp1.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
+        { 'name': 'satp1.bias_step'       , 'sched_mode': SchedMode.PostObs, },
     ]
     return pre_session_ops + cal_ops + cmb_ops + post_session_ops
 
@@ -202,6 +566,12 @@ def get_config(
     return config
 
 
+# ----------------------------------------------------
+#
+#         Policy customizations
+#
+# ----------------------------------------------------
+
 @dataclass
 class SATP1Policy(SATPolicy):
     @classmethod
@@ -210,3 +580,12 @@ class SATP1Policy(SATPolicy):
 
     def add_cal_target(self, source: str, boresight: int, elevation: int, focus: str):
         self.cal_targets.append(get_cal_target(source, boresight, elevation, focus))
+
+    def init_state(self, t0: dt.datetime) -> SATP1State:
+        return SATP1State(
+            curr_time=t0,
+            az_now=180,
+            el_now=48,
+            boresight_rot_now=0,
+            hwp_spinning=False,
+        )
