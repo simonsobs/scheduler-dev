@@ -444,6 +444,25 @@ class SATPolicy:
             constraint = [b for b in non_overlapping if b.t0 <= block.t0 and block.t1 <= b.t1][0]
             logger.info(f"--> operational constraint: {constraint.t0} to {constraint.t1}")
 
+            # what's our constraint from sun safety?
+            # -> we treat the time prior to the block as a stare scan (throw=0)
+            sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
+
+            sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, state.curr_time), t1=block.t1, az=block.az, alt=block.alt))
+            logger.info(f"--> sun-safe covers: {u.pformat(sun_safe_covers)}")
+            safe_cover = [cover for cover in core.seq_flatten(sun_safe_covers) if cover.t0 <= block.t0 <= cover.t1]
+            if len(safe_cover) == 0:
+                logger.info(f"--> no sun-safe cover found for block {block.name}")
+                logger.info(f"--> constraining pre-cal operations to start within block")
+                sun_constraint = core.Block(t0=block.t0, t1=block.t1)
+            else:
+                assert len(safe_cover) == 1, "unexpected number of sun safe covers"
+                sun_constraint = core.Block(t0=safe_cover[0].t0, t1=block.t1)
+                logger.info(f"--> sun safe cover found: {sun_constraint.t0} to {sun_constraint.t1}")
+
+            # merge constraint
+            constraint = core.block_intersect(constraint, sun_constraint)
+            logger.info(f"--> merged constraint: {constraint.t0} to {constraint.t1}")
 
             # plan pre- / in- / post-cmb operations for the block under constraint
             state, block_ops = self._plan_block_operations(state, block, constraint, **cmb_ops)
