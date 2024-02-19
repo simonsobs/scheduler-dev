@@ -5,7 +5,7 @@ import yaml
 import os.path as op
 from dataclasses import dataclass, field, replace as dc_replace
 import datetime as dt
-from typing import List, Union, Optional, Dict, Any, Tuple
+from typing import List, Union, Optional, Dict, Any
 import numpy as np
 import jax.tree_util as tu
 from functools import reduce
@@ -332,7 +332,7 @@ def preamble(hwp_cfg):
 
 @cmd.operation(name='wrap-up')
 def wrap_up(state):
-    state = state.update(az_now=180, el_now=48)
+    state = state.replace(az_now=180, el_now=48)
     return state, [
         "# go home",
         "run.acu.move_to(az=180, el=48)",
@@ -366,7 +366,7 @@ def ufm_relock(state):
         return state, 0, ["# no ufm relock needed at this time"]
 
 @cmd.operation(name='hwp-spin-up', return_duration=True)
-def hwp_spin_up(state, disable_hwp):
+def hwp_spin_up(state, disable_hwp=False):
     if not disable_hwp and not state.hwp_spinning:
         state = state.replace(hwp_spinning=True)
         return state, 20*u.minute, [
@@ -378,7 +378,7 @@ def hwp_spin_up(state, disable_hwp):
     return state, 0, ["# hwp disabled or already spinning"]
 
 @cmd.operation(name='hwp-spin-down', return_duration=True)
-def hwp_spin_down(state, disable_hwp):
+def hwp_spin_down(state, disable_hwp=False):
     if not disable_hwp and state.hwp_spinning:
         state = state.replace(hwp_spinning=False)
         return state, 10*u.minute, [
@@ -399,18 +399,20 @@ def set_scan_params(state, az_speed, az_accel):
 
 # per block operation: block will be passed in as parameter
 @cmd.operation(name='det-setup', return_duration=True)
-def det_setup(state, block, disable_hwp=False):
+def det_setup(state, block, **hwp_kwargs):
     # only do it if boresight has changed
     duration = 0
     commands = []
     if block.alt != state.el_now:
-        if not disable_hwp and state.hwp_spinning:
-            state, d, c = hwp_spin_down(state)
+        if state.hwp_spinning:
+            # equivalent to hwp_spin_down(**hwp_kwargs)(state)
+            # use make_op wrapper is more reliable in case of decorator
+            # implementation change in the future
+            state, d, c = cmd.make_op('hwp-spin-up', **hwp_kwargs)(state)
             commands += c
             duration += d
         commands += [
             "",
-            f"run.wait_until('{block.t0.isoformat()}')"
             "################### Detector Setup######################",
             f"run.acu.move_to(az={round(block.az, 3)}, el={round(block.alt,3)})",
             "run.smurf.take_bgmap(concurrent=True)",
@@ -422,8 +424,8 @@ def det_setup(state, block, disable_hwp=False):
             "",
         ]
         duration += 60
-        if not disable_hwp and not state.hwp_spinning:
-            state, d, c = hwp_spin_up(state)
+        if not state.hwp_spinning:
+            state, d, c = cmd.make_op('hwp-spin-up', **hwp_kwargs)(state)
             commands += c
             duration += d
 
@@ -432,17 +434,17 @@ def det_setup(state, block, disable_hwp=False):
 @cmd.operation(name='setup-boresight', duration=0)  # TODO check duration
 def setup_boresight(state, block, apply_boresight_rot=True):
     commands = []
-    if apply_boresight_rot and state.boresight_rot_now != block.boresight_rot:
+    if apply_boresight_rot and state.boresight_rot_now != block.boresight_angle:
         commands += [f"run.acu.set_boresight({block.boresight_angle}"]
-        state = state.replace(boresight_rot_now=block.boresight_rot)
+        state = state.replace(boresight_rot_now=block.boresight_angle)
 
-    if block.az != state.az_now or block.alt != state.el_now:
+    if block.alt != state.el_now:
         commands += [ f"run.acu.move_to(az={round(block.az,3)}, el={round(block.alt,3)})" ]
         state = state.replace(az_now=block.az, el_now=block.alt)
     return state, commands
 
 @cmd.operation(name='cmb-scan', return_duration=True)
-def cmb_scan(block):
+def cmb_scan(state, block):
     commands = [
         "run.seq.scan(",
         f"    description='{block.name}',",
@@ -451,13 +453,13 @@ def cmb_scan(block):
         f"    subtype='cmb', tag='{block.tag}',",
         ")",
     ]
-    return block.duration, commands
+    return state, (block.t1 - state.curr_time).total_seconds(), commands
 
 # passthrough any arguments, to be used in any sched-mode
-@cmd.operation(name='bias-det', duration=60)
-def bias_det(*args, **kwargs):
+@cmd.operation(name='bias-step', duration=60)
+def bias_step():
     return [
-        "run.smurf.bias_dets(concurrent=True)"
+        "run.smurf.bias_step(concurrent=True)"
     ]
 
 @cmd.operation(name='source-scan', return_duration=True)
@@ -467,8 +469,6 @@ def source_scan(state, block):
         return 0, ["# too late, don't scan"]
     state = state.replace(az_now=block.az, el_now=block.alt)
     return state, block.duration.total_seconds(), [
-        "################# Scan #################################",
-        "",
         "now = datetime.datetime.now(tz=UTC)",
         f"scan_start = {repr(block.t0)}",
         f"scan_stop = {repr(block.t1)}",
@@ -494,8 +494,12 @@ def source_scan(state, block):
         f"        subtype='{block.subtype}',",
         f"        tag='{block.tag}',",
         "    )",
-        "",
-        "################# Scan Over #############################",
+    ]
+
+@cmd.operation(name='wait-until', return_duration=True)
+def wait_until(state, t1: dt.datetime):
+    return state, (t1-state.curr_time).total_seconds(), [
+        f"run.wait_until('{t1.isoformat()}')"
     ]
 
 @dataclass
@@ -641,11 +645,12 @@ class SATPolicy:
         #     takes care of this
         # -----------------------------------------------------------------
         if 'sun-avoidance' in self.rules:
+            logger.info(f"applying sun avoidance rule: {self.rules['sun-avoidance']}")
             sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
             blocks = sun_rule(blocks)
         else:
-            sun_rule = None
             logger.warning("no sun avoidance rule specified!")
+            sun_rule = None
 
         # -----------------------------------------------------------------
         # step 2: plan calibration scans
@@ -653,9 +658,11 @@ class SATPolicy:
         #   - same source can be observed multiple times with different
         #     array configurations (i.e. using array_query)
         # -----------------------------------------------------------------
+        logger.info("planning calibration scans...")
         cal_blocks = []
 
         for cal_target in self.cal_targets:
+            logger.info(f"-> planning calibration scans for {cal_target}...")
             source, array_query, el_bore, boresight_rot, tagname = cal_target
             assert source in blocks['calibration'], f"source {source} not found in sequence"
 
@@ -668,6 +675,7 @@ class SATPolicy:
 
             # build array geometry information based on the query
             array_info = inst.array_info_from_query(self.geometries, array_query)
+            logger.debug(f"--> array_info: {array_info}")
 
             # apply MakeCESourceScan rule to transform known observing windows into
             # actual scans
@@ -679,14 +687,15 @@ class SATPolicy:
                 allow_partial=self.allow_partial,
             )
             source_scans = rule(blocks['calibration'][source])
+            source_scans = core.seq_flatten(source_scans)
 
             # add tags to the scans
-            cal_blocks.append(
-                core.seq_map(
-                    lambda block: block.replace(tag=f"{block.tag},{tagname}"),
-                    source_scans
-                )
-            )
+            cal_blocks.append(core.seq_map(
+                lambda block: block.replace(tag=f"{block.tag},{tagname}"),
+                source_scans
+            ))
+
+            logger.info(f"--> found {len(source_scans)} scan options for {source}: {u.pformat(source_scans)}")
 
         # -----------------------------------------------------------------
         # step 3: resolve calibration target conflicts
@@ -697,15 +706,13 @@ class SATPolicy:
         # -----------------------------------------------------------------
 
         try:
-            # currently only implemented round-robin approach, but can be extended
-            # to other strategies
-            cal_policy = {
-                'round-robin': round_robin
-            }[self.cal_policy]
+            # currently only implemented round-robin approach, but can be extended to other strategies
+            cal_policy = { 'round-robin': round_robin }[self.cal_policy]
         except KeyError:
             raise ValueError(f"unsupported calibration policy: {self.cal_policy}")
 
         # done with the calibration blocks
+        logger.info(f"applying calibration policy - {self.cal_policy} - to resolve calibration target conflicts")
         blocks['calibration'] = list(cal_policy(
             cal_blocks,
             sun_avoidance=sun_rule
@@ -844,6 +851,7 @@ class SATPolicy:
 
         for block in cal_blocks:
             logger.debug(f"-> planning cal block: {block}")
+
             # skip if we are already past the block
             if state.curr_time >= block.t1:
                 logger.debug(f"--> skipping cal block {block.name} because it's already past")
@@ -922,6 +930,7 @@ class SATPolicy:
 
         logger.debug(f"post-cmb op_seq: {u.pformat(op_seq)}")
         logger.debug(f"post-cmb state: {state}")
+
         # -----------------------------------------------------------------
         # 4. post-session operations
         # -----------------------------------------------------------------
@@ -935,6 +944,25 @@ class SATPolicy:
         logger.debug(f"post-session ops: {u.pformat(post_session_ops)}")
 
         logger.debug("---------- finished planning ----------")
+
+        # make sure operations are sorted by time, and we want to do that safely
+        # without disturbing the original order of operations especially when
+        # we have lots of no duration operations that look like they start at
+        # the same time
+        op_seq = safe_sort(op_seq)
+
+        # whenver there is a gap, replace it with a wait operation
+        op_seq = core.seq_map_when(
+            lambda b: isinstance(b, core.NamedBlock) and b.name == '_gap',
+            lambda b: cmd.OperationBlock(  # make it a wait operation, as realistic as possible
+                name='wait-until',
+                t0=b.t0, t1=b.t1,
+                subtype='gap',
+                commands=[f"run.wait_until('{b.t1.isoformat()}')"],
+                parameters={'t1': b.t1}
+            ),
+            core.seq_merge(core.NamedBlock(name='_gap', t0=t0, t1=t1), op_seq)
+        )
 
         return op_seq
 
@@ -1002,6 +1030,9 @@ class SATPolicy:
 
             # add indentation if needed
             com = [f"{' '*indent}{c}" for c in com]
+
+            # surround with empty lines
+            # com = ['', *com, '']
 
             # add divider if needed
             if divider:
@@ -1337,6 +1368,28 @@ def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
             seq_i = (seq_i + 1) % n_seq
         else:
             # unsuccess, retry with next block
-            logger.info(f"Calibration block {block_v} overlaps with existing blocks, skipping...")
+            logger.info(f"Calibration block {block_v} overlaps with existing blocks or fails sun check, skipping...")
 
         block_i[seq_i] += 1
+
+def safe_sort(blocks):
+    """
+    Sort a list of blocks by their start time, ensuring that the blocks with the
+    same start time are sorted by their original order.
+
+    Parameters
+    ----------
+    blocks : list of Block
+        The list of blocks to be sorted.
+
+    Returns
+    -------
+    list of Block
+        The sorted list of blocks.
+
+    """
+    core.seq_assert_not_nested(blocks)
+
+    order = np.arange(len(blocks))
+    blocks = [x[0] for x in sorted(zip(blocks, order), key=lambda x: (x[0].t0, x[1]))]
+    return blocks

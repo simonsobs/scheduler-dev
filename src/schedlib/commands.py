@@ -149,9 +149,11 @@ def operation(name, duration=0, return_duration=False):
                     _duration, commands = rest
                 else:
                     commands = rest
+
                 return state, _duration, commands
 
         return register_operation_cls(name, _Operation)
+
     return wrapper
 
 def make_op(name, *args, **kwargs):

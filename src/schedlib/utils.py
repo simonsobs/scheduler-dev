@@ -288,7 +288,6 @@ def round_robin(lists):
 def init_logger(name):
     logger = logging.getLogger(name)
     logger.propagate = False
-
     ch = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s ')
     ch.setFormatter(formatter)
