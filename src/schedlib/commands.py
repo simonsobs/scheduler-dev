@@ -136,6 +136,40 @@ class State:
         """
         return self.replace(curr_time=self.curr_time+dt.timedelta(seconds=dt_sec))
 
+# -------------------------------------------------------------------------
+#                         Register operations
+# -------------------------------------------------------------------------
+#
+# Registered operations can be three kinds of functions:
+#
+# 1. for operations with static duration, it can be defined as a function
+#    that returns a list of commands, with the static duration specified in
+#    the decorator
+# 2. for operations with dynamic duration, meaning the duration is determined
+#    at runtime, it can be defined as a function that returns a tuple of
+#    duration and commands; the decorator should be informed with the option
+#    `return_duration=True`
+# 3. for operations that depends and/or modifies the state, the operation
+#    function should take the state as the first argument (no renaming allowed)
+#    and return a new state before the rest of the return values
+#
+# For example the following are all valid definitions:
+#  @cmd.operation(name='my-op', duration=10)
+#  def my_op():
+#      return ["do something"]
+#
+#  @cmd.operation(name='my-op', return_duration=True)
+#  def my_op():
+#      return 10, ["do something"]
+#
+#  @cmd.operation(name='my-op')
+#  def my_op(state):
+#      return state, ["do something"]
+#
+#  @cmd.operation(name='my-op', return_duration=True)
+#  def my_op(state):
+#      return state, 10, ["do something"]
+#
 
 @dataclass(frozen=True)
 class Operation(ABC):
