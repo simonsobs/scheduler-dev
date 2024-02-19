@@ -4,6 +4,7 @@ import inspect
 
 from . import core
 
+MIN_DURATION = 0.01
 
 @dataclass(frozen=True)
 class Operation:
@@ -150,6 +151,8 @@ def operation(name, duration=0, return_duration=False):
                 else:
                     commands = rest
 
+                # avoid 0 duration to prevent sorting problems
+                _duration = max(MIN_DURATION, _duration)
                 return state, _duration, commands
 
         return register_operation_cls(name, _Operation)

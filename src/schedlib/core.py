@@ -230,7 +230,12 @@ def seq_sort(seq: Blocks, flatten=False, key_fn=lambda b: b.t0) -> Blocks:
     """
     if seq_is_nested(seq) and not flatten:
         raise ValueError("Cannot sort nested sequence, use flatten=True")
-    return sorted(seq_flatten(seq), key=key_fn)
+    seq = seq_flatten(seq)
+
+    # preserve causal ordering
+    order = np.arange(len(seq))
+    seq = [x[0] for x in sorted(zip(seq, order), key=lambda x: (key_fn(x[0]), x[1]))]
+    return seq
 
 def seq_has_overlap(blocks: Blocks) -> bool:
     """check if a sequence has overlap between blocks

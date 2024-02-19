@@ -437,7 +437,7 @@ def det_setup(state, block, **hwp_kwargs):
 def setup_boresight(state, block, apply_boresight_rot=True):
     commands = []
     if apply_boresight_rot and state.boresight_rot_now != block.boresight_angle:
-        commands += [f"run.acu.set_boresight({block.boresight_angle}"]
+        commands += [f"run.acu.set_boresight({block.boresight_angle})"]
         state = state.replace(boresight_rot_now=block.boresight_angle)
 
     if block.alt != state.el_now:
@@ -874,6 +874,7 @@ class SATPolicy:
 
             op_seq += block_ops
 
+        post_cal_state = state
         logger.debug(f"post-cal op_seq: {u.pformat(op_seq)}")
         logger.debug(f"post-cal state: {u.pformat(state)}")
 
@@ -932,6 +933,7 @@ class SATPolicy:
 
             op_seq += block_ops
 
+        post_cmb_state = state
         logger.debug(f"post-cmb op_seq: {u.pformat(op_seq)}")
         logger.debug(f"post-cmb state: {state}")
 
@@ -939,6 +941,11 @@ class SATPolicy:
         # 4. post-session operations
         # -----------------------------------------------------------------
         logger.debug("---------- step 4: planning post-session ops ----------")
+
+        # decide whether last scan is cmb or calibration
+        # note: this assumes cmb and cal operations are independent -> might be too optimistic
+        # possible solution: go through op_seq to evolve the state fully -> task for another day
+        state = post_cmb_state if post_cmb_state.curr_time > post_cal_state.curr_time else post_cal_state
 
         ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostSession]
         state, _, post_session_ops = self._apply_ops(state, ops)
@@ -953,7 +960,7 @@ class SATPolicy:
         # without disturbing the original order of operations especially when
         # we have lots of no duration operations that look like they start at
         # the same time
-        op_seq = safe_sort(op_seq)
+        op_seq = core.seq_sort(op_seq)
 
         # whenver there is a gap, replace it with a wait operation
         last_block_t1 = core.seq_sort(op_seq, key_fn=lambda b: b.t1)[-1].t1
@@ -1376,25 +1383,3 @@ def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
             logger.info(f"Calibration block {block_v} overlaps with existing blocks or fails sun check, skipping...")
 
         block_i[seq_i] += 1
-
-def safe_sort(blocks):
-    """
-    Sort a list of blocks by their start time, ensuring that the blocks with the
-    same start time are sorted by their original order.
-
-    Parameters
-    ----------
-    blocks : list of Block
-        The list of blocks to be sorted.
-
-    Returns
-    -------
-    list of Block
-        The sorted list of blocks.
-
-    """
-    core.seq_assert_not_nested(blocks)
-
-    order = np.arange(len(blocks))
-    blocks = [x[0] for x in sorted(zip(blocks, order), key=lambda x: (x[0].t0, x[1]))]
-    return blocks
