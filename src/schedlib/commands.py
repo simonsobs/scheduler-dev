@@ -124,9 +124,16 @@ def operation(name, duration=0, return_duration=False):
         args = list(sig.parameters.keys())
         alter_state = len(args) > 0 and args[0] == "state"
 
+        # sometimes the block is automatically passed in for
+        # per-block operations, but the operation may not needed it.
+        # here we will explicitly remove it from the kwargs if it is
+        # not in the original function signature
+        want_block = "block" in args
+
         class _Operation(Operation):
             def __init__(self, *args, **kwargs):
                 self.args = args
+                if not want_block: kwargs.pop("block", None)
                 self.kwargs = kwargs
             def __call__(self, state):
                 # decide whether duration is provided or will be computed

@@ -984,9 +984,15 @@ class SATPolicy:
             sched_mode = op_cfg.pop('sched_mode')
             indent = op_cfg.pop('indent', 0)        # n spaces for indentation
             divider = op_cfg.pop('divider', False)  # whether to add a divider
+            want_block = op_cfg.pop('want_block', True)  # whether to pass block in kwargs (if provided)
 
             # add block to the operation config if provided
             block_cfg = {'block': block} if block is not None else {}
+
+            # one way to solve the problem of block parameter is to have an explicit option,
+            # I commented it off to use a more lazy-man approach to get rid of it in make_op
+            # block_cfg = {'block': block} if ((block is not None) and want_block) else {}
+
             op_cfg = {**op_cfg, **block_cfg}  # make copy
 
             # apply operation
