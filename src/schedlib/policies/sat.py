@@ -223,10 +223,10 @@ class SATPolicy:
 
         # done with the calibration blocks
         logger.info(f"applying calibration policy - {self.cal_policy} - to resolve calibration target conflicts")
-        blocks['calibration'] = list(cal_policy(
-            cal_blocks,
-            sun_avoidance=sun_rule
-        ))
+        blocks['calibration'] = list(cal_policy(cal_blocks, sun_avoidance=sun_rule))
+
+        # check sun avoidance again
+        blocks['calibration'] = core.seq_flatten(sun_rule(blocks['calibration']))
 
         # -----------------------------------------------------------------
         # step 4: tags
