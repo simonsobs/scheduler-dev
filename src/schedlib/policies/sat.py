@@ -409,7 +409,7 @@ def det_setup(state, block, **hwp_kwargs):
             # equivalent to hwp_spin_down(**hwp_kwargs)(state)
             # use make_op wrapper is more reliable in case of decorator
             # implementation change in the future
-            state, d, c = cmd.make_op('hwp-spin-up', **hwp_kwargs)(state)
+            state, d, c = cmd.make_op('hwp-spin-down', **hwp_kwargs)(state)
             commands += c
             duration += d
         commands += [
