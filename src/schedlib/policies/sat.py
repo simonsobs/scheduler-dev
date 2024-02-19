@@ -94,6 +94,7 @@ class State:
     hwp_spinning: bool = False
     last_ufm_relock: Optional[dt.datetime] = None
     prev_state: Optional["State"] = field(default=None, repr=False)
+    last_bias_step: Optional[dt.datetime] = None
 
     def replace(self, **kwargs):
         """
@@ -423,6 +424,7 @@ def det_setup(state, block, **hwp_kwargs):
             "#################### Detector Setup Over ####################",
             "",
         ]
+        state = state.replace(az_now=block.az, el_now=block.alt, last_bias_step=state.curr_time)
         duration += 60
         if not state.hwp_spinning:
             state, d, c = cmd.make_op('hwp-spin-up', **hwp_kwargs)(state)
@@ -456,11 +458,13 @@ def cmb_scan(state, block):
     return state, (block.t1 - state.curr_time).total_seconds(), commands
 
 # passthrough any arguments, to be used in any sched-mode
-@cmd.operation(name='bias-step', duration=60)
-def bias_step():
-    return [
-        "run.smurf.bias_step(concurrent=True)"
-    ]
+@cmd.operation(name='bias-step', return_duration=True)
+def bias_step(state, min_interval=10*u.minute):
+    if state.last_bias_step is None or (state.curr_time - state.last_bias_step).total_seconds() > min_interval:
+        state = state.replace(last_bias_step=state.curr_time)
+        return state, 60, [ "run.smurf.bias_step(concurrent=True)" ]
+    else:
+        return state, 0, []
 
 @cmd.operation(name='source-scan', return_duration=True)
 def source_scan(state, block):
@@ -952,6 +956,7 @@ class SATPolicy:
         op_seq = safe_sort(op_seq)
 
         # whenver there is a gap, replace it with a wait operation
+        last_block_t1 = core.seq_sort(op_seq, key_fn=lambda b: b.t1)[-1].t1
         op_seq = core.seq_map_when(
             lambda b: isinstance(b, core.NamedBlock) and b.name == '_gap',
             lambda b: cmd.OperationBlock(  # make it a wait operation, as realistic as possible
@@ -961,7 +966,7 @@ class SATPolicy:
                 commands=[f"run.wait_until('{b.t1.isoformat()}')"],
                 parameters={'t1': b.t1}
             ),
-            core.seq_merge(core.NamedBlock(name='_gap', t0=t0, t1=t1), op_seq)
+            core.seq_merge(core.NamedBlock(name='_gap', t0=t0, t1=last_block_t1), op_seq)
         )
 
         return op_seq
