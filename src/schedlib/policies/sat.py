@@ -13,7 +13,7 @@ from functools import reduce
 from .. import config as cfg, core, source as src, rules as ru
 from .. import commands as cmd, instrument as inst, utils as u
 
-logger = u.init_logger("sat-policy")
+logger = u.init_logger(__name__)
 
 class SchedMode:
     """
@@ -699,7 +699,7 @@ class SATPolicy:
                 source_scans
             ))
 
-            logger.info(f"--> found {len(source_scans)} scan options for {source}: {u.pformat(source_scans)}")
+            logger.info(f"-> found {len(source_scans)} scan options for {source}: {u.pformat(source_scans)}")
 
         # -----------------------------------------------------------------
         # step 3: resolve calibration target conflicts

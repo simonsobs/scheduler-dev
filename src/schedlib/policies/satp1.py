@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from .. import source as src, utils as u
 from .sat import SchedMode, SATPolicy
 
-logger = u.init_logger('satp1-policy')
+logger = u.init_logger(__name__)
 
 
 def get_geometry():

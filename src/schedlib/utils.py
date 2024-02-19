@@ -280,17 +280,38 @@ def round_robin(lists):
                 continue  # Move to the next list if the current one is exhausted
 
 
-
 # ------------------
 # logging utils
 # ------------------
 
 def init_logger(name):
+    import logging, sys
     logger = logging.getLogger(name)
     logger.propagate = False
+    logger.setLevel(logging.DEBUG)
     ch = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s ')
     ch.setFormatter(formatter)
     logger.addHandler(ch)
-
     return logger
+
+def set_logging_level(level=2):
+    import logging
+    try:
+        level = {
+            1: logging.DEBUG,
+            2: logging.INFO,
+            3: logging.WARNING,
+            4: logging.ERROR,
+            5: logging.CRITICAL,
+            "debug": logging.DEBUG,
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+            "critical": logging.CRITICAL,
+        }[level]
+    except KeyError: pass
+
+    for logger_name in logging.Logger.manager.loggerDict:
+        if logger_name.startswith("schedlib"):
+            logging.getLogger(logger_name).setLevel(level)
