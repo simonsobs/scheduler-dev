@@ -156,6 +156,23 @@ def block_overlap(block1: Block, block2: Block) -> bool:
     """
     return (block1.t0 - block2.t1).total_seconds() * (block1.t1 - block2.t0).total_seconds() < 0
 
+def block_intersect(block1: Block, block2: Block) -> Block:
+    """get the intersection of two blocks
+
+    Parameters
+    ----------
+    block1 : Block
+        the first block
+    block2 : Block
+        the second block
+
+    Returns
+    -------
+    Block
+        the intersection of the two blocks
+    """
+    return block_trim(block1, t0=block2.t0, t1=block2.t1)
+
 def block_merge(block1: Block, block2: Block) -> Blocks:
     """merge block2 into block1. It will return a sorted seq. block2 will take
     precedence if there is overlap, and block1 will be overwritten or splitted
