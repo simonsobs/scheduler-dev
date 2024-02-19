@@ -1,8 +1,10 @@
 import numpy as np
 from dataclasses import dataclass
 
-from .. import source as src
-from . import sat
+from .. import source as src, utils as u
+from .sat import SchedMode, SATPolicy
+
+logger = u.init_logger('satp1-policy')
 
 
 def get_geometry():
@@ -135,9 +137,49 @@ def get_blocks(master_file):
         },
     }
 
-def get_config(master_file, az_speed, az_accel, cal_targets):
+def get_operations(az_speed, az_accel, disable_hwp=False, apply_boresight_rot=True, hwp_cfg=None):
+    if hwp_cfg is None:
+        hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper' }
+
+    pre_session_ops = [
+        { 'name': 'preamble', 'sched_mode': SchedMode.PreSession, 'hwp_cfg': hwp_cfg},
+        { 'name': 'ufm-relock', 'sched_mode': SchedMode.PreSession },
+        { 'name': 'set-scan-params', 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel },
+        { 'name': 'hwp-spin-up', 'sched_mode': SchedMode.PreSession, 'disable_hwp': disable_hwp},
+    ]
+    post_session_ops = [
+        { 'name': 'hwp-spin-down', 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp},
+        { 'name': 'wrap-up', 'sched_mode': SchedMode.PostSession },
+    ]
+    cal_ops = [
+        { 'name': 'hwp-spin-down', 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
+        { 'name': 'det-setup', 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
+        { 'name': 'setup-boresight', 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot},
+        { 'name': 'hwp-spin-up', 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
+        { 'name': 'source-scan', 'sched_mode': SchedMode.InCal },
+        { 'name': 'bias-step', 'sched_mode': SchedMode.PostCal, 'indent': 4},
+    ]
+    cmb_ops = [
+        { 'name': 'det-setup', 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp},
+        { 'name': 'hwp-spin-up', 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp },
+        { 'name': 'setup-boresight', 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot },
+        { 'name': 'bias-step', 'sched_mode': SchedMode.PreObs },
+        { 'name': 'cmb-scan', 'sched_mode': SchedMode.InObs },
+        { 'name': 'bias-step', 'sched_mode': SchedMode.PostObs },
+    ]
+    return pre_session_ops + cal_ops + cmb_ops + post_session_ops
+
+
+def get_config(
+    master_file,
+    az_speed,
+    az_accel,
+    cal_targets,
+    **op_cfg
+):
     blocks = get_blocks(master_file)
     geometries = get_geometry()
+    operations = get_operations(az_speed, az_accel, **op_cfg)
 
     config = {
         'blocks': blocks,
@@ -150,6 +192,7 @@ def get_config(master_file, az_speed, az_accel, cal_targets):
                 'min_duration': 600
             },
         },
+        'operations': operations,
         'allow_partial': False,
         'cal_targets': cal_targets,
         'scan_tag': None,
@@ -160,12 +203,10 @@ def get_config(master_file, az_speed, az_accel, cal_targets):
 
 
 @dataclass
-class SATP1Policy(sat.SATPolicy):
-
+class SATP1Policy(SATPolicy):
     @classmethod
-    def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5, cal_targets=[]):
-        return cls(**get_config(master_file, az_speed, az_accel, cal_targets))
+    def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5, cal_targets=[], **op_cfg):
+        return cls(**get_config(master_file, az_speed, az_accel, cal_targets, **op_cfg))
 
     def add_cal_target(self, source: str, boresight: int, elevation: int, focus: str):
         self.cal_targets.append(get_cal_target(source, boresight, elevation, focus))
-
