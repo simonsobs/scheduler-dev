@@ -372,7 +372,7 @@ def set_scan_params(state, az_speed, az_accel):
 #
 # ----------------------------------------------------
 
-def get_geometry():
+def make_geometry():
     ufm_mv19_shift = np.degrees([-0.01583734, 0.00073145])
     ufm_mv15_shift = np.degrees([-0.01687046, -0.00117139])
     ufm_mv7_shift = np.degrees([-1.7275653e-02, -2.0664736e-06])
@@ -416,7 +416,7 @@ def get_geometry():
         },
     }
 
-def get_cal_target(source: str, boresight: int, elevation: int, focus: str):
+def make_cal_target(source: str, boresight: int, elevation: int, focus: str):
     array_focus = {
         0 : {
             'left' : 'ws3,ws2',
@@ -458,7 +458,7 @@ def get_cal_target(source: str, boresight: int, elevation: int, focus: str):
 
     return (source, array_focus[boresight][focus], elevation, boresight, tags[focus])
 
-def get_blocks(master_file):
+def make_blocks(master_file):
     return {
         'baseline': {
             'cmb': {
@@ -502,7 +502,7 @@ def get_blocks(master_file):
         },
     }
 
-def get_operations(az_speed, az_accel, disable_hwp=False, apply_boresight_rot=True, hwp_cfg=None):
+def make_operations(az_speed, az_accel, disable_hwp=False, apply_boresight_rot=True, hwp_cfg=None):
     if hwp_cfg is None:
         hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper' }
     pre_session_ops = [
@@ -534,16 +534,16 @@ def get_operations(az_speed, az_accel, disable_hwp=False, apply_boresight_rot=Tr
     return pre_session_ops + cal_ops + cmb_ops + post_session_ops
 
 
-def get_config(
+def make_config(
     master_file,
     az_speed,
     az_accel,
     cal_targets,
     **op_cfg
 ):
-    blocks = get_blocks(master_file)
-    geometries = get_geometry()
-    operations = get_operations(az_speed, az_accel, **op_cfg)
+    blocks = make_blocks(master_file)
+    geometries = make_geometry()
+    operations = make_operations(az_speed, az_accel, **op_cfg)
 
     config = {
         'blocks': blocks,
@@ -576,10 +576,10 @@ def get_config(
 class SATP1Policy(SATPolicy):
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5, cal_targets=[], **op_cfg):
-        return cls(**get_config(master_file, az_speed, az_accel, cal_targets, **op_cfg))
+        return cls(**make_config(master_file, az_speed, az_accel, cal_targets, **op_cfg))
 
     def add_cal_target(self, source: str, boresight: int, elevation: int, focus: str):
-        self.cal_targets.append(get_cal_target(source, boresight, elevation, focus))
+        self.cal_targets.append(make_cal_target(source, boresight, elevation, focus))
 
     def init_state(self, t0: dt.datetime) -> SATP1State:
         return SATP1State(
