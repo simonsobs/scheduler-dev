@@ -679,7 +679,13 @@ class SATPolicy:
         -------
         State
         """
-        raise NotImplementedError("init_state should be implemented in each subclass")
+        return State(
+            curr_time=t0,
+            az_now=180,
+            el_now=48,
+            boresight_rot_now=0,
+            hwp_spinning=False,
+        )
 
     def seq2cmd(
         self,

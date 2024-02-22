@@ -212,6 +212,7 @@ def make_config(
 #         Policy customizations, if any
 #
 # ----------------------------------------------------
+# here we add some convenience wrappers
 
 @dataclass
 class SATP1Policy(SATPolicy):
@@ -223,6 +224,7 @@ class SATP1Policy(SATPolicy):
         self.cal_targets.append(make_cal_target(source, boresight, elevation, focus))
 
     def init_state(self, t0: dt.datetime) -> State:
+        """customize typical initial state for satp1, if needed"""
         return State(
             curr_time=t0,
             az_now=180,

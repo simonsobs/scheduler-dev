@@ -27,7 +27,7 @@ class State:
         The current azimuth speed in degrees per second. Default is None.
     az_accel_now : Optional[float], optional
         The current azimuth acceleration in degrees per second squared. Default is None.
-    prev_state : Optional[BaseState], optional
+    prev_state : Optional[State], optional
         A reference to the previous state for tracking state evolution. Default is None and not included in string representation.
 
     Methods
