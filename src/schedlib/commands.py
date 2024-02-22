@@ -9,40 +9,6 @@ from . import core
 MIN_DURATION = 0.01
 
 
-class SchedMode:
-    """
-    Enumerates the scheduling modes for satellite operations.
-
-    Attributes
-    ----------
-    PreCal : str
-        'pre_cal'; Operations scheduled before block.t0 for calibration.
-    PreObs : str
-        'pre_obs'; Observations scheduled before block.t0 for observation.
-    InCal : str
-        'in_cal'; Calibration operations scheduled between block.t0 and block.t1.
-    InObs : str
-        'in_obs'; Observation operations scheduled between block.t0 and block.t1.
-    PostCal : str
-        'post_cal'; Calibration operations scheduled after block.t1.
-    PostObs : str
-        'post_obs'; Observations operations scheduled after block.t1.
-    PreSession : str
-        'pre_session'; Represents the start of a session, scheduled from the beginning of the requested t0.
-    PostSession : str
-        'post_session'; Indicates the end of a session, scheduled after the last operation.
-
-    """
-    PreCal = 'pre_cal'
-    PreObs = 'pre_obs'
-    InCal = 'in_cal'
-    InObs = 'in_obs'
-    PostCal = 'post_cal'
-    PostObs = 'post_obs'
-    PreSession = 'pre_session'
-    PostSession = 'post_session'
-
-
 @dataclass(frozen=True)
 class State:
     """
@@ -61,7 +27,7 @@ class State:
         The current azimuth speed in degrees per second. Default is None.
     az_accel_now : Optional[float], optional
         The current azimuth acceleration in degrees per second squared. Default is None.
-    prev_state : Optional[State], optional
+    prev_state : Optional[BaseState], optional
         A reference to the previous state for tracking state evolution. Default is None and not included in string representation.
 
     Methods
