@@ -50,6 +50,10 @@ class Block:
 BlockType = type(Block)
 Blocks = List[Union[Block, None, "Blocks"]]  # maybe None, maybe nested
 
+@dataclass(frozen=True)
+class NamedBlock(Block):
+    name: str
+
 def is_block(x: Any) -> bool:
     return isinstance(x, Block)
 
@@ -134,7 +138,7 @@ def block_trim_right_to(block: Block, t: dt.datetime) -> Blocks:
         return None
     return block.replace(t1=min(block.t1, t))
 
-def block_isa(block_type:BlockType) -> Callable[[Block], bool]:
+def block_isa(block_type) -> Callable[[Block], bool]:
     def isa(block: Block) -> bool:
         return isinstance(block, block_type)
     return isa
@@ -389,6 +393,14 @@ def seq_merge(seq1: Blocks, seq2: Blocks, flatten=False) -> Blocks:
     for block in seq2:
         seq = seq_merge_block(seq, block)
     return seq_sort(seq)
+
+def seq_remove_overlap(seq1, seq2, flatten=False):
+    """return a copy of seq with regions that overlap with seq2 removed"""
+    seq2 = seq_map(lambda b: NamedBlock(name="_dummy", t0=b.t0, t1=b.t1), seq2)
+    return seq_flatten(seq_filter_out(
+        lambda b: isinstance(b, NamedBlock) and b.name=="_dummy",
+        seq_merge(seq1, seq2, flatten=flatten)
+    ))
 
 # =========================
 # Tree related
@@ -681,14 +693,6 @@ def seq_combine(*blocks: BlocksTree) -> BlocksTree:
     """
     seq_assert_same_structure(*blocks)
     return equinox.combine(*blocks, is_leaf=is_block)
-
-# =========================
-# Other useful Block types
-# =========================
-
-@dataclass(frozen=True)
-class NamedBlock(Block):
-    name: str 
 
 # =========================
 # Rules and Policies

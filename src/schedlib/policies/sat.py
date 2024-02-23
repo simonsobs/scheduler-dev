@@ -439,6 +439,7 @@ def set_scan_params(state, az_speed, az_accel):
         return state, [ f"run.acu.set_scan_params({az_speed}, {az_accel})"]
     return state, []
 
+
 @dataclass
 class SATPolicy:
     """a more realistic SAT policy.
@@ -752,6 +753,7 @@ class SATPolicy:
         op_seq += block_ops
 
         post_init_state = state
+        post_init_op_seq = op_seq.copy()
 
         logger.debug(f"post-init op_seq: {u.pformat(op_seq)}")
         logger.info(f"post-init state: {u.pformat(state)}")
@@ -770,61 +772,59 @@ class SATPolicy:
         # -----------------------------------------------------------------
         logger.info("---------- step 2: planning calibration scans ----------")
 
+        # compile the blocks to plan
         cal_blocks = core.seq_sort(seq['calibration'], flatten=True)
+        cmb_blocks = core.seq_sort(seq['baseline']['cmb'], flatten=True)
 
+        # compile calibration operations
         pre_ops  = [op for op in self.operations if op['sched_mode'] == SchedMode.PreCal]
         in_ops   = [op for op in self.operations if op['sched_mode'] == SchedMode.InCal]
         post_ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostCal]
-
         cal_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
+
+        # compile cmb operations (also needed for state propagation)
+        pre_ops  = [op for op in self.operations if op['sched_mode'] == SchedMode.PreObs]
+        in_ops   = [op for op in self.operations if op['sched_mode'] == SchedMode.InObs]
+        post_ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostObs]
+        cmb_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
 
         logger.debug(f"cal_ops to plan: {cal_ops}")
         logger.debug(f"pre-cal state: {u.pformat(state)}")
 
-        for block in cal_blocks:
-            logger.info(f"-> planning cal block: {u.pformat(block)}")
+        # calibration always take precedence, merging gets rid of overlapping regions
+        all_blocks = core.seq_merge(cmb_blocks, cal_blocks, flatten=True)
 
-            # skip if we are already past the block
-            if state.curr_time >= block.t1:
-                logger.info(f"--> skipping cal block {block.name} because it's already past")
-                continue
+        # need to loop over all blocks to get the state right
+        for block in all_blocks:
+            # cmb scans are just used to get the state right, no operations
+            # are actually added to our list
+            if block.subtype == 'cmb':
+                constraint = core.Block(t0=state.curr_time, t1=block.t1)
+                # probably not worth doing sun avoidance just for getting state right
+                state, _ = self._plan_block_operations(state, block, constraint, **cmb_ops)
+            elif block.subtype == 'cal':
+                logger.info(f"-> planning cal block: {u.pformat(block)}")
+                logger.info(f"--> pre-cal state: {u.pformat(state)}")
 
-            # constraint: calibration blocks take highest priority. So, for simplicity
-            # we give no a priori constraint for the starting time by setting it at
-            # the beginning of the time range. For the ending time, because the scan can
-            # stop at any phase of the swipe, it's hard to guarentee sun safety when we 
-            # don't know its exact pointing. There might be a good solution to this but
-            # for now a simple fix is to constrain post-cal operations to complete 
-            # before the end of the block, as we can be sure that the block is sun safe 
-            # after observation rules are applied.
+                # skip if we are already past the block to avoid computation of sun cover
+                if state.curr_time >= block.t1:
+                    logger.info(f"--> skipping cal block {block.name} because it's already past")
+                    continue
 
-            # what's our constraint from sun safety?
-            # -> we treat the time prior to the block as a stare scan (throw=0)
-            sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
-            sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, state.curr_time), t1=block.t1, az=block.az, alt=block.alt))
-            logger.info(f"--> sun-safe covers: {u.pformat(sun_safe_covers)}")
-            safe_cover = [cover for cover in core.seq_flatten(sun_safe_covers) if cover.t0 <= block.t0 <= cover.t1]
-            if len(safe_cover) == 0:
-                logger.info(f"--> no sun-safe cover found for block {block.name}")
-                logger.info(f"--> constraining pre-cal operations to start within block")
-                constraint = core.Block(t0=block.t0, t1=block.t1)
+                # calibration takes highest precedence, so it will only be constrained by sun safety.
+                # get sun safe interval covering the block
+                constraint = self._get_sun_safe_interval_for_block(block, state)
+
+                state, block_ops = self._plan_block_operations(state, block, constraint, **cal_ops)
+
+                logger.debug(f"--> post-block ops: {u.pformat(block_ops)}")
+                logger.debug(f"--> post-block state: {u.pformat(state)}")
+
+                op_seq += block_ops
             else:
-                assert len(safe_cover) == 1, "unexpected number of sun safe covers"
-                constraint = core.Block(t0=safe_cover[0].t0, t1=block.t1)
-                logger.info(f"--> sun safe cover found: {constraint.t0.isoformat()} to {constraint.t1.isoformat()}")
+                raise ValueError(f"unexpected block subtype: {block.subtype}")
 
-            # plan pre-, in-cal, post-cal operations for the block under constraint
-            # -> returns the new state, and a list of OperationBlock
-            state, block_ops = self._plan_block_operations(state, block, constraint, **cal_ops)
-
-            logger.debug(f"--> post-block ops: {u.pformat(block_ops)}")
-            logger.debug(f"--> post-block state: {u.pformat(state)}")
-
-            op_seq += block_ops
-
-        post_cal_state = state
-        # logger.debug(f"post-cal op_seq: {u.pformat(op_seq)}")
-        logger.debug(f"post-cal state: {u.pformat(state)}")
+        logger.debug(f"final state after cal planning: {u.pformat(state)}")
 
         # -----------------------------------------------------------------
         # 3. cmb scans
@@ -834,86 +834,61 @@ class SATPolicy:
         # -----------------------------------------------------------------
         logger.info("---------- step 3: planning cmb ops ----------")
 
-        # calibration always take precedence, so we remove the overlapping region
-        # from cmb scans first: this is done by first merging cal ops into cmb seq
-        # and then filtering out non-cmb blocks
-        cmb_blocks = core.seq_flatten(core.seq_filter(
-            lambda b: isinstance(b, inst.ScanBlock) and b.subtype == 'cmb',
-            core.seq_merge(seq['baseline']['cmb'], op_seq, flatten=True)
-        ))
-
-        pre_ops  = [op for op in self.operations if op['sched_mode'] == SchedMode.PreObs]
-        in_ops   = [op for op in self.operations if op['sched_mode'] == SchedMode.InObs]
-        post_ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostObs]
-
-        cmb_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
-
-        # assume we are starting from the end of initialization
+        # restart from post-init
         state = post_init_state
 
-        logger.debug(f"cmb_ops to plan: {cmb_ops}")
-        logger.debug(f"pre-planning state: {state}")
+        # calibration operations take precedence: now we know how long these cal
+        # operations will take, we can remove overlapping regions from our cmb scans
 
-        # avoid pre-cmb operations from colliding with calibration, so we will
-        # fast-forward our watch to the closest non-colliding time
-        full_interval = core.NamedBlock(name='_dummy', t0=t0, t1=t1)
-        non_overlapping = core.seq_flatten(core.seq_filter(
-            lambda b: b.name == '_dummy',
-            core.seq_merge([full_interval], op_seq, flatten=True)
-        ))
+        # avoid pre-cmb operations from colliding with calibration operations,
+        # so identify non-overlapping intervals here. This will be used as constraint
+        full_interval = core.Block(t0=t0, t1=t1)
+        non_overlaps = core.seq_remove_overlap(full_interval, op_seq)
 
-        for block in cmb_blocks:
-            logger.info(f"-> planning cmb block: {u.pformat(block)}")
-            # skip if we are already past the block
+        # also remove overlapping intervals from cmb_blocks
+        cmb_blocks = core.seq_remove_overlap(cmb_blocks, op_seq)
+
+        # merge all blocks
+        all_blocks = core.seq_sort(core.seq_merge(cmb_blocks, cal_blocks, flatten=True))
+
+        # done with previously planned operation seqs
+        # re-plan from the end of initialization.
+        state = post_init_state
+        op_seq = post_init_op_seq
+
+        for block in all_blocks:
             if state.curr_time >= block.t1:
-                logger.debug(f"--> skipping cmb block {block.name} because it's already past")
+                logger.debug(f"--> skipping block {block.name} because it's already past")
                 continue
 
-            # look for covering non-overlapping interval
-            constraint = [b for b in non_overlapping if b.t0 <= block.t0 and block.t1 <= b.t1][0]
-            logger.info(f"--> operational constraint: {constraint.t0} to {constraint.t1}")
+            logger.info(f"-> planning block ({block.subtype}): {block.name}: {block.t0} - {block.t1}")
+            logger.debug(f"--> pre-block state: {u.pformat(state)}")
 
-            # what's our constraint from sun safety?
-            # -> we treat the time prior to the block as a stare scan (throw=0)
-            sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
+            sun_constraint = self._get_sun_safe_interval_for_block(block, state)
+            logger.info(f"--> sun constraint: {sun_constraint.t0} to {sun_constraint.t1}")
 
-            sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, state.curr_time), t1=block.t1, az=block.az, alt=block.alt))
-            logger.info(f"--> sun-safe covers: {u.pformat(sun_safe_covers)}")
-            safe_cover = [cover for cover in core.seq_flatten(sun_safe_covers) if cover.t0 <= block.t0 <= cover.t1]
-            if len(safe_cover) == 0:
-                logger.info(f"--> no sun-safe cover found for block {block.name}")
-                logger.info(f"--> constraining pre-cal operations to start within block")
-                sun_constraint = core.Block(t0=block.t0, t1=block.t1)
+            if block.subtype == 'cmb':
+                non_overlap = [b for b in non_overlaps if b.t0 <= block.t0 and block.t1 <= b.t1][0]
+                logger.info(f"--> operational constraint: {non_overlap.t0} to {non_overlap.t1}")
+                constraint = core.block_intersect(non_overlap, sun_constraint)
+                ops = cmb_ops
+            elif block.subtype == 'cal':
+                constraint = sun_constraint
+                ops = cal_ops
             else:
-                assert len(safe_cover) == 1, "unexpected number of sun safe covers"
-                sun_constraint = core.Block(t0=safe_cover[0].t0, t1=block.t1)
-                logger.info(f"--> sun safe cover found: {sun_constraint.t0} to {sun_constraint.t1}")
+                raise ValueError(f"unexpected block subtype: {block.subtype}")
 
-            # merge constraint
-            constraint = core.block_intersect(constraint, sun_constraint)
-            logger.info(f"--> merged constraint: {constraint.t0} to {constraint.t1}")
-
-            # plan pre- / in- / post-cmb operations for the block under constraint
-            state, block_ops = self._plan_block_operations(state, block, constraint, **cmb_ops)
-
-            logger.debug(f"--> post-block ops: {u.pformat(block_ops)}")
+            state, block_ops = self._plan_block_operations(state, block, constraint, **ops)
             logger.debug(f"--> post-block state: {u.pformat(state)}")
 
             op_seq += block_ops
 
-        post_cmb_state = state
-        # logger.debug(f"post-cmb op_seq: {u.pformat(op_seq)}")
-        logger.debug(f"post-cmb state: {state}")
+        logger.debug(f"post-planning state: {state}")
 
         # -----------------------------------------------------------------
         # 4. post-session operations
         # -----------------------------------------------------------------
         logger.info("---------- step 4: planning post-session ops ----------")
-
-        # decide whether last scan is cmb or calibration
-        # note: this assumes cmb and cal operations are independent -> might be too optimistic
-        # possible solution: go through op_seq to evolve the state fully -> task for another day
-        state = post_cmb_state if post_cmb_state.curr_time > post_cal_state.curr_time else post_cal_state
 
         ops = [op for op in self.operations if op['sched_mode'] == SchedMode.PostSession]
         state, _, post_session_ops = self._apply_ops(state, ops)
@@ -1208,6 +1183,32 @@ class SATPolicy:
             logger.debug("---> need second pass? " + ("yes" if need_retry else "no"))
 
         return state, op_seq
+
+    def _get_sun_safe_interval_for_block(self, block, state):
+        """
+        Find a sun-safe interval covering the block, starting from the current time.
+
+        Note that there is a complication with the ending time, because the scan can
+        stop at any phase of the swipe, so it's hard to guarentee sun safety when we
+        don't know its exact pointing. For now a suboptimal solution is to always
+        restrict post-block operations to complete before the end of the block,
+        because if the observation rules have been applied, we can be sure the block
+        is sun safe in its duration.
+        """
+
+        sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
+        sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, state.curr_time), t1=block.t1, az=block.az, alt=block.alt))
+        logger.info(f"--> sun-safe covers: {u.pformat(sun_safe_covers)}")
+        safe_cover = [cover for cover in core.seq_flatten(sun_safe_covers) if cover.t0 <= block.t0 <= cover.t1]
+        if len(safe_cover) == 0:
+            logger.info(f"--> no sun-safe cover found for block {block.name}")
+            logger.info(f"--> constraining pre-cal operations to start within block")
+            constraint = core.Block(t0=block.t0, t1=block.t1)
+        else:
+            assert len(safe_cover) == 1, "unexpected number of sun safe covers"
+            constraint = core.Block(t0=safe_cover[0].t0, t1=block.t1)
+            logger.info(f"--> sun safe cover found: {constraint.t0.isoformat()} to {constraint.t1.isoformat()}")
+        return constraint
 
     def cmd2txt(self, op_seq):
         """
