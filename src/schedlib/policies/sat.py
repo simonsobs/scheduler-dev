@@ -331,7 +331,6 @@ def det_setup(state, block):
         commands = [
             "",
             "################### Detector Setup######################",
-            f"run.acu.move_to(az={round(block.az, 3)}, el={round(block.alt,3)})",
             "run.smurf.take_bgmap(concurrent=True)",
             "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
             "run.smurf.bias_dets(concurrent=True)",
@@ -341,8 +340,6 @@ def det_setup(state, block):
             "",
         ]
         state = state.replace(
-            az_now=block.az, 
-            el_now=block.alt, 
             last_bias_step=state.curr_time,
             is_det_setup=True
         )
