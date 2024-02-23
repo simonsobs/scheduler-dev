@@ -649,6 +649,12 @@ class SATPolicy:
         # check sun avoidance again
         blocks['calibration'] = core.seq_flatten(sun_rule(blocks['calibration']))
 
+        # min duration rule
+        if 'min-duration' in self.rules:
+            logger.info(f"applying min duration rule: {self.rules['min-duration']}")
+            rule = ru.make_rule('min-duration', **self.rules['min-duration'])
+            blocks = rule(blocks)
+
         # -----------------------------------------------------------------
         # step 4: tags
         # -----------------------------------------------------------------
@@ -791,6 +797,8 @@ class SATPolicy:
         # calibration always take precedence, merging gets rid of overlapping regions
         all_blocks = core.seq_merge(cmb_blocks, cal_blocks, flatten=True)
 
+        cal_ref_state = state
+
         # need to loop over all blocks to get the state right
         for block in all_blocks:
             # cmb scans are just used to get the state right, no operations
@@ -808,14 +816,24 @@ class SATPolicy:
                     logger.info(f"--> skipping cal block {block.name} because it's already past")
                     continue
 
-                # calibration takes highest precedence, so it will only be constrained by sun safety.
-                # get sun safe interval covering the block
-                constraint = self._get_sun_safe_interval_for_block(block, state)
+                # calibration takes highest precedence, so it will only be constrained by sun safety
+                # and internal constraints (not overlapping with other cal blocks), so we will keep
+                # track of the state after each cal block with cal_ref_state and use that as the
+                # hard starting point constraint
+                constraint = self._get_sun_safe_interval_for_block(block, state, t_start=cal_ref_state.curr_time)
+
+                # to give calibration maximal priority, we will ignore the state curr_time
+                # and assume we can start whenever we want, as long as we are sun safe.
+                # Then we dial our clock back to the start of the sun safe interval.
+                state = state.replace(curr_time=constraint.t0)
 
                 state, block_ops = self._plan_block_operations(state, block, constraint, **cal_ops)
 
                 logger.debug(f"--> post-block ops: {u.pformat(block_ops)}")
                 logger.debug(f"--> post-block state: {u.pformat(state)}")
+
+                # update our reference state
+                cal_ref_state = state
 
                 op_seq += block_ops
             else:
@@ -848,6 +866,11 @@ class SATPolicy:
         # merge all blocks
         all_blocks = core.seq_sort(core.seq_merge(cmb_blocks, cal_blocks, flatten=True))
 
+        if 'min-duration' in self.rules:
+            logger.info(f"applying min duration rule: {self.rules['min-duration']}")
+            rule = ru.make_rule('min-duration', **self.rules['min-duration'])
+            all_blocks = core.seq_flatten(rule(all_blocks))
+
         # done with previously planned operation seqs
         # re-plan from the end of initialization.
         state = post_init_state
@@ -861,8 +884,11 @@ class SATPolicy:
             logger.info(f"-> planning block ({block.subtype}): {block.name}: {block.t0} - {block.t1}")
             logger.debug(f"--> pre-block state: {u.pformat(state)}")
 
+            constraint = core.Block(t0=state.curr_time, t1=block.t1)
+            logger.info(f"--> causal constraint: {constraint.t0} to {constraint.t1}")
             sun_constraint = self._get_sun_safe_interval_for_block(block, state)
-            logger.info(f"--> sun constraint: {sun_constraint.t0} to {sun_constraint.t1}")
+            constraint = core.block_intersect(constraint, sun_constraint)
+            logger.info(f"--> add sun constraint: {sun_constraint.t0} to {sun_constraint.t1}")
 
             if block.subtype == 'cmb':
                 non_overlap = [b for b in non_overlaps if b.t0 <= block.t0 and block.t1 <= b.t1][0]
@@ -874,6 +900,7 @@ class SATPolicy:
                 ops = cal_ops
             else:
                 raise ValueError(f"unexpected block subtype: {block.subtype}")
+            logger.info(f"--> final constraint: {constraint.t0} to {constraint.t1}")
 
             state, block_ops = self._plan_block_operations(state, block, constraint, **ops)
             logger.debug(f"--> post-block state: {u.pformat(state)}")
@@ -1181,7 +1208,7 @@ class SATPolicy:
 
         return state, op_seq
 
-    def _get_sun_safe_interval_for_block(self, block, state):
+    def _get_sun_safe_interval_for_block(self, block, state, t_start=None):
         """
         Find a sun-safe interval covering the block, starting from the current time.
 
@@ -1192,9 +1219,9 @@ class SATPolicy:
         because if the observation rules have been applied, we can be sure the block
         is sun safe in its duration.
         """
-
+        if t_start is None: t_start = state.curr_time
         sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
-        sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, state.curr_time), t1=block.t1, az=block.az, alt=block.alt))
+        sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, t_start), t1=block.t1, az=block.az, alt=block.alt))
         logger.info(f"--> sun-safe covers: {u.pformat(sun_safe_covers)}")
         safe_cover = [cover for cover in core.seq_flatten(sun_safe_covers) if cover.t0 <= block.t0 <= cover.t1]
         if len(safe_cover) == 0:

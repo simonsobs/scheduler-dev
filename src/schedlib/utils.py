@@ -320,7 +320,7 @@ def op_pprint(op_seq):
         def __init__(self, name, t0, t1):
             self.name, self.t0, self.t1 = name, t0, t1
         def __repr__(self):
-            return f"{self.name:<25}: {self.t0} -> {self.t1}"
+            return f"{self.name:<25}: {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}"
     def _repr(block):
         if hasattr(block, "t0") and hasattr(block, "t1") and hasattr(block, "name"):
             return _dummy(block.name, block.t0, block.t1)
