@@ -290,7 +290,11 @@ def ufm_relock(state):
 
 @cmd.operation(name='sat.hwp_spin_up', return_duration=True)
 def hwp_spin_up(state, disable_hwp=False):
-    if not disable_hwp and not state.hwp_spinning:
+    if disable_hwp:
+        return state, 0, ["# hwp disabled"]
+    elif state.hwp_spinning:
+        return state, 0, ["# hwp already spinning"]
+    else:
         state = state.replace(hwp_spinning=True)
         return state, 20*u.minute, [
             "HWPPrep()",
@@ -298,18 +302,20 @@ def hwp_spin_up(state, disable_hwp=False):
             "hwp_freq = 2.0",
             "HWPSpinUp()",
         ]
-    return state, 0, ["# hwp disabled or already spinning"]
 
 @cmd.operation(name='sat.hwp_spin_down', return_duration=True)
 def hwp_spin_down(state, disable_hwp=False):
-    if not disable_hwp and state.hwp_spinning:
+    if disable_hwp:
+        return state, 0, ["# hwp disabled"]
+    elif not state.hwp_spinning:
+        return state, 0, ["# hwp already stopped"]
+    else:
         state = state.replace(hwp_spinning=False)
         return state, 10*u.minute, [
             "HWPFastStop()",
             "HWPPost()",
             "hwp_freq = 0.0",
         ]
-    return state, 0, ["# hwp disabled or not spinning"]
 
 # per block operation: block will be passed in as parameter
 @cmd.operation(name='sat.det_setup', return_duration=True)
