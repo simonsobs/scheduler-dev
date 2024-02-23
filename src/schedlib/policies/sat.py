@@ -71,6 +71,7 @@ class State(cmd.State):
     hwp_spinning: bool = False
     last_ufm_relock: Optional[dt.datetime] = None
     last_bias_step: Optional[dt.datetime] = None
+    is_det_setup: bool = False
 
 
 @dataclass(frozen=True)
@@ -319,19 +320,15 @@ def hwp_spin_down(state, disable_hwp=False):
 
 # per block operation: block will be passed in as parameter
 @cmd.operation(name='sat.det_setup', return_duration=True)
-def det_setup(state, block, **hwp_kwargs):
-    # only do it if boresight has changed
-    duration = 0
-    commands = []
-    if block.alt != state.el_now:
-        if state.hwp_spinning:
-            # equivalent to hwp_spin_down(**hwp_kwargs)(state)
-            # use make_op wrapper is more reliable in case of decorator
-            # implementation change in the future
-            state, d, c = cmd.make_op('sat.hwp_spin_down', **hwp_kwargs)(state)
-            commands += c
-            duration += d
-        commands += [
+def det_setup(state, block):
+    # when should det setup be done?
+    # -> should always be done if the block is a cal block
+    # -> should always be done if elevation has changed
+    # -> should always be done if det setup has not been done yet
+    doit = (block.subtype == 'cal') or (block.alt != state.el_now) or (not state.is_det_setup)
+
+    if doit:
+        commands = [
             "",
             "################### Detector Setup######################",
             f"run.acu.move_to(az={round(block.az, 3)}, el={round(block.alt,3)})",
@@ -343,14 +340,15 @@ def det_setup(state, block, **hwp_kwargs):
             "#################### Detector Setup Over ####################",
             "",
         ]
-        state = state.replace(az_now=block.az, el_now=block.alt, last_bias_step=state.curr_time)
-        duration += 60
-        if not state.hwp_spinning:
-            state, d, c = cmd.make_op('sat.hwp_spin_up', **hwp_kwargs)(state)
-            commands += c
-            duration += d
-
-    return state, duration, commands
+        state = state.replace(
+            az_now=block.az, 
+            el_now=block.alt, 
+            last_bias_step=state.curr_time,
+            is_det_setup=True
+        )
+        return state, 60, commands
+    else:
+        return state, 0, []
 
 @cmd.operation(name='sat.cmb_scan', return_duration=True)
 def cmb_scan(state, block):
@@ -924,7 +922,7 @@ class SATPolicy:
         logger.debug(f"post-session state: {state}")
         logger.debug(f"post-session ops: {u.pformat(post_session_ops)}")
 
-        logger.debug("---------- finished planning ----------")
+        logger.info("---------- step 5: post-processing ----------")
 
         # make sure operations are sorted by time, and we want to do that safely
         # without disturbing the original order of operations especially when
@@ -932,6 +930,7 @@ class SATPolicy:
         # the same time
         op_seq = core.seq_sort(op_seq)
 
+        logger.info("replacing gaps in the operation sequence with wait-until...")
         # whenver there is a gap, replace it with a wait operation
         last_block_t1 = core.seq_sort(op_seq, key_fn=lambda b: b.t1)[-1].t1
         op_seq = core.seq_map_when(
@@ -945,6 +944,11 @@ class SATPolicy:
             ),
             core.seq_merge(core.NamedBlock(name='_gap', t0=t0, t1=last_block_t1), op_seq)
         )
+
+        logger.info("simplifying hwp operations...")
+        op_seq = simplify_hwp(op_seq)
+
+        logger.info("------------- done! -------------")
 
         return op_seq
 
@@ -1353,3 +1357,22 @@ def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
             logger.info(f"Calibration block {block_v} overlaps with existing blocks or fails sun check, skipping...")
 
         block_i[seq_i] += 1
+
+def simplify_hwp(op_seq):
+    # if hwp is spinning up and down right next to each other, we can just remove them
+    def rewriter(seq_prev, b_next):
+        if len(seq_prev) == 0:
+            return [b_next]
+        b_prev = seq_prev[-1]
+        if (b_prev.name == 'sat.hwp-spin-up' and b_next.name == 'sat.hwp-spin-down') or \
+           (b_prev.name == 'sat.hwp-spin-down' and b_next.name == 'sat.hwp-spin-up'):
+            return seq_prev[:-1] + [cmd.OperationBlock(
+                name='wait-until', 
+                t0=b_prev.t0, 
+                t1=b_next.t1, 
+                commands=[f"run.wait_until('{b_next.t1.isoformat()}')"]
+            )]
+        else:
+            return seq_prev+[b_next]
+
+    return reduce(rewriter, op_seq, [])

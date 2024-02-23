@@ -1,5 +1,4 @@
 from __future__ import annotations
-import logging, sys
 from datetime import datetime, timezone
 import pandas as pd
 import numpy as np
@@ -7,7 +6,7 @@ from functools import reduce
 from contextlib import contextmanager
 from scipy import interpolate
 from collections.abc import Iterable
-from jax.tree_util import SequenceKey, DictKey
+from jax.tree_util import SequenceKey, DictKey, tree_map
 import fnmatch
 from equinox import tree_pprint, tree_pformat
 
@@ -315,3 +314,16 @@ def set_logging_level(level=2):
     for logger_name in logging.Logger.manager.loggerDict:
         if logger_name.startswith("schedlib"):
             logging.getLogger(logger_name).setLevel(level)
+
+def op_pprint(op_seq):
+    class _dummy:
+        def __init__(self, name, t0, t1):
+            self.name, self.t0, self.t1 = name, t0, t1
+        def __repr__(self):
+            return f"{self.name:<25}: {self.t0} -> {self.t1}"
+    def _repr(block):
+        if hasattr(block, "t0") and hasattr(block, "t1") and hasattr(block, "name"):
+            return _dummy(block.name, block.t0, block.t1)
+        else:
+            return block
+    return pprint(tree_map(_repr, op_seq))

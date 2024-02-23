@@ -168,25 +168,25 @@ def make_operations(az_speed, az_accel, disable_hwp=False, apply_boresight_rot=T
         { 'name': 'sat.set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreSession, 'disable_hwp': disable_hwp, },
     ]
-    post_session_ops = [
-        { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
-        { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 48},
-    ]
     cal_ops = [
         { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, },
-        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, },
+        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, },
         { 'name': 'sat.setup_boresight' , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, },
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
-        { 'name': 'sat.source_scan'     , 'sched_mode': SchedMode.InCal },
+        { 'name': 'sat.source_scan'     , 'sched_mode': SchedMode.InCal, },
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostCal, 'indent': 4},
     ]
     cmb_ops = [
-        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, },
+        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreObs, },
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, },
         { 'name': 'sat.setup_boresight' , 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot, },
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, },
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostObs, },
+    ]
+    post_session_ops = [
+        { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
+        { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 48},
     ]
     return pre_session_ops + cal_ops + cmb_ops + post_session_ops
 
