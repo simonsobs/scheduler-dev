@@ -72,6 +72,17 @@ class State(cmd.State):
     last_ufm_relock: Optional[dt.datetime] = None
     last_bias_step: Optional[dt.datetime] = None
 
+
+@dataclass(frozen=True)
+class CalTarget:
+    source: str
+    array_query: str
+    el_bore: float
+    tag: str
+    boresight_rot: float = 0
+    allow_partial: bool = False
+    drift: bool = True
+
 # ----------------------------------------------------
 #
 #                  Register operations
@@ -436,9 +447,7 @@ class SATPolicy:
         a dict of rules, specifies rule cfgs for e.g., 'sun-avoidance', 'az-range', 'min-duration'
     geometries : dict
         a dict of geometries, with the leave node being dict with keys 'center' and 'radius'
-    cal_targets : list
-        a list of tuples, each tuple specifies a calibration target, with the format
-        (source, array_query, el_bore, boresight_rot, tagname)
+    cal_targets : list[CalTarget]
     cal_policy : str
     scan_tag : str
         a tag to be added to all scans
@@ -456,7 +465,7 @@ class SATPolicy:
     blocks: Dict[str, Any] = field(default_factory=dict)
     rules: Dict[str, core.Rule] = field(default_factory=dict)
     geometries: List[Dict[str, Any]] = field(default_factory=list)
-    cal_targets: List[Any] = field(default_factory=list)
+    cal_targets: List[CalTarget] = field(default_factory=list)
     cal_policy: str = 'round-robin'
     scan_tag: Optional[str] = None
     az_speed: float = 1. # deg / s
@@ -518,7 +527,7 @@ class SATPolicy:
 
         # by default add calibration blocks specified in cal_targets if not already specified
         for cal_target in self.cal_targets:
-            source = cal_target[0]
+            source = cal_target.source
             if source not in blocks['calibration']:
                 blocks['calibration'][source] = src.source_gen_seq(source, t0, t1)
 
@@ -580,17 +589,18 @@ class SATPolicy:
         logger.info("planning calibration scans...")
         cal_blocks = []
 
-        for cal_target in self.cal_targets:
-            logger.info(f"-> planning calibration scans for {cal_target}...")
-            source, array_query, el_bore, boresight_rot, tagname = cal_target
-            assert source in blocks['calibration'], f"source {source} not found in sequence"
+        for target in self.cal_targets:
+            logger.info(f"-> planning calibration scans for {target}...")
+            assert target.source in blocks['calibration'], f"source {target.source} not found in sequence"
 
             # digest array_query: it could be a fnmatch pattern matching the path
             # in the geometry dict, or it could be looked up from a predefined
             # wafer_set dict. Here we account for the latter case:
             # look up predefined query in wafer_set
-            if array_query in self.wafer_sets:
-                array_query = self.wafer_sets[array_query]
+            if target.array_query in self.wafer_sets:
+                array_query = self.wafer_sets[target.array_query]
+            else:
+                array_query = target.array_query
 
             # build array geometry information based on the query
             array_info = inst.array_info_from_query(self.geometries, array_query)
@@ -600,21 +610,21 @@ class SATPolicy:
             # actual scans
             rule = ru.MakeCESourceScan(
                 array_info=array_info,
-                el_bore=el_bore,
+                el_bore=target.el_bore,
                 drift=True,
-                boresight_rot=boresight_rot,
-                allow_partial=self.allow_partial,
+                boresight_rot=target.boresight_rot,
+                allow_partial=target.allow_partial,
             )
-            source_scans = rule(blocks['calibration'][source])
+            source_scans = rule(blocks['calibration'][target.source])
             source_scans = core.seq_flatten(source_scans)
 
             # add tags to the scans
             cal_blocks.append(core.seq_map(
-                lambda block: block.replace(tag=f"{block.tag},{tagname}"),
+                lambda block: block.replace(tag=f"{block.tag},{target.tag}"),
                 source_scans
             ))
 
-            logger.info(f"-> found {len(source_scans)} scan options for {source}: {u.pformat(source_scans)}")
+            logger.info(f"-> found {len(source_scans)} scan options for {target.source}: {u.pformat(source_scans)}")
 
         # -----------------------------------------------------------------
         # step 3: resolve calibration target conflicts

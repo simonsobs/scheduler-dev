@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import datetime as dt
 
 from .. import source as src, utils as u
-from .sat import SchedMode, SATPolicy, State
+from .sat import SchedMode, SATPolicy, State, CalTarget
 
 logger = u.init_logger(__name__)
 
@@ -58,7 +58,14 @@ def make_geometry():
         },
     }
 
-def make_cal_target(source: str, boresight: int, elevation: int, focus: str):
+def make_cal_target(
+    source: str, 
+    boresight: int, 
+    elevation: int, 
+    focus: str, 
+    allow_partial=False,
+    drift=True,
+) -> CalTarget:
     array_focus = {
         0 : {
             'left' : 'ws3,ws2',
@@ -98,7 +105,15 @@ def make_cal_target(source: str, boresight: int, elevation: int, focus: str):
     assert focus in tags, f"array_focus should be one of {tags.keys()}"
     assert source in src.SOURCES, f"source should be one of {src.SOURCES.keys()}"
 
-    return (source, array_focus[boresight][focus], elevation, boresight, tags[focus])
+    return CalTarget(
+        source=source, 
+        array_query=array_focus[boresight][focus], 
+        el_bore=elevation, 
+        boresight_rot=boresight, 
+        tag=tags[focus],
+        allow_partial=allow_partial,
+        drift=drift
+    )
 
 def make_blocks(master_file):
     return {
@@ -220,8 +235,8 @@ class SATP1Policy(SATPolicy):
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5, cal_targets=[], **op_cfg):
         return cls(**make_config(master_file, az_speed, az_accel, cal_targets, **op_cfg))
 
-    def add_cal_target(self, source: str, boresight: int, elevation: int, focus: str):
-        self.cal_targets.append(make_cal_target(source, boresight, elevation, focus))
+    def add_cal_target(self, *args, **kwargs):
+        self.cal_targets.append(make_cal_target(*args, **kwargs))
 
     def init_state(self, t0: dt.datetime) -> State:
         """customize typical initial state for satp1, if needed"""
