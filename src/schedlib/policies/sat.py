@@ -66,6 +66,8 @@ class State(cmd.State):
         The last time the UFM was relocked, or None if it has not been relocked.
     last_bias_step : Optional[datetime.datetime]
         The last time a bias step was performed, or None if no bias step has been performed.
+    is_det_setup : bool
+        Whether the detectors have been set up or not.
     """
     boresight_rot_now: int = 0
     hwp_spinning: bool = False
@@ -1385,12 +1387,13 @@ def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
 
 def simplify_hwp(op_seq):
     # if hwp is spinning up and down right next to each other, we can just remove them
+    core.seq_assert_sorted(op_seq)
     def rewriter(seq_prev, b_next):
         if len(seq_prev) == 0:
             return [b_next]
         b_prev = seq_prev[-1]
-        if (b_prev.name == 'sat.hwp-spin-up' and b_next.name == 'sat.hwp-spin-down') or \
-           (b_prev.name == 'sat.hwp-spin-down' and b_next.name == 'sat.hwp-spin-up'):
+        if (b_prev.name == 'sat.hwp_spin_up' and b_next.name == 'sat.hwp_spin_down') or \
+           (b_prev.name == 'sat.hwp_spin_down' and b_next.name == 'sat.hwp_spin_up'):
             return seq_prev[:-1] + [cmd.OperationBlock(
                 name='wait-until', 
                 t0=b_prev.t0, 
