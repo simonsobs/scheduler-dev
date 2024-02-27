@@ -123,8 +123,8 @@ def make_config(pos='top', elevation=50, caltype='beam'):
         'geometries': geometries,
         'rules': {
             'sun-avoidance': {
-                'min_angle_az': 41, #keep-out angle, i.e. tells script not to build scans within 41 degrees of the sun
-                'min_angle_alt': 41,
+                'min_angle_az': 49, #keep-out angle, i.e. tells script not to build scans within 49 degrees of the sun
+                'min_angle_alt': 49,
             },
             'min-duration': {
                 'min_duration': 600
@@ -152,19 +152,29 @@ def make_config(pos='top', elevation=50, caltype='beam'):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--today', default=True)
-    parser.add_argument('--o', type=str, default='./', help='output directory')
+    parser.add_argument('--day', default=None,help='if a custom date (i.e. not today) is desired. format YYYY-MM-DD')
+    parser.add_argument('--output-dir','-o', type=str, default='./', help='output directory')
     args = parser.parse_args()
 
     # manual
     t0 = dt.datetime(2023, 12, 22, 0, 0, 0, tzinfo=dt.timezone.utc)
     t1 = dt.datetime(2023, 12, 23, 3, 0, 0, tzinfo=dt.timezone.utc)
-    if args.today:
+    if not args.day and args.today:
         today = dt.date.today()# + dt.timedelta(days=1)
         tomrw = today + dt.timedelta(days=1)
-        t0 = dt.datetime(today.year, today.month, today.day, 7, 0, 0, tzinfo=dt.timezone.utc)
-        t1 = dt.datetime(tomrw.year, tomrw.month, tomrw.day, 7, 0, 0, tzinfo=dt.timezone.utc)
+        t0 = dt.datetime(today.year, today.month, today.day, 6, 0, 0, tzinfo=dt.timezone.utc)
+        t1 = dt.datetime(tomrw.year, tomrw.month, tomrw.day, 10, 0, 0, tzinfo=dt.timezone.utc)
+    elif args.day:
+        y,m,d = args.day.split('-')
+        if m[0]=='0':
+            m=m[1]
+        if d[0]=='0':
+            d=d[1]
+        t0 = dt.datetime(int(y), int(m), int(d), 6, 0, 0, tzinfo=dt.timezone.utc)
+        nextday=t0+dt.timedelta(days=1)
+        t1 = dt.datetime(nextday.year, nextday.month, nextday.day, 10, 0, 0, tzinfo=dt.timezone.utc)
 
-    for pos in ['top', 'bottom']:
+    for pos in ['left','middle', 'right']:
         for el in [40, 50, 60]:
             for caltype in ['beam', 'pol']:
                 config = make_config(pos, el, caltype)
@@ -174,20 +184,20 @@ if __name__ == '__main__':
                 seqs = policy.apply(seqs)
                 #u.pprint(seqs)
 
-                fname = os.path.join(args.o, t0.strftime(f'%Y%m%d_{pos}_el{el:d}_{caltype}_observations.py'))
+                fname = os.path.join(args.output_dir, t0.strftime(f'%Y%m%d_{pos}_el{el:d}_{caltype}_observations.py'))
                 with open(fname, 'w') as f:
                     f.write(str(policy.seq2cmd(seqs, t0, t1)))
                 print(fname +' is written.')
 
     el, caltype = 60, 'baseline'
-    for pos in ['top', 'bottom', 'center']:
+    for pos in ['center']:
                 config = make_config(pos, el, caltype)
                 policy = TSATPolicy(**config)
 
                 seqs = policy.init_seqs(t0, t1)
                 seqs = policy.apply(seqs)
 
-                fname = os.path.join(args.o, t0.strftime(f'%Y%m%d_{pos}_el{el:d}_{caltype}_observations.py'))
+                fname = os.path.join(args.output_dir, t0.strftime(f'%Y%m%d_{pos}_el{el:d}_{caltype}_observations.py'))
                 with open(fname, 'w') as f:
                     f.write(str(policy.seq2cmd(seqs, t0, t1)))
                 print(fname +' is written.')
