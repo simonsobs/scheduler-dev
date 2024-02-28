@@ -71,6 +71,7 @@ def make_config(pos='top', elevation=50, caltype='beam'):
         'bottom': ['ws1,ws2,ws6', 'Mv17Mv27Mv35'],
         'top': ['ws3,ws4,ws5', 'Mv33Mv23Mv12'],
         'center': ['ws0', 'Mv5'],
+        'bottombottom':['ws1','Mv27'],
     }
 
     blocks = {
@@ -108,6 +109,7 @@ def make_config(pos='top', elevation=50, caltype='beam'):
     # target, location,elevation, boresight, tag-to-add-to-data-files
     cal_targets = {
         'beam': [
+            ('moon', ufms[pos][0], elevation, 0, ufms[pos][1]),
             ('jupiter', ufms[pos][0], elevation, 0, ufms[pos][1]),
             ('saturn', ufms[pos][0], elevation, 0, ufms[pos][1]),
         ],
@@ -136,7 +138,7 @@ def make_config(pos='top', elevation=50, caltype='beam'):
         },
         'allow_partial':True,
         'cal_targets': cal_targets[caltype],
-        'merge_order': {'pol': ['taua', 'galcenter'], 'beam':['jupiter', 'saturn'], 'baseline': 'baseline'}[caltype],
+        'merge_order': {'pol': ['taua', 'galcenter'], 'beam':['moon','jupiter', 'saturn'], 'baseline': 'baseline'}[caltype],
         'time_costs': {
             'det_setup': 40*60,
             'bias_step': 60,
@@ -174,7 +176,7 @@ if __name__ == '__main__':
         nextday=t0+dt.timedelta(days=1)
         t1 = dt.datetime(nextday.year, nextday.month, nextday.day, 10, 0, 0, tzinfo=dt.timezone.utc)
 
-    for pos in ['left','middle', 'right']:
+    for pos in ['left','middle', 'right','bottombottom']:
         for el in [40, 50, 60]:
             for caltype in ['beam', 'pol']:
                 config = make_config(pos, el, caltype)

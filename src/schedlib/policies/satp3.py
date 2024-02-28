@@ -35,7 +35,7 @@ preamble = [
 
 wrap_up = [
     "# go home",
-    "run.acu.move_to(az=180, el=40)",
+    "run.acu.move_to(az=180, el=50)",
     "",
     "time.sleep(1)"
 ]
@@ -102,7 +102,7 @@ class SATPolicy:
     time_costs: dict[str, float]
     ufm_relock: bool
     scan_tag: Optional[str] = None
-    az_speed: float = 0.5 # deg / s
+    az_speed: float = 0.8 # deg / s
     az_accel: float = 0.25 # deg / s^2
     apply_boresight_rot: bool = False
     allow_partial: bool = False
