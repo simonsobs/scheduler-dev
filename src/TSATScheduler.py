@@ -153,20 +153,17 @@ def make_config(pos='top', elevation=50, caltype='beam'):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--today', default=True)
     parser.add_argument('--day', default=None,help='if a custom date (i.e. not today) is desired. format YYYY-MM-DD')
     parser.add_argument('--output-dir','-o', type=str, default='./', help='output directory')
     args = parser.parse_args()
 
-    # manual
-    t0 = dt.datetime(2023, 12, 22, 0, 0, 0, tzinfo=dt.timezone.utc)
-    t1 = dt.datetime(2023, 12, 23, 3, 0, 0, tzinfo=dt.timezone.utc)
-    if not args.day and args.today:
-        today = dt.date.today()# + dt.timedelta(days=1)
-        tomrw = today + dt.timedelta(days=1)
-        t0 = dt.datetime(today.year, today.month, today.day, 6, 0, 0, tzinfo=dt.timezone.utc)
-        t1 = dt.datetime(tomrw.year, tomrw.month, tomrw.day, 10, 0, 0, tzinfo=dt.timezone.utc)
-    elif args.day:
+    # default is today
+    today = dt.date.today()
+    tomrw = today + dt.timedelta(days=1)
+    t0 = dt.datetime(today.year, today.month, today.day, 6, 0, 0, tzinfo=dt.timezone.utc)
+    t1 = dt.datetime(tomrw.year, tomrw.month, tomrw.day, 10, 0, 0, tzinfo=dt.timezone.utc)
+
+    if args.day:
         y,m,d = args.day.split('-')
         if m[0]=='0':
             m=m[1]
