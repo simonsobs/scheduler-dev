@@ -116,6 +116,9 @@ class ScanBlock(core.NamedBlock):
 
         return t, az, az*0 + self.alt
 
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.name}, {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}, az={self.az:.2f}, el={self.alt:.2f}, throw={self.throw:.2f}, drift={self.az_drift:.5f}))"
+
 @dataclass(frozen=True)
 class StareBlock(ScanBlock):
     throw: float = 0.

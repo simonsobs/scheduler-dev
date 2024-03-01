@@ -8,7 +8,6 @@ from scipy import interpolate
 from collections.abc import Iterable
 from jax.tree_util import SequenceKey, DictKey, tree_map
 import fnmatch
-from equinox import tree_pprint, tree_pformat
 
 minute = 60 # second
 hour = 60 * minute
@@ -159,11 +158,22 @@ def daily_static_key(t: datetime):
 
 def pprint(seq, **kwargs):
     """pretty print"""
-    tree_pprint(seq, **kwargs)
+    print(pformat(seq, **kwargs))
 
 def pformat(seq, **kwargs):
     """pretty format"""
-    return tree_pformat(seq, **kwargs)
+    from unittest.mock import patch
+    from dataclasses import is_dataclass
+    from equinox import tree_pformat
+    from schedlib.core import Block
+    # force is_dataclass to return False for Block
+    def _new_isdataclass(fun):
+        def wrapper(obj):
+            if isinstance(obj, Block): return False
+            else: return fun(obj)
+        return wrapper
+    with patch("dataclasses.is_dataclass", _new_isdataclass(is_dataclass)):
+        return tree_pformat(seq, **kwargs)
 
 # ====================
 # path related
@@ -315,15 +325,3 @@ def set_logging_level(level=2):
         if logger_name.startswith("schedlib"):
             logging.getLogger(logger_name).setLevel(level)
 
-def op_pprint(op_seq):
-    class _dummy:
-        def __init__(self, name, t0, t1):
-            self.name, self.t0, self.t1 = name, t0, t1
-        def __repr__(self):
-            return f"{self.name:<25}: {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}"
-    def _repr(block):
-        if hasattr(block, "t0") and hasattr(block, "t1") and hasattr(block, "name"):
-            return _dummy(block.name, block.t0, block.t1)
-        else:
-            return block
-    return pprint(tree_map(_repr, op_seq))

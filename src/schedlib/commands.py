@@ -321,3 +321,6 @@ class OperationBlock(core.NamedBlock):
 
     def __hash__(self):
         return hash((self.name, self.t0, self.t1, self.subtype))
+    
+    def __repr__(self):
+            return f"{self.subtype[:8]:<8}: {self.name[:20]:<20} {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}" 
