@@ -89,20 +89,12 @@ def make_cal_target(
             'all' : 'ws0,ws1,ws2,ws3,ws4,ws5,ws6',
         },
     }
-    tags = {
-        'left': 'left_focal_plane',
-        'middle': 'mid_focal_plane',
-        'right': 'right_focal_plane',
-        'bottom': 'bottom_focal_plane',
-        'all': 'whole_focal_plane',
-    }
 
     boresight = int(boresight)
     elevation = int(elevation)
     focus = focus.lower()
 
     assert boresight in array_focus, f"boresight should be one of {array_focus.keys()}"
-    assert focus in tags, f"array_focus should be one of {tags.keys()}"
     assert source in src.SOURCES, f"source should be one of {src.SOURCES.keys()}"
 
     return CalTarget(
@@ -110,7 +102,7 @@ def make_cal_target(
         array_query=array_focus[boresight][focus], 
         el_bore=elevation, 
         boresight_rot=boresight, 
-        tag=tags[focus],
+        tag=array_focus[boresight][focus],
         allow_partial=allow_partial,
         drift=drift
     )
