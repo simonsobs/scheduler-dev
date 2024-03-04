@@ -112,8 +112,7 @@ class ScanBlock(core.NamedBlock):
         # moves at a constant speed from az to az+throw
         phase = (t - t0) / (self.throw / self.az_speed) % 2
         phase[m] = 2 - phase[(m:=(phase>1))]
-        az = phase*left + (1-phase)*right
-
+        az = left*(1-phase) + right*phase
         return t, az, az*0 + self.alt
 
     def __repr__(self):
