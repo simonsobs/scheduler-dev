@@ -327,7 +327,9 @@ def det_setup(state, block):
     # -> should always be done if the block is a cal block
     # -> should always be done if elevation has changed
     # -> should always be done if det setup has not been done yet
-    doit = (block.subtype == 'cal') or (block.alt != state.el_now) or (not state.is_det_setup)
+    # -> should always be done if boresight rotation has changed
+    doit = (block.subtype == 'cal') or (block.alt != state.el_now) or \
+        (not state.is_det_setup) or (block.boresight_angle != state.boresight_rot_now)
 
     if doit:
         commands = [
@@ -345,7 +347,7 @@ def det_setup(state, block):
             last_bias_step=state.curr_time,
             is_det_setup=True
         )
-        return state, 60, commands
+        return state, 40*u.minute, commands
     else:
         return state, 0, []
 
@@ -395,7 +397,7 @@ def source_scan(state, block):
         "    )",
     ]
 
-@cmd.operation(name='sat.setup_boresight', duration=0)  # TODO check duration
+@cmd.operation(name='sat.setup_boresight', duration=2*u.minute)  # TODO check duration
 def setup_boresight(state, block, apply_boresight_rot=True):
     commands = []
     if apply_boresight_rot and state.boresight_rot_now != block.boresight_angle:
@@ -452,7 +454,9 @@ class SATPolicy:
     geometries : dict
         a dict of geometries, with the leave node being dict with keys 'center' and 'radius'
     cal_targets : list[CalTarget]
+        a list of calibration target each described by CalTarget object
     cal_policy : str
+        calibration policy: default to round-robin
     scan_tag : str
         a tag to be added to all scans
     az_speed : float
@@ -581,8 +585,8 @@ class SATPolicy:
             sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
             blocks = sun_rule(blocks)
         else:
-            logger.warning("no sun avoidance rule specified!")
-            sun_rule = None
+            logger.error("no sun avoidance rule specified!")
+            raise ValueError("Sun rule is required!")
 
         # -----------------------------------------------------------------
         # step 2: plan calibration scans
@@ -622,13 +626,27 @@ class SATPolicy:
             source_scans = rule(blocks['calibration'][target.source])
             source_scans = core.seq_flatten(source_scans)
 
+            # sun check again: previous sun check ensure source is not too
+            # close to the sun, but our scan may still get close enough to
+            # the sun, in which case we will trim it or delete it depending
+            # on whether allow_partial is True
+            if target.allow_partial:
+                logger.info("-> allow_partial = True: trimming scan options by sun rule")
+                source_scans = sun_rule(source_scans)
+                source_scans = core.seq_flatten(source_scans)
+            else:
+                logger.info("-> allow_partial = False: filtering scan options by sun rule")
+                source_scans = core.seq_flatten(
+                    core.seq_filter(lambda b: b == sun_rule(b), source_scans)
+                )
+
             # add tags to the scans
             cal_blocks.append(core.seq_map(
                 lambda block: block.replace(tag=f"{block.tag},{target.tag}"),
                 source_scans
             ))
 
-            logger.info(f"-> found {len(source_scans)} scan options for {target.source}: {u.pformat(source_scans)}")
+            logger.info(f"-> found {len(source_scans)} scan options for {target.source} ({target.array_query}): {u.pformat(source_scans)}")
 
         # -----------------------------------------------------------------
         # step 3: resolve calibration target conflicts
@@ -646,7 +664,8 @@ class SATPolicy:
 
         # done with the calibration blocks
         logger.info(f"applying calibration policy - {self.cal_policy} - to resolve calibration target conflicts")
-        blocks['calibration'] = list(cal_policy(cal_blocks, sun_avoidance=sun_rule))
+        blocks['calibration'] = core.seq_resolve_overlap(list(cal_policy(cal_blocks, sun_avoidance=sun_rule)))
+        logger.info(f"-> after calibration policy: {u.pformat(blocks['calibration'])}")
 
         # check sun avoidance again
         blocks['calibration'] = core.seq_flatten(sun_rule(blocks['calibration']))
@@ -761,7 +780,7 @@ class SATPolicy:
         post_init_op_seq = op_seq.copy()
 
         logger.debug(f"post-init op_seq: {u.pformat(op_seq)}")
-        logger.info(f"post-init state: {u.pformat(state)}")
+        logger.info(f"post-init state: {state}")
 
         # -----------------------------------------------------------------
         # 2. calibration scans
@@ -811,7 +830,7 @@ class SATPolicy:
                 state, _ = self._plan_block_operations(state, block, constraint, **cmb_ops)
             elif block.subtype == 'cal':
                 logger.info(f"-> planning cal block: {u.pformat(block)}")
-                logger.info(f"--> pre-cal state: {u.pformat(state)}")
+                logger.info(f"--> pre-cal state: {state}")
 
                 # skip if we are already past the block to avoid computation of sun cover
                 if state.curr_time >= block.t1:
@@ -1224,7 +1243,6 @@ class SATPolicy:
         if t_start is None: t_start = state.curr_time
         sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
         sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, t_start), t1=block.t1, az=block.az, alt=block.alt))
-        logger.info(f"--> sun-safe covers: {u.pformat(sun_safe_covers)}")
         safe_cover = [cover for cover in core.seq_flatten(sun_safe_covers) if cover.t0 <= block.t0 <= cover.t1]
         if len(safe_cover) == 0:
             logger.info(f"--> no sun-safe cover found for block {block.name}")
@@ -1294,7 +1312,7 @@ class SATPolicy:
 # utilities
 # ------------------------
 
-def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
+def round_robin(seqs_q, seqs_v=None, sun_avoidance=None, overlap_allowance=60*u.second):
     """
     Perform a round robin scheduling over sequences of time blocks, yielding non-overlapping blocks.
 
@@ -1314,6 +1332,8 @@ def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
     sun_avoidance : function / rule, optional
         If provided, a block is scheduled only if it satisfies this condition, this means the block is unchanged after
         the rule is applied.
+    overlap_allowance: int
+        minimum overlap to be considered in seconds, larger overlap will be rejected.
 
     Yields
     ------
@@ -1329,16 +1349,9 @@ def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
 
     Examples
     --------
-    >>> seqs_q = [[[1, 2], [3, 4]], [[5, 6]]]
+    >>> seqs_q = [[block1, block2], [block3]]
     >>> list(round_robin(seqs_q))
-    [[1, 2], [5, 6], [3, 4]]
-
-    >>> def avoid_sun(block):
-    ...     return block if block[0] % 2 == 0 else block
-    >>> seqs_q = [[[1,3], [2, 4]], [[6, 7]]]
-    >>> seqs_v = [[[10, 15], [20, 25]], [[30, 35]]]
-    >>> list(round_robin(seqs_q, seqs_v=seqs_v, sun_avoidance=avoid_sun))
-    [[20, 25], [30, 35]]
+    [block1, block3, block2]
 
     """
     if seqs_v is None:
@@ -1370,18 +1383,21 @@ def round_robin(seqs_q, seqs_v=None, sun_avoidance=None):
         #  yes if:
         #  - it doesn't overlap with existing blocks
         #  - it satisfies sun avoidance condition if specified
-        ok = not core.seq_has_overlap_with_block(merged, block_q)
-        if sun_avoidance is not None:
-            ok *= block_q == sun_avoidance(block_q)
+        overlap_ok = not core.seq_has_overlap_with_block(merged, block_q, allowance=overlap_allowance)
+        if not overlap_ok:
+            logger.info(f"-> Block {block_v} overlaps with existing block, skipping")
 
+        if sun_avoidance is not None:
+            sun_ok = block_q == sun_avoidance(block_q)
+            if not sun_ok:
+                logger.info(f"-> Block {block_v} fails sun check, skipping")
+
+        ok = overlap_ok * sun_ok
         if ok:
             # schedule and move on to next seq
             yield block_v
             merged += [block_q]
             seq_i = (seq_i + 1) % n_seq
-        else:
-            # unsuccess, retry with next block
-            logger.info(f"Calibration block {block_v} overlaps with existing blocks or fails sun check, skipping...")
 
         block_i[seq_i] += 1
 
@@ -1402,5 +1418,4 @@ def simplify_hwp(op_seq):
             )]
         else:
             return seq_prev+[b_next]
-
     return reduce(rewriter, op_seq, [])

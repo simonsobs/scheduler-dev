@@ -3,8 +3,8 @@ from abc import ABC, abstractmethod
 import datetime as dt
 import numpy as np
 import jax.tree_util as tu
-import equinox
 from dataclasses import dataclass, replace as dc_replace, asdict
+from functools import reduce
 
 from . import utils
 
@@ -305,7 +305,7 @@ def seq_assert_sorted(blocks: Blocks) -> None:
 def seq_assert_no_overlap(seq: Blocks) -> None:
     assert not seq_has_overlap(seq), "Sequence has overlap"
 
-def seq_has_overlap_with_block(seq: Blocks, block: Block) -> bool:
+def seq_has_overlap_with_block(seq: Blocks, block: Block, allowance: int = 0) -> bool:
     """check if a sequence has overlap with a block
     
     Parameters
@@ -314,12 +314,18 @@ def seq_has_overlap_with_block(seq: Blocks, block: Block) -> bool:
         a sequence of blocks
     block : Block
         a block to check overlap with
+    allowance: int
+        minimum overlap to be considered overlap in seconds
         
     Returns
     -------
     bool
         True if the sequence has overlap with the block, False otherwise
     """
+    # if we pass in a non-zero allowance, it effectively acts as
+    # a smaller block on both side.
+    if allowance > 0:
+        block = block.shrink(dt.timedelta(seconds=2*allowance))  # shrink go by total duration so 2*allowance for left and right.
     for b in seq_flatten(seq):
         if block_overlap(b, block):
             return True
@@ -355,6 +361,16 @@ def seq_merge_block(seq: Blocks, block: Block, flatten=False) -> Blocks:
             lambda b: block_merge(b, block), 
             seq), 
         flatten=True)
+
+def seq_resolve_overlap(seq: Blocks, reverse=False):
+    """merge blocks in sequentially to resolve conflict in a flattened list of blocks.
+    Block that comes later in the seq always take higher priority. If reverse is true,
+    the merging will happen in reverse order, and the block that comes earlier in the seq
+    always take priority in merging"""
+    seq_assert_not_nested(seq)
+    if reverse: seq = seq[::-1]
+    return seq_sort(reduce(lambda carry, b: seq_merge_block(carry, b), seq, []),
+                    flatten=True)
 
 def seq_drop_duplicates(seq: Blocks, flatten=False, sort=True) -> Blocks:
     if not flatten and seq_is_nested(seq):
@@ -631,6 +647,7 @@ def seq_partition(op, blocks: BlocksTree) -> List[Any]:
     unmatched : BlocksTree
         a tree of blocks where the blocks don't satisfy the predicate
     """
+    import equinox
     filter_spec = tu.tree_map(op, blocks, is_leaf=is_block)
     return equinox.partition(blocks, filter_spec)
 
@@ -652,6 +669,7 @@ def seq_partition_with_path(op, blocks: BlocksTree, **kwargs) -> List[Any]:
     unmatched : BlocksTree
         a tree of blocks where the blocks don't satisfy the predicate
     """
+    import equinox
     filter_spec = tu.tree_map_with_path(op, blocks, is_leaf=is_block)
     return equinox.partition(blocks, filter_spec, **kwargs)
 
@@ -691,6 +709,7 @@ def seq_combine(*blocks: BlocksTree) -> BlocksTree:
     BlocksTree
         a tree of blocks where the blocks are combined in a list
     """
+    import equinox
     seq_assert_same_structure(*blocks)
     return equinox.combine(*blocks, is_leaf=is_block)
 
@@ -715,7 +734,9 @@ class GreenRule(BlocksTransformation, ABC):
     that the input and output are both trees."""
     def __call__(self, blocks: BlocksTree) -> BlocksTree:
         out = self.apply(blocks)
-        assert seq_is_nested(out) == seq_is_nested(blocks), "GreenRule must preserve trees"
+        # did we destroy nestedness?
+        if not seq_is_nested(out) and seq_is_nested(blocks):
+            raise RuntimeError("GreenRule should preserves trees, not destroying trees!")
         return out
 
 @dataclass(frozen=True)

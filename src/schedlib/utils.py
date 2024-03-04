@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from jax.tree_util import SequenceKey, DictKey, tree_map
 import fnmatch
 
+second = 1
 minute = 60 # second
 hour = 60 * minute
 day = 24 * hour
