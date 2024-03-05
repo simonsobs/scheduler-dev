@@ -874,46 +874,21 @@ class SATPolicy:
                 # and internal constraints (not overlapping with other cal blocks), so we will keep
                 # track of the state after each cal block with cal_ref_state and use that as the
                 # hard starting point constraint
-                constraint = self._get_sun_safe_interval_for_block(block, state, t_start=cal_ref_state.curr_time)
-                ops = cal_ops
-
-                if self.allow_az_maneuver:
-                    # how much time do we have for pre-cal operation
-                    budget = (block.t0 - constraint.t0).total_seconds()
-
-                    # how much time do we need? run a first pass planning once to find out time pre-cal duration
-                    _state = state.replace(curr_time=constraint.t0)
-                    _, duration, _ = self._apply_ops(_state, cal_ops['pre_ops'], block)
-
-                    if duration > budget:
-                        logger.info("--> not enough time for pre-cal ops because of sun safety")
-
-                        # open up our constraint: do not go past previous cal block
-                        _t0 = max(block.t0-dt.timedelta(seconds=duration), cal_ref_state.curr_time)
-                        _t1 = block.t1
-
-                        if (_t1 - _t0).total_seconds() > 30*u.second:  # TODO: parameterize this
-                            logger.info("--> need az maneuver: finding sun-safe az parking...")
-                            az_park = self._find_sun_safe_az_parking(_t0, _t1, block.az, block.alt)
-                            logger.info(f"--> found a sun-safe az parking: az={az_park:.2f}, el={block.alt}")
-
-                            # add moving ops for this block
-                            _pre_ops = [
-                                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': az_park, 'el': block.alt},
-                                *cal_ops["pre_ops"],
-                                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': block.az, 'el': block.alt},
-                            ]
-                            # new constraint and ops for this block
-                            constraint = core.Block(t0=_t0, t1=block.t1)
-                            ops = cal_ops | {"pre_ops": _pre_ops}
-                        else:
-                            logger.info("--> not enough time for az maneuver")
+                constraint = self._get_sun_safe_interval_for_block(
+                    block, state, t_start=cal_ref_state.curr_time)
+                ops_ = cal_ops
 
                 # To give calibration maximal priority, we will ignore the state curr_time
-                # and assume we can start whenever we want, as long as we are sun safe.
-                # Then we dial our clock back to the start of the sun safe interval.
+                # and assume we can start whenever we want, as long as we are sun safe and
+                # we are done with previous calibration block. Here we dial our clock back
+                # to the start of the sun safe interval.
                 state = state.replace(curr_time=constraint.t0)
-                state, block_ops = self._plan_block_operations(state, block, constraint, **ops)
+
+                if self.allow_az_maneuver:
+                    ops_, constraint = self._revise_ops_constraint_with_maneuver(
+                        ops_, constraint, block, state)
+
+                state, block_ops = self._plan_block_operations(state, block, constraint, **ops_)
 
                 logger.debug(f"--> post-block ops: {u.pformat(block_ops)}")
                 logger.debug(f"--> post-block state: {u.pformat(state)}")
@@ -980,46 +955,20 @@ class SATPolicy:
                 non_overlap = [b for b in non_overlaps if b.t0 <= block.t0 and block.t1 <= b.t1][0]
                 logger.info(f"--> operational constraint: {non_overlap.t0} to {non_overlap.t1}")
                 constraint = core.block_intersect(non_overlap, sun_constraint)
-                ops = cmb_ops
+                ops_ = cmb_ops
             elif block.subtype == 'cal':
                 constraint = sun_constraint
-                ops = cal_ops
+                ops_ = cal_ops
 
-                # repeated code from step 2: ugly solution
                 if self.allow_az_maneuver:
-                    # how much time do we have for pre-cal operation
-                    budget = (block.t0 - constraint.t0).total_seconds()
-
-                    # how much time do we need? run a first pass planning once to find out time pre-cal duration
-                    _, duration, _ = self._apply_ops(state, cal_ops['pre_ops'], block)
-
-                    # need more sun safe time? perform az maneuver
-                    if duration > budget:
-                        logger.info("--> not enough time for pre-cal ops because of sun safety")
-                        _t0, _t1 = max(block.t0-dt.timedelta(seconds=duration), state.curr_time), block.t0
-
-                        if (_t1 - _t0).total_seconds() > 30*u.second:  # TODO: parameterize this
-                            logger.info("--> need az maneuver: finding sun-safe az parking...")
-                            az_park = self._find_sun_safe_az_parking(_t0, _t1, block.az, block.alt)
-                            logger.info(f"--> found a sun-safe az parking: az={az_park:.2f}, el={block.alt}")
-
-                            # add moving ops for this block
-                            _pre_ops = [
-                                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': az_park, 'el': block.alt},
-                                *cal_ops["pre_ops"],
-                                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': block.az, 'el': block.alt},
-                            ]
-                            # new constraint and ops for this block
-                            constraint = core.Block(t0=_t0, t1=block.t1)
-                            ops = cal_ops | {"pre_ops": _pre_ops}
-                        else:
-                            logger.info("--> not enough time for az maneuver")
+                    ops_, constraint = self._revise_ops_constraint_with_maneuver(
+                        ops_, constraint, block, state)
 
             else:
                 raise ValueError(f"unexpected block subtype: {block.subtype}")
             logger.info(f"--> final constraint: {constraint.t0} to {constraint.t1}")
 
-            state, block_ops = self._plan_block_operations(state, block, constraint, **ops)
+            state, block_ops = self._plan_block_operations(state, block, constraint, **ops_)
             logger.debug(f"--> post-block state: {u.pformat(state)}")
 
             op_seq += block_ops
@@ -1373,6 +1322,47 @@ class SATPolicy:
         az_diff = (np.mod(az_scan-az, 360) + 180) % 360 - 180  # -180 -> 180
         az_choice = az_scan[np.argmin(np.abs(az_diff))]
         return az_choice
+
+    def _revise_ops_constraint_with_maneuver(self, ops, constraint, block, state):
+        """update (out-of-place) our operations and constraint if we intend to do az maneuver
+        as we will need to automatically add additional `move_to` operations to avoid the sun.
+        It will calculate new constraint and operations if a maneuver is possible, otherwise the
+        old ops and constraint will passthrough. Additional information needs to be provided including
+        the target scan block and the starting state.
+
+        """
+        # how much time do we have for pre-cal operation
+        budget = (block.t0 - constraint.t0).total_seconds()
+
+        # how much time do we need? run a first pass planning once to find out time pre-cal duration
+        _, duration, _ = self._apply_ops(state, ops['pre_ops'], block)
+
+        # are we limited causally? if so there is nothing we can do
+        causal_limited = constraint.t0 == state.curr_time
+
+        if duration > budget and (not causal_limited):
+            logger.info("--> not enough time for pre-cal ops because of sun safety")
+
+            # open up our constraint: do not go past previous cal block
+            _t0 = block.t0-dt.timedelta(seconds=duration)
+            _t1 = block.t0
+
+            logger.info("--> need az maneuver: finding sun-safe az parking...")
+            az_park = self._find_sun_safe_az_parking(_t0, _t1, block.az, block.alt)
+            logger.info(f"--> found a sun-safe az parking: az={az_park:.2f}, el={block.alt}")
+
+            # add moving ops for this block
+            _pre_ops = [
+                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': az_park, 'el': block.alt},
+                *ops["pre_ops"],
+                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': block.az, 'el': block.alt},
+            ]
+            # new constraint and ops for this block
+            constraint = core.Block(t0=_t0, t1=block.t1)
+            ops = ops | {"pre_ops": _pre_ops}
+        else:
+            logger.info("--> az maneuver not necessary")
+        return ops, constraint
 
     def cmd2txt(self, op_seq):
         """
