@@ -205,7 +205,6 @@ def make_config(
             },
         },
         'operations': operations,
-        'allow_partial': False,
         'cal_targets': cal_targets,
         'scan_tag': None,
         'az_speed' : az_speed,

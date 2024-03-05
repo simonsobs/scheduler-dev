@@ -397,17 +397,20 @@ def source_scan(state, block):
         "    )",
     ]
 
-@cmd.operation(name='sat.setup_boresight', duration=2*u.minute)  # TODO check duration
+@cmd.operation(name='sat.setup_boresight', return_duration=True)  # TODO check duration
 def setup_boresight(state, block, apply_boresight_rot=True):
     commands = []
+    duration = 0
     if apply_boresight_rot and state.boresight_rot_now != block.boresight_angle:
         commands += [f"run.acu.set_boresight({block.boresight_angle})"]
         state = state.replace(boresight_rot_now=block.boresight_angle)
+        duration += 1*u.minute
 
     if block.alt != state.el_now:
-        commands += [ f"run.acu.move_to(az={round(block.az,3)}, el={round(block.alt,3)})" ]
-        state = state.replace(az_now=block.az, el_now=block.alt)
-    return state, commands
+        state, dur, cmds = cmd.make_op('move_to', block.az, block.alt)(state)
+        commands += cmds
+        duration += dur
+    return state, duration, commands
 
 # passthrough any arguments, to be used in any sched-mode
 @cmd.operation(name='sat.bias_step', return_duration=True)
@@ -417,12 +420,6 @@ def bias_step(state, min_interval=10*u.minute):
         return state, 60, [ "run.smurf.bias_step(concurrent=True)" ]
     else:
         return state, 0, []
-
-@cmd.operation(name='sat.wait_until', return_duration=True)
-def wait_until(state, t1: dt.datetime):
-    return state, (t1-state.curr_time).total_seconds(), [
-        f"run.wait_until('{t1.isoformat()}')"
-    ]
 
 @cmd.operation(name='sat.wrap_up', duration=0)
 def wrap_up(state, az_stow, el_stow):
@@ -440,6 +437,44 @@ def set_scan_params(state, az_speed, az_accel):
         return state, [ f"run.acu.set_scan_params({az_speed}, {az_accel})"]
     return state, []
 
+# some generic operations that will be moved out of the module soon
+@cmd.operation(name='wait_until', return_duration=True)
+def wait_until(state, t1: dt.datetime):
+    return state, (t1-state.curr_time).total_seconds(), [
+        f"run.wait_until('{t1.isoformat()}')"
+    ]
+
+@cmd.operation(name="move_to", duration=60)
+def move_to(state, az, el, n_points=100, min_angle=45):
+    # determine the shortest path to move considering unwrapping
+    az_diff = (az - state.az_now) % 360
+    az_diff = (az_diff + 180) % 360 - 180  # -180 to 180
+
+    az_unwrap1 = state.az_now + az_diff
+    # az_unwrap2 = state.az_now + az_diff - np.sign(az_diff)*360
+    # az_path1 = np.linspace(state.az_now, az_unwrap1, n_points)
+    # az_path2 = np.linspace(state.az_now, az_unwrap2, n_points)
+    # t_move = u.dt2ct(state.curr_time) + np.linspace(0, 60, n_points)
+
+    # get current sun position
+    # sun_block = src.SourceBlock(name='sun', t0=state.curr_time, t1=state.curr_time+dt.timedelta(seconds=60), mode='both')
+    # t, az_sun, alt_sun = sun_block.get_az_alt(ctimes=t_move)
+
+    # check first choice:
+    # r1 = src.radial_distance(t, az_sun, alt_sun, az_path1, el)
+    # if len(r1[r1<min_angle]) > 0:
+    #     logger.warning(f"move_to: {state.az_now} -> {az_unwrap1} will pass too close to the sun, try alternative path")
+    #     r2 = src.radial_distance(t, az_sun, alt_sun, az_path2, el)
+    #     if len(r2[r2<min_angle]) > 0:
+    #         raise ValueError(f"move_to: {state.az_now} -> {az_unwrap2} will also pass too close to the sun, impossible move")
+    #     else:
+    #         az = az_unwrap2
+    # else:
+    #     az = az_unwrap1
+    az = az_unwrap1
+
+    state = state.replace(az_now=az, el_now=el)
+    return state, [f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})"]
 
 @dataclass
 class SATPolicy:
@@ -463,8 +498,6 @@ class SATPolicy:
         the az speed in deg / s
     az_accel : float
         the az acceleration in deg / s^2
-    allow_partial : bool
-        whether to allow partial source scans
     wafer_sets : dict[str, str]
         a dict of wafer sets definitions
     operations : List[Dict[str, Any]]
@@ -478,7 +511,7 @@ class SATPolicy:
     scan_tag: Optional[str] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
-    allow_partial: bool = False
+    allow_az_maneuver: bool = True
     wafer_sets: Dict[str, Any] = field(default_factory=dict)
     operations: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -632,8 +665,8 @@ class SATPolicy:
             # on whether allow_partial is True
             if target.allow_partial:
                 logger.info("-> allow_partial = True: trimming scan options by sun rule")
-                source_scans = sun_rule(source_scans)
-                source_scans = core.seq_flatten(source_scans)
+                min_dur_rule = ru.make_rule('min-duration', **self.rules['min-duration'])
+                source_scans = core.seq_flatten(min_dur_rule(sun_rule(source_scans)))
             else:
                 logger.info("-> allow_partial = False: filtering scan options by sun rule")
                 source_scans = core.seq_flatten(
@@ -842,13 +875,45 @@ class SATPolicy:
                 # track of the state after each cal block with cal_ref_state and use that as the
                 # hard starting point constraint
                 constraint = self._get_sun_safe_interval_for_block(block, state, t_start=cal_ref_state.curr_time)
+                ops = cal_ops
 
-                # to give calibration maximal priority, we will ignore the state curr_time
+                if self.allow_az_maneuver:
+                    # how much time do we have for pre-cal operation
+                    budget = (block.t0 - constraint.t0).total_seconds()
+
+                    # how much time do we need? run a first pass planning once to find out time pre-cal duration
+                    _state = state.replace(curr_time=constraint.t0)
+                    _, duration, _ = self._apply_ops(_state, cal_ops['pre_ops'], block)
+
+                    if duration > budget:
+                        logger.info("--> not enough time for pre-cal ops because of sun safety")
+
+                        # open up our constraint: do not go past previous cal block
+                        _t0 = max(block.t0-dt.timedelta(seconds=duration), cal_ref_state.curr_time)
+                        _t1 = block.t1
+
+                        if (_t1 - _t0).total_seconds() > 30*u.second:  # TODO: parameterize this
+                            logger.info("--> need az maneuver: finding sun-safe az parking...")
+                            az_park = self._find_sun_safe_az_parking(_t0, _t1, block.az, block.alt)
+                            logger.info(f"--> found a sun-safe az parking: az={az_park:.2f}, el={block.alt}")
+
+                            # add moving ops for this block
+                            _pre_ops = [
+                                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': az_park, 'el': block.alt},
+                                *cal_ops["pre_ops"],
+                                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': block.az, 'el': block.alt},
+                            ]
+                            # new constraint and ops for this block
+                            constraint = core.Block(t0=_t0, t1=block.t1)
+                            ops = cal_ops | {"pre_ops": _pre_ops}
+                        else:
+                            logger.info("--> not enough time for az maneuver")
+
+                # To give calibration maximal priority, we will ignore the state curr_time
                 # and assume we can start whenever we want, as long as we are sun safe.
                 # Then we dial our clock back to the start of the sun safe interval.
                 state = state.replace(curr_time=constraint.t0)
-
-                state, block_ops = self._plan_block_operations(state, block, constraint, **cal_ops)
+                state, block_ops = self._plan_block_operations(state, block, constraint, **ops)
 
                 logger.debug(f"--> post-block ops: {u.pformat(block_ops)}")
                 logger.debug(f"--> post-block state: {u.pformat(state)}")
@@ -908,8 +973,8 @@ class SATPolicy:
             constraint = core.Block(t0=state.curr_time, t1=block.t1)
             logger.info(f"--> causal constraint: {constraint.t0} to {constraint.t1}")
             sun_constraint = self._get_sun_safe_interval_for_block(block, state)
+            logger.info(f"--> sun constraint: {sun_constraint.t0} to {sun_constraint.t1}")
             constraint = core.block_intersect(constraint, sun_constraint)
-            logger.info(f"--> add sun constraint: {sun_constraint.t0} to {sun_constraint.t1}")
 
             if block.subtype == 'cmb':
                 non_overlap = [b for b in non_overlaps if b.t0 <= block.t0 and block.t1 <= b.t1][0]
@@ -919,6 +984,37 @@ class SATPolicy:
             elif block.subtype == 'cal':
                 constraint = sun_constraint
                 ops = cal_ops
+
+                # repeated code from step 2: ugly solution
+                if self.allow_az_maneuver:
+                    # how much time do we have for pre-cal operation
+                    budget = (block.t0 - constraint.t0).total_seconds()
+
+                    # how much time do we need? run a first pass planning once to find out time pre-cal duration
+                    _, duration, _ = self._apply_ops(state, cal_ops['pre_ops'], block)
+
+                    # need more sun safe time? perform az maneuver
+                    if duration > budget:
+                        logger.info("--> not enough time for pre-cal ops because of sun safety")
+                        _t0, _t1 = max(block.t0-dt.timedelta(seconds=duration), state.curr_time), block.t0
+
+                        if (_t1 - _t0).total_seconds() > 30*u.second:  # TODO: parameterize this
+                            logger.info("--> need az maneuver: finding sun-safe az parking...")
+                            az_park = self._find_sun_safe_az_parking(_t0, _t1, block.az, block.alt)
+                            logger.info(f"--> found a sun-safe az parking: az={az_park:.2f}, el={block.alt}")
+
+                            # add moving ops for this block
+                            _pre_ops = [
+                                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': az_park, 'el': block.alt},
+                                *cal_ops["pre_ops"],
+                                {'name': 'move_to', 'sched_mode': SchedMode.PreCal, 'az': block.az, 'el': block.alt},
+                            ]
+                            # new constraint and ops for this block
+                            constraint = core.Block(t0=_t0, t1=block.t1)
+                            ops = cal_ops | {"pre_ops": _pre_ops}
+                        else:
+                            logger.info("--> not enough time for az maneuver")
+
             else:
                 raise ValueError(f"unexpected block subtype: {block.subtype}")
             logger.info(f"--> final constraint: {constraint.t0} to {constraint.t1}")
@@ -1218,7 +1314,7 @@ class SATPolicy:
                 block = block.shrink_right(state.curr_time - constraint.t1)
                 state = state_before
                 logger.debug(f"---> need to shrink block to: {block}")
-                logger.debug(f"---> replanning from state: {u.pformat(state)}")
+                logger.debug(f"---> replanning from state: {state}")
                 need_retry = True  # for readability
             else:
                 op_seq += op_in_block
@@ -1231,7 +1327,8 @@ class SATPolicy:
 
     def _get_sun_safe_interval_for_block(self, block, state, t_start=None):
         """
-        Find a sun-safe interval covering the block, starting from the current time.
+        Find a sun-safe interval covering the block, starting from the current time
+        provided by the state unless `t_start` is provided.
 
         Note that there is a complication with the ending time, because the scan can
         stop at any phase of the swipe, so it's hard to guarentee sun safety when we
@@ -1245,14 +1342,37 @@ class SATPolicy:
         sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, t_start), t1=block.t1, az=block.az, alt=block.alt))
         safe_cover = [cover for cover in core.seq_flatten(sun_safe_covers) if cover.t0 <= block.t0 <= cover.t1]
         if len(safe_cover) == 0:
-            logger.info(f"--> no sun-safe cover found for block {block.name}")
-            logger.info(f"--> constraining pre-cal operations to start within block")
+            logger.info(f"--> no sun-safe cover found for pre-block operations {block.name}")
+            logger.info(f"--> constraining pre-block operations to start within block")
             constraint = core.Block(t0=block.t0, t1=block.t1)
         else:
             assert len(safe_cover) == 1, "unexpected number of sun safe covers"
             constraint = core.Block(t0=safe_cover[0].t0, t1=block.t1)
             logger.info(f"--> sun safe cover found: {constraint.t0.isoformat()} to {constraint.t1.isoformat()}")
         return constraint
+
+    def _find_sun_safe_az_parking(self, t0, t1, az, el, time_step=5, angle_buffer=15):
+        """find a good parking spot for our pointing when we want to do detector
+        setup but our default az,el is sun unsafe. This function looks for a safe
+        parking spot nearby."""
+        sun_block = src.SourceBlock(name='sun', t0=t0, t1=t1, mode='both')
+        t, az_sun, alt_sun = sun_block.get_az_alt(time_step=time_step)
+        # make a fake scan over entire ranges and look for the time
+        # when it is sufficiently away from the sun. Here we assume
+        # the sun is moving very slowly, so min distance calculated
+        # this way is reasonably close to the actual minimum, so
+        # we can be quite safe after a buffer. 10x here is just to give
+        # a reasonable speed that's faster than the sun: for 1h oper
+        # this is 1 deg/s
+        az_scan = np.mod(np.linspace(0, 10*360, len(t)), 360)
+        alt_scan = az_scan*0 + el
+        r = src.radial_distance(t, az_sun, alt_sun, az_scan, alt_scan)
+        m = r >= (self.rules['sun-avoidance']['min_angle'] + angle_buffer)
+        az_scan = az_scan[m]
+        # calculate distance to original az: don't move too far away
+        az_diff = (np.mod(az_scan-az, 360) + 180) % 360 - 180  # -180 -> 180
+        az_choice = az_scan[np.argmin(np.abs(az_diff))]
+        return az_choice
 
     def cmd2txt(self, op_seq):
         """
