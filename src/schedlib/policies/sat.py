@@ -450,28 +450,29 @@ def move_to(state, az, el, n_points=100, min_angle=45):
     az_diff = (az - state.az_now) % 360
     az_diff = (az_diff + 180) % 360 - 180  # -180 to 180
 
+    # two ways of wrapping: consider shorter path first,
+    # if failed, consider unwrapped move, otherwise raise error
     az_unwrap1 = state.az_now + az_diff
-    # az_unwrap2 = state.az_now + az_diff - np.sign(az_diff)*360
-    # az_path1 = np.linspace(state.az_now, az_unwrap1, n_points)
-    # az_path2 = np.linspace(state.az_now, az_unwrap2, n_points)
-    # t_move = u.dt2ct(state.curr_time) + np.linspace(0, 60, n_points)
+    az_unwrap2 = state.az_now + az_diff - np.sign(az_diff)*360
+    az_path1 = np.linspace(state.az_now, az_unwrap1, n_points)
+    az_path2 = np.linspace(state.az_now, az_unwrap2, n_points)
+    t_move = u.dt2ct(state.curr_time) + np.linspace(0, 60, n_points)
 
     # get current sun position
-    # sun_block = src.SourceBlock(name='sun', t0=state.curr_time, t1=state.curr_time+dt.timedelta(seconds=60), mode='both')
-    # t, az_sun, alt_sun = sun_block.get_az_alt(ctimes=t_move)
+    sun_block = src.SourceBlock(name='sun', t0=state.curr_time, t1=state.curr_time+dt.timedelta(seconds=60), mode='both')
+    t, az_sun, alt_sun = sun_block.get_az_alt(ctimes=t_move)
 
     # check first choice:
-    # r1 = src.radial_distance(t, az_sun, alt_sun, az_path1, el)
-    # if len(r1[r1<min_angle]) > 0:
-    #     logger.warning(f"move_to: {state.az_now} -> {az_unwrap1} will pass too close to the sun, try alternative path")
-    #     r2 = src.radial_distance(t, az_sun, alt_sun, az_path2, el)
-    #     if len(r2[r2<min_angle]) > 0:
-    #         raise ValueError(f"move_to: {state.az_now} -> {az_unwrap2} will also pass too close to the sun, impossible move")
-    #     else:
-    #         az = az_unwrap2
-    # else:
-    #     az = az_unwrap1
-    az = az_unwrap1
+    r1 = src.radial_distance(t, az_sun, alt_sun, az_path1, el)
+    if len(r1[r1<min_angle]) > 0:
+        logger.warning(f"move_to: {state.az_now} -> {az_unwrap1} will pass too close to the sun, try alternative path")
+        r2 = src.radial_distance(t, az_sun, alt_sun, az_path2, el)
+        if len(r2[r2<min_angle]) > 0:
+            raise ValueError(f"move_to: {state.az_now} -> {az_unwrap2} will also pass too close to the sun, impossible move")
+        else:
+            az = az_unwrap2
+    else:
+        az = az_unwrap1
 
     state = state.replace(az_now=az, el_now=el)
     return state, [f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})"]
@@ -1343,8 +1344,8 @@ class SATPolicy:
         if duration > budget and (not causal_limited):
             logger.info("--> not enough time for pre-cal ops because of sun safety")
 
-            # open up our constraint: do not go past previous cal block
-            _t0 = block.t0-dt.timedelta(seconds=duration)
+            # open up our constraint: do not break causal limit
+            _t0 = state.curr_time
             _t1 = block.t0
 
             logger.info("--> need az maneuver: finding sun-safe az parking...")
