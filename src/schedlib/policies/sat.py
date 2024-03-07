@@ -397,19 +397,21 @@ def source_scan(state, block):
         "    )",
     ]
 
-@cmd.operation(name='sat.setup_boresight', return_duration=True)  # TODO check duration
+@cmd.operation(name='sat.setup_boresight', return_duration=True)
 def setup_boresight(state, block, apply_boresight_rot=True):
     commands = []
     duration = 0
+
     if apply_boresight_rot and state.boresight_rot_now != block.boresight_angle:
         commands += [f"run.acu.set_boresight({block.boresight_angle})"]
         state = state.replace(boresight_rot_now=block.boresight_angle)
         duration += 1*u.minute
 
-    if block.alt != state.el_now:
-        state, dur, cmds = cmd.make_op('move_to', block.az, block.alt)(state)
-        commands += cmds
-        duration += dur
+    # hard to know which az we stopped at, always move
+    state, dur, cmds = cmd.make_op('move_to', block.az, block.alt)(state)
+    commands += cmds
+    duration += dur
+
     return state, duration, commands
 
 # passthrough any arguments, to be used in any sched-mode
@@ -444,38 +446,40 @@ def wait_until(state, t1: dt.datetime):
         f"run.wait_until('{t1.isoformat()}')"
     ]
 
-@cmd.operation(name="move_to", duration=60)
-def move_to(state, az, el, n_points=100, min_angle=45):
+@cmd.operation(name="move_to", return_duration=True)
+def move_to(state, az, el, n_points=100, min_angle=45, az_limit=[-90, 450]):
+    duration = 60
+
+    # find possible unwraps within the allowed az limits
+    az = (az - az_limit[0]) % 360 + az_limit[0]  # az -> [-90, 270)
+    az_options = np.arange(az, az_limit[-1], 360)
+
     # determine the shortest path to move considering unwrapping
-    az_diff = (az - state.az_now) % 360
-    az_diff = (az_diff + 180) % 360 - 180  # -180 to 180
+    az_diffs = np.abs(az_options - state.az_now)
+    az_options = az_options[np.argsort(az_diffs)]
 
-    # two ways of wrapping: consider shorter path first,
-    # if failed, consider unwrapped move, otherwise raise error
-    az_unwrap1 = state.az_now + az_diff
-    az_unwrap2 = state.az_now + az_diff - np.sign(az_diff)*360
-    az_path1 = np.linspace(state.az_now, az_unwrap1, n_points)
-    az_path2 = np.linspace(state.az_now, az_unwrap2, n_points)
-    t_move = u.dt2ct(state.curr_time) + np.linspace(0, 60, n_points)
-
-    # get current sun position
-    sun_block = src.SourceBlock(name='sun', t0=state.curr_time, t1=state.curr_time+dt.timedelta(seconds=60), mode='both')
-    t, az_sun, alt_sun = sun_block.get_az_alt(ctimes=t_move)
-
-    # check first choice:
-    r1 = src.radial_distance(t, az_sun, alt_sun, az_path1, el)
-    if len(r1[r1<min_angle]) > 0:
-        logger.warning(f"move_to: {state.az_now} -> {az_unwrap1} will pass too close to the sun, try alternative path")
-        r2 = src.radial_distance(t, az_sun, alt_sun, az_path2, el)
-        if len(r2[r2<min_angle]) > 0:
-            raise ValueError(f"move_to: {state.az_now} -> {az_unwrap2} will also pass too close to the sun, impossible move")
+    for az_option in az_options:
+        az_path = np.linspace(state.az_now, az_option, n_points)
+        el_path = az_path * 0 + el
+        t = u.dt2ct(state.curr_time) + np.linspace(0, duration, n_points)
+        sun_block = src.SourceBlock(name='sun', t0=state.curr_time, 
+                                    t1=state.curr_time+dt.timedelta(seconds=duration), 
+                                    mode='both')
+        t, az_sun, alt_sun = sun_block.get_az_alt(ctimes=t)
+        r = src.radial_distance(t, az_sun, alt_sun, az_path, el_path)
+        if len(r[r<min_angle])==0:
+            break
         else:
-            az = az_unwrap2
+            logger.info(f"move_to: {state.az_now} to {az_option} is unsafe, trying next option")
+            logger.info(f"min distance to the sun: {r.min()} deg")
     else:
-        az = az_unwrap1
+        logger.error(f"Tried all options: {az_options}, aborting")
+        raise RuntimeError("Unable to find a sun-safe path to move between targets, aborting!")
 
+    az = az_option
     state = state.replace(az_now=az, el_now=el)
-    return state, [f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})"]
+
+    return state, duration, [f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})"]
 
 @dataclass
 class SATPolicy:
