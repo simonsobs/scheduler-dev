@@ -455,8 +455,7 @@ def move_to(state, az, el, n_points=100, min_angle=45, az_limit=[-90, 450]):
     az_options = np.arange(az, az_limit[-1], 360)
 
     # determine the shortest path to move considering unwrapping
-    az_diffs = np.abs(az_options - state.az_now)
-    az_options = az_options[np.argsort(az_diffs)]
+    allowed = []
 
     for az_option in az_options:
         az_path = np.linspace(state.az_now, az_option, n_points)
@@ -468,15 +467,16 @@ def move_to(state, az, el, n_points=100, min_angle=45, az_limit=[-90, 450]):
         t, az_sun, alt_sun = sun_block.get_az_alt(ctimes=t)
         r = src.radial_distance(t, az_sun, alt_sun, az_path, el_path)
         if len(r[r<min_angle])==0:
-            break
+            allowed.append((r.min(), az_option))
         else:
-            logger.info(f"move_to: {state.az_now} to {az_option} is unsafe, trying next option")
-            logger.info(f"min distance to the sun: {r.min()} deg")
+            logger.info(f"--> move_to: {state.az_now} to {az_option} is sun unsafe, min distance to the sun: {r.min()} deg, trying next option")
+    if len(allowed) == 0:
+        logger.error(f"--> Tried all options: {az_options}, unable to find a sun-safe path automatically! Continuing but operator should take control when acu agent fails sun safety check!")
+        # raise RuntimeError("Unable to find a sun-safe path to move between targets")
     else:
-        logger.error(f"Tried all options: {az_options}, aborting")
-        raise RuntimeError("Unable to find a sun-safe path to move between targets, aborting!")
-
-    az = az_option
+        # always use the option furthest away from sun
+        allowed = sorted(allowed)
+        az = allowed[-1][-1]
     state = state.replace(az_now=az, el_now=el)
 
     return state, duration, [f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})"]
