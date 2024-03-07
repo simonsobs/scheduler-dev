@@ -4,7 +4,9 @@ from dataclasses import dataclass, field, replace as dc_replace
 from abc import ABC, abstractmethod
 import inspect
 
-from . import core
+from . import core, utils as u
+logger = u.init_logger(__name__)
+
 
 MIN_DURATION = 0.01
 
@@ -193,7 +195,7 @@ def register_operation_cls(name, operation_cls):
 
     """
     if name in OPERATION_REGISTRY:
-        raise ValueError(f"Operation {name} already exists in the registry.")
+        logger.warning(f"Operation {name} already exists in the registry.")
     OPERATION_REGISTRY[name] = operation_cls
     return operation_cls
 
