@@ -13,7 +13,7 @@ from schedlib.policies import TSATPolicy
 from schedlib import utils as u
 from schedlib import instrument as inst
 
-def make_config(pos='top', elevation=50, caltype='beam'):
+def make_config(pos='top', elevation=50, caltype='beam',user_mvs=[]):
     ufm_mv12_shift = np.degrees([0, 0])
     ufm_mv35_shift = np.degrees([0, 0])
     ufm_mv23_shift = np.degrees([0, 0])
@@ -64,6 +64,15 @@ def make_config(pos='top', elevation=50, caltype='beam'):
     bottom_boresight_0 = 'ws1,ws2,ws6'
     top_boresight_0 = 'ws3,ws4,ws5'
 
+    mv2ws = {'5':'0',
+             '27':'1',
+             '35':'2',
+             '12':'3',
+             '23':'4',
+             '33':'5',
+             '17':'6',
+             }
+             
     ufms = {
         'left': ['ws3,ws2', 'Mv12Mv35'],
         'right': ['ws5,ws6', 'Mv17Mv33'],
@@ -72,8 +81,20 @@ def make_config(pos='top', elevation=50, caltype='beam'):
         'top': ['ws3,ws4,ws5', 'Mv33Mv23Mv12'],
         'center': ['ws0', 'Mv5'],
         'bottombottom':['ws1','Mv27'],
+        'mv27mv5':['ws0,ws1','Mv5Mv27']
     }
 
+    if user_mvs:
+        ufms = {}
+        wsstr=''
+        mvstr=''
+        for mv in user_mvs:
+            wsstr+='ws%s,'%(mv2ws[mv])
+            mvstr+='Mv%s,'%(mv)
+        wsstr=wsstr[:-1]
+        mvstr=mvstr[:-1]
+        ufms['userinput']=[wsstr,mvstr]
+            
     blocks = {
         'calibration': {
             'saturn': {
@@ -155,6 +176,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--day', default=None,help='if a custom date (i.e. not today) is desired. format YYYY-MM-DD')
     parser.add_argument('--output-dir','-o', type=str, default='./', help='output directory')
+    parser.add_argument('--elevation',type=float,default=None,help='Run calibration schedules at a specific elevation.')
+    parser.add_argument('--mvs',nargs='+',default=[],help='User input Mv list to observe; i.e. 5 27 23 will run center wafers.')
+    
     args = parser.parse_args()
 
     # default is today
@@ -172,23 +196,34 @@ if __name__ == '__main__':
         t0 = dt.datetime(int(y), int(m), int(d), 6, 0, 0, tzinfo=dt.timezone.utc)
         nextday=t0+dt.timedelta(days=1)
         t1 = dt.datetime(nextday.year, nextday.month, nextday.day, 10, 0, 0, tzinfo=dt.timezone.utc)
+    if not args.elevation:
+        cal_el = [40,50,60]
+    else:
+        cal_el = [args.elevation]
 
-    for pos in ['left','middle', 'right','bottombottom']:
-        for el in [40, 50, 60]:
+    default_positions = ['left','middle', 'right']
+    if args.mvs:
+        positions=['userinput']
+    else:
+        positions=default_positions
+    for pos in positions:
+        for el in cal_el:
             for caltype in ['beam', 'pol']:
-                config = make_config(pos, el, caltype)
+                config = make_config(pos, el, caltype,args.mvs)
                 policy = TSATPolicy(**config)
 
                 seqs = policy.init_seqs(t0, t1)
                 seqs = policy.apply(seqs)
                 #u.pprint(seqs)
 
-                fname = os.path.join(args.output_dir, t0.strftime(f'%Y%m%d_{pos}_el{el:d}_{caltype}_observations.py'))
+                fname = os.path.join(args.output_dir, t0.strftime(f'%Y%m%d_{pos}_el{el:.2f}_{caltype}_observations.py'))
                 with open(fname, 'w') as f:
                     f.write(str(policy.seq2cmd(seqs, t0, t1)))
                 print(fname +' is written.')
 
     el, caltype = 60, 'baseline'
+    if args.elevation:
+        el=args.elevation
     for pos in ['center']:
                 config = make_config(pos, el, caltype)
                 policy = TSATPolicy(**config)
@@ -196,7 +231,7 @@ if __name__ == '__main__':
                 seqs = policy.init_seqs(t0, t1)
                 seqs = policy.apply(seqs)
 
-                fname = os.path.join(args.output_dir, t0.strftime(f'%Y%m%d_{pos}_el{el:d}_{caltype}_observations.py'))
+                fname = os.path.join(args.output_dir, t0.strftime(f'%Y%m%d_{pos}_el{el:.2f}_{caltype}_observations.py'))
                 with open(fname, 'w') as f:
                     f.write(str(policy.seq2cmd(seqs, t0, t1)))
                 print(fname +' is written.')
