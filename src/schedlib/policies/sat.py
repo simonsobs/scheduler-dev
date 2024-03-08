@@ -12,6 +12,7 @@ from functools import reduce
 
 from .. import config as cfg, core, source as src, rules as ru
 from .. import commands as cmd, instrument as inst, utils as u
+from ..thirdparty import SunAvoidance, get_sun_tracker
 
 logger = u.init_logger(__name__)
 
@@ -447,36 +448,30 @@ def wait_until(state, t1: dt.datetime):
     ]
 
 @cmd.operation(name="move_to", return_duration=True)
-def move_to(state, az, el, n_points=100, min_angle=45, az_limit=[-90, 450]):
+def move_to(state, az, el, n_points=100, min_angle=45, min_el=0, az_limit=[-90, 405]):
     duration = 60
 
     # find possible unwraps within the allowed az limits
     az = (az - az_limit[0]) % 360 + az_limit[0]  # az -> [-90, 270)
     az_options = np.arange(az, az_limit[-1], 360)
 
-    # determine the shortest path to move considering unwrapping
-    allowed = []
+    # sort them based on their distance to current az
+    idx = np.argsort(np.abs((az_options - az + 180) % 360 - 180))
+    az_options = az_options[idx]
+
+    sun_tracker = get_sun_tracker(u.dt2ct(state.curr_time))
 
     for az_option in az_options:
-        az_path = np.linspace(state.az_now, az_option, n_points)
-        el_path = az_path * 0 + el
-        t = u.dt2ct(state.curr_time) + np.linspace(0, duration, n_points)
-        sun_block = src.SourceBlock(name='sun', t0=state.curr_time, 
-                                    t1=state.curr_time+dt.timedelta(seconds=duration), 
-                                    mode='both')
-        t, az_sun, alt_sun = sun_block.get_az_alt(ctimes=t)
-        r = src.radial_distance(t, az_sun, alt_sun, az_path, el_path)
-        if len(r[r<min_angle])==0:
-            allowed.append((r.min(), az_option))
-        else:
-            logger.info(f"--> move_to: {state.az_now} to {az_option} is sun unsafe, min distance to the sun: {r.min()} deg, trying next option")
-    if len(allowed) == 0:
-        logger.error(f"--> Tried all options: {az_options}, unable to find a sun-safe path automatically! Continuing but operator should take control when acu agent fails sun safety check!")
-        # raise RuntimeError("Unable to find a sun-safe path to move between targets")
-    else:
-        # always use the option furthest away from sun
-        allowed = sorted(allowed)
-        az = allowed[-1][-1]
+        _path = sun_tracker.analyze_paths(state.az_now, state.el_now, az_option, el, 
+                                          dodging=False, t=u.dt2ct(state.curr_time))
+        best_path = sun_tracker.select_move(_path)[0]
+        if best_path is not None:
+            break
+         
+    if best_path is None or (not best_path['direct']):
+        logger.error(f"--> No safe direct moves found, tried all options: {az_options}")
+
+    az, el = best_path['moves'].nodes[0]
     state = state.replace(az_now=az, el_now=el)
 
     return state, duration, [f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})"]
@@ -620,7 +615,7 @@ class SATPolicy:
         # -----------------------------------------------------------------
         if 'sun-avoidance' in self.rules:
             logger.info(f"applying sun avoidance rule: {self.rules['sun-avoidance']}")
-            sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
+            sun_rule = SunAvoidance(**self.rules['sun-avoidance'])
             blocks = sun_rule(blocks)
         else:
             logger.error("no sun avoidance rule specified!")
@@ -1292,7 +1287,7 @@ class SATPolicy:
         is sun safe in its duration.
         """
         if t_start is None: t_start = state.curr_time
-        sun_rule = ru.make_rule('sun-avoidance', **self.rules['sun-avoidance'])
+        sun_rule = SunAvoidance(**self.rules['sun-avoidance'])
         sun_safe_covers = sun_rule(inst.StareBlock(name='_cover', t0=min(block.t0, t_start), t1=block.t1, az=block.az, alt=block.alt))
         safe_cover = [cover for cover in core.seq_flatten(sun_safe_covers) if cover.t0 <= block.t0 <= cover.t1]
         if len(safe_cover) == 0:
