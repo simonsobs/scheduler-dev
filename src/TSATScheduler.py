@@ -180,7 +180,8 @@ if __name__ == '__main__':
     parser.add_argument('--mvs',nargs='+',default=[],help='User input Mv list to observe; i.e. 5 27 23 will run center wafers.')
     
     args = parser.parse_args()
-
+    if not os.path.exists(args.output_dir):
+        os.mkdir(args.output_dir)
     # default is today
     today = dt.date.today()
     tomrw = today + dt.timedelta(days=1)
