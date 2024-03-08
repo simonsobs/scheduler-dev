@@ -468,13 +468,17 @@ def move_to(state, az, el, n_points=100, min_angle=45, min_el=0, az_limit=[-90, 
         if best_path is not None:
             break
          
-    if best_path is None or (not best_path['direct']):
-        logger.error(f"--> No safe direct moves found, tried all options: {az_options}")
+    if best_path is None:
+        logger.error(f"--> No possible move found, tried all options: {az_options}")
+        raise ValueError("No safe move possible!")
 
-    az, el = best_path['moves'].nodes[0]
-    state = state.replace(az_now=az, el_now=el)
+    cmd = []
+    assert len(best_path['moves'].nodes) > 1
+    for (az, el) in best_path['moves'].nodes[1:]:
+        state = state.replace(az_now=az, el_now=el)
+        cmd += [f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})"]
 
-    return state, duration, [f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})"]
+    return state, duration, cmd
 
 @dataclass
 class SATPolicy:
