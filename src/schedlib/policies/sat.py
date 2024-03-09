@@ -44,6 +44,7 @@ preamble = [
     "    pid = OCSClient('hwp-pid')",
     "    pmx = OCSClient('hwp-pmx')",
     "    pid.acq.stop()",
+    "    time.sleep(5)",
     "    global use_pid",
     "    global forward",
     "",
