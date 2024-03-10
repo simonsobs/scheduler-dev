@@ -88,7 +88,7 @@ preamble = [
     "        pmx.set_on()",
     "        pid.acq.start()",
     "",
-    "        time.sleep(1)",
+    "        time.sleep(5)",
     "        cur_freq = float(pid.acq.status().session['data']['current_freq'])",
     "",
     "        while abs(cur_freq - hwp_freq) > 0.005:",
