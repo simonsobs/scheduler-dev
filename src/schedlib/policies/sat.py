@@ -86,6 +86,7 @@ preamble = [
     "        pid.declare_freq(freq = hwp_freq)",
     "        pid.tune_freq()",
     "        pmx.set_on()",
+    "        pid.acq.start()",
     "",
     "        time.sleep(1)",
     "        cur_freq = float(pid.acq.status().session['data']['current_freq'])",
@@ -98,8 +99,6 @@ preamble = [
     "        print('Tuning finished')",
     "    else:",
     "        print('Error: Not using PID')",
-    "",
-    "    pid.acq.start()",
     "",
     "def HWPFastStop():",
     "    iboot2 = OCSClient('power-iboot-hwp-2')",
@@ -119,6 +118,7 @@ preamble = [
     "",
     "        pid.tune_stop()",
     "        pmx.set_on()",
+    "        pid.acq.start()",
     "",
     "        time.sleep(1)",
     "        start_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
@@ -154,9 +154,6 @@ preamble = [
     "        print('CHWP stopped')",
     "    else:",
     "        print('Error: Not using PID')",
-    "",
-    "    pid.acq.start()",
-    "",
 ]
 
 wrap_up = [
