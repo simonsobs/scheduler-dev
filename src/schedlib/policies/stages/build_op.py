@@ -11,7 +11,7 @@ import numpy as np
 import datetime as dt
 from typing import Dict, Any, Tuple, List, Optional
 from dataclasses import dataclass, field, replace as dc_replace
-from schedlib import core, commands as cmd, utils as u, rules as ru, instrument as inst
+from schedlib import core, commands as cmd, utils as u, rules as ru
 from schedlib.thirdparty.avoidance import get_sun_tracker
 from schedlib.commands import SchedMode
 
@@ -80,7 +80,7 @@ class IRMode:
 
 
 @dataclass(frozen=True)
-class Stage:
+class BuildOp:
     min_duration: float = 1 * u.minute
     max_pass: int = 3
     plan_moves: Dict[str, Any] = field(default_factory=dict)
@@ -315,6 +315,7 @@ class Stage:
             session_end = ir[-1].t1
             if session_end > t1:
                 # if we are running late, truncate our blocks to make up the time
+                logger.info("not enough time for post-session operations, trimming...")
                 seq_t1 = seq[-1].t1
                 seq = core.seq_flatten(core.seq_trim(t0, seq_t1-(session_end-t1)))
         return seq
@@ -449,7 +450,7 @@ class Stage:
         -------
         State
             Updated state after planning the block operations.
-        List[OperationBlock]
+        List[IR]
             Sequence of operations planned for the block.
 
         """

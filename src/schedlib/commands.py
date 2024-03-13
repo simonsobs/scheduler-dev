@@ -351,47 +351,6 @@ def make_op(name, *args, **kwargs):
     op_cls = get_operation_cls(name)
     return op_cls(*args, **kwargs)
 
-@dataclass(frozen=True)
-class OperationBlock(core.NamedBlock):
-    az: float
-    alt: float
-    subtype: Optional[str] = None
-    operations: List[Dict[str, Any]] = field(default_factory=dict, repr=False)
-
-    def get_az_alt(self, ctimes=None):
-        if ctimes is not None:
-            return ctimes, ctimes*0+self.az, ctimes*0+self.alt
-        return u.dt2ct(self.t0), self.az, self.alt
-
-    def __hash__(self):
-        return hash((self.name, self.t0, self.t1, self.subtype))
-    
-    def __repr__(self):
-        return f"{self.subtype[:8]:<8}: {self.name[:20]:<20} {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}" 
-
-# actually an operation block, but inheritance works in a dumb way that requires
-# me to always have default field at the end so I had to reproduce all its fields.
-@dataclass(frozen=True)
-class MoveTo(OperationBlock):
-    az_target: Optional[float] = field(default=None)
-    alt_target: float = field(default=None)
-
-    def __post_init__(self):
-        # this exists only because dataclasses doesn't allow me to 
-        # define non-default fields in child class.
-        if self.az_target is None or self.alt_target is None:
-            raise ValueError("az_target and alt_target is required!")
-
-    def get_az_alt(self, time_step=1, ctimes=None):
-        dur = (self.t1 - self.t0).total_seconds()
-        if ctimes is None:
-            t = np.arange(0, dur, time_step) + u.dt2ct(self.t0)
-        else:
-            t = ctimes
-        az = np.linspace(self.az, self.az_target, len(t))
-        alt = np.linspace(self.alt, self.alt_target, len(t))
-        return t, az, alt
-
 # common operations
 @operation(name='wait_until', return_duration=True)
 def wait_until(state, t1: dt.datetime):

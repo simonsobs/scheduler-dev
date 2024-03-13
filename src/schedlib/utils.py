@@ -6,7 +6,7 @@ from functools import reduce
 from contextlib import contextmanager
 from scipy import interpolate
 from collections.abc import Iterable
-from jax.tree_util import SequenceKey, DictKey, tree_map
+from jax.tree_util import SequenceKey, DictKey
 import fnmatch
 
 second = 1
