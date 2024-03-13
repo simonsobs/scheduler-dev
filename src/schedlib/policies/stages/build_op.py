@@ -78,6 +78,7 @@ class IRMode:
     Gap = 'gap'
     Aux = 'aux'
 
+
 @dataclass(frozen=True)
 class Stage:
     min_duration: float = 1 * u.minute
@@ -102,6 +103,7 @@ class Stage:
         logger.info(f"================ lowering ================")
 
         ir = self.lower(seq_, t0, t1, init_state, operations)
+        assert ir[-1].t1 <= t1, "Going beyond our schedule limit, something is wrong!"
 
         logger.info(f"================ solve moves ================")
         logger.info("step 1: solve sun-safe moves")
@@ -304,8 +306,21 @@ class Stage:
     
     def round_trip(self, seq, t0, t1, state, operations):
         ir = self.lower(seq, t0, t1, state, operations)
-        seq = core.seq_sort(core.seq_map(lambda b: b.block if b.subtype == IRMode.InBlock else None, ir), flatten=True)
+        seq = self.lift(ir)
+
+        # opportunity to do some correction:
+        # if our post session is running longer than our constraint, trim the sequence
+        if len(list(filter(lambda o: o['sched_mode'] == SchedMode.PostSession, operations))) > 0:
+            # if we have post session, it will guarentee to be the last
+            session_end = ir[-1].t1
+            if session_end > t1:
+                # if we are running late, truncate our blocks to make up the time
+                seq_t1 = seq[-1].t1
+                seq = core.seq_flatten(core.seq_trim(t0, seq_t1-(session_end-t1)))
         return seq
+
+    def lift(self, ir):
+        return core.seq_sort(core.seq_map(lambda b: b.block if b.subtype == IRMode.InBlock else None, ir), flatten=True)
 
     def lower_ops(self, irs, state):
         # `lower` generates a basic plan, here we work with ir to resolve 
