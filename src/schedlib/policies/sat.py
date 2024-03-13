@@ -711,7 +711,7 @@ class SATPolicy:
 
         Returns
         -------
-        list of OperationBlock
+        list of Operation
 
         """
         if state is None:
@@ -722,13 +722,13 @@ class SATPolicy:
         ops = build_op.apply(seq, t0, t1, state, self.operations)
         return ops
 
-    def cmd2txt(self, op_seq, state=None):
+    def cmd2txt(self, irs, t0, t1, state=None):
         """
         Convert a sequence of operation blocks into a text representation.
 
         Parameters
         ----------
-        op_seq : list of OperationBlock
+        irs : list of IR
             A sequence of operation blocks.
 
         Returns
@@ -737,8 +737,11 @@ class SATPolicy:
             A text representation of the sequence of operation blocks.
 
         """
-        # return '\n'.join(reduce(lambda x, y: x + y, [op.commands for op in op_seq], []))
-        raise NotImplementedError
+        if state is None:
+            state = self.init_state(t0)
+        build_sched = get_build_stage('build_sched', **self.stages.get('build_sched', {}))
+        commands = build_sched.apply(irs, t0, t1, state)
+        return '\n'.join(commands)
 
     def build_schedule(self, t0: dt.datetime, t1: dt.datetime, state: State = None):
         """
@@ -769,10 +772,10 @@ class SATPolicy:
         state = state or self.init_state(t0)
 
         # plan operation seq
-        op_seq = self.seq2cmd(seqs, t0, t1, state)
+        ir = self.seq2cmd(seqs, t0, t1, state)
 
         # construct schedule str
-        schedule = self.cmd2txt(op_seq)
+        schedule = self.cmd2txt(ir, t0, t1, state)
 
         return schedule
 
