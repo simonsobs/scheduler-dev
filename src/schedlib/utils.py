@@ -98,6 +98,13 @@ def ranges_complement(ranges, imax):
     """return the complement ranges"""
     return mask2ranges(~ranges2mask(ranges, imax))
 
+def ranges_contain(ranges, x):
+    """is x within the ranges"""
+    return np.any((x >= ranges[:, 0]) * (x <= ranges[:, 1]))
+
+def ranges_intersect(ranges, r):
+    """find intersection between one range versus a set of ranges"""
+    return np.any((r[0] <= ranges[:, 1]) * (r[1] >= ranges[:, 0]))
 
 # convenience wrapper for interpolation: numpy-like scipy interpolate
 def interp_extra(x_new, x, y, fill_value='extrapolate'):
@@ -326,3 +333,16 @@ def set_logging_level(level=2):
         if logger_name.startswith("schedlib"):
             logging.getLogger(logger_name).setLevel(level)
 
+def set_verbosity(verbosity=2):
+    import logging
+
+    verbosity = {
+        0: logging.ERROR,
+        1: logging.WARNING,
+        2: logging.INFO,
+        3: logging.DEBUG,
+    }[verbosity]
+
+    for logger_name in logging.Logger.manager.loggerDict:
+        if logger_name.startswith("schedlib"):
+            logging.getLogger(logger_name).setLevel(verbosity)

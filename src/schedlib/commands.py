@@ -1,5 +1,6 @@
+import numpy as np
 import datetime as dt
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass, field, replace as dc_replace
 from abc import ABC, abstractmethod
 import inspect
@@ -103,6 +104,41 @@ class State:
             A new State instance with the current time incremented by the specified number of seconds.
         """
         return self.replace(curr_time=self.curr_time+dt.timedelta(seconds=dt_sec))
+
+
+class SchedMode:
+    """
+    Enumerate different options for scheduling operations in SATPolicy.
+
+    Attributes
+    ----------
+    PreCal : str
+        'pre_cal'; Operations scheduled before block.t0 for calibration.
+    PreObs : str
+        'pre_obs'; Observations scheduled before block.t0 for observation.
+    InCal : str
+        'in_cal'; Calibration operations scheduled between block.t0 and block.t1.
+    InObs : str
+        'in_obs'; Observation operations scheduled between block.t0 and block.t1.
+    PostCal : str
+        'post_cal'; Calibration operations scheduled after block.t1.
+    PostObs : str
+        'post_obs'; Observations operations scheduled after block.t1.
+    PreSession : str
+        'pre_session'; Represents the start of a session, scheduled from the beginning of the requested t0.
+    PostSession : str
+        'post_session'; Indicates the end of a session, scheduled after the last operation.
+
+    """
+    PreCal = 'pre_cal'
+    PreObs = 'pre_obs'
+    InCal = 'in_cal'
+    InObs = 'in_obs'
+    PostCal = 'post_cal'
+    PostObs = 'post_obs'
+    PreSession = 'pre_session'
+    PostSession = 'post_session'
+
 
 # -------------------------------------------------------------------------
 #                         Register operations
@@ -317,12 +353,65 @@ def make_op(name, *args, **kwargs):
 
 @dataclass(frozen=True)
 class OperationBlock(core.NamedBlock):
+    az: float
+    alt: float
     subtype: Optional[str] = None
-    commands: List[str] = field(default_factory=list, repr=False)
-    parameters: Dict = field(default_factory=dict, repr=False)
+    operations: List[Dict[str, Any]] = field(default_factory=dict, repr=False)
+
+    def get_az_alt(self, ctimes=None):
+        if ctimes is not None:
+            return ctimes, ctimes*0+self.az, ctimes*0+self.alt
+        return u.dt2ct(self.t0), self.az, self.alt
 
     def __hash__(self):
         return hash((self.name, self.t0, self.t1, self.subtype))
     
     def __repr__(self):
-            return f"{self.subtype[:8]:<8}: {self.name[:20]:<20} {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}" 
+        return f"{self.subtype[:8]:<8}: {self.name[:20]:<20} {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}" 
+
+# actually an operation block, but inheritance works in a dumb way that requires
+# me to always have default field at the end so I had to reproduce all its fields.
+@dataclass(frozen=True)
+class MoveTo(OperationBlock):
+    az_target: Optional[float] = field(default=None)
+    alt_target: float = field(default=None)
+
+    def __post_init__(self):
+        # this exists only because dataclasses doesn't allow me to 
+        # define non-default fields in child class.
+        if self.az_target is None or self.alt_target is None:
+            raise ValueError("az_target and alt_target is required!")
+
+    def get_az_alt(self, time_step=1, ctimes=None):
+        dur = (self.t1 - self.t0).total_seconds()
+        if ctimes is None:
+            t = np.arange(0, dur, time_step) + u.dt2ct(self.t0)
+        else:
+            t = ctimes
+        az = np.linspace(self.az, self.az_target, len(t))
+        alt = np.linspace(self.alt, self.alt_target, len(t))
+        return t, az, alt
+
+# common operations
+@operation(name='wait_until', return_duration=True)
+def wait_until(state, t1: dt.datetime):
+    if state.curr_time >= t1:
+        return state, 0, []
+    return state, (t1-state.curr_time).total_seconds(), [
+        f"run.wait_until('{t1.isoformat()}')"
+    ]
+
+@operation(name="move_to", duration=0)
+def move_to(state, az, el):
+    if state.az_now == az and state.el_now == el:
+        return state, []
+    state = state.replace(az_now=az, el_now=el)
+    cmd = [f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})"]
+    return state, cmd
+
+@operation(name='set_scan_params', duration=0)
+def set_scan_params(state, az_speed, az_accel):
+    if az_speed != state.az_speed_now or az_accel != state.az_accel_now:
+        state = state.replace(az_speed_now=az_speed, az_accel_now=az_accel)
+        return state, [ f"run.acu.set_scan_params({az_speed}, {az_accel})"]
+    return state, []

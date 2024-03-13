@@ -3,15 +3,14 @@ from dataclasses import dataclass
 import datetime as dt
 
 from .. import source as src, utils as u
-from .sat import SchedMode, SATPolicy, State, CalTarget
+from .sat import SATPolicy, State, CalTarget
+from ..commands import SchedMode
 
 logger = u.init_logger(__name__)
 
 
 # ----------------------------------------------------
-#
 #         setup satp1 specific configs
-#
 # ----------------------------------------------------
 
 def make_geometry():
@@ -157,13 +156,12 @@ def make_operations(az_speed, az_accel, disable_hwp=False, apply_boresight_rot=T
     pre_session_ops = [
         { 'name': 'sat.preamble'        , 'sched_mode': SchedMode.PreSession, 'hwp_cfg': hwp_cfg, },
         { 'name': 'sat.ufm_relock'      , 'sched_mode': SchedMode.PreSession, },
-        { 'name': 'sat.set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
-        { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreSession, 'disable_hwp': disable_hwp, },
+        { 'name': 'set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
     ]
     cal_ops = [
         { 'name': 'sat.setup_boresight' , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, },
         { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, },
-        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, },
+        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, },
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
         { 'name': 'sat.source_scan'     , 'sched_mode': SchedMode.InCal, },
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostCal, 'indent': 4},
@@ -171,7 +169,7 @@ def make_operations(az_speed, az_accel, disable_hwp=False, apply_boresight_rot=T
     cmb_ops = [
         { 'name': 'sat.setup_boresight' , 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot, },
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, },
-        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreObs, },
+        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot,},
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, },
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostObs, },
@@ -193,22 +191,31 @@ def make_config(
     geometries = make_geometry()
     operations = make_operations(az_speed, az_accel, **op_cfg)
 
+    sun_policy = { 'min_angle': 41, 'min_sun_time': 1980 }
+
     config = {
         'blocks': blocks,
         'geometries': geometries,
         'rules': {
-            'sun-avoidance': {
-                'min_angle': 45,
-            },
             'min-duration': {
                 'min_duration': 600
             },
+            'sun-avoidance': sun_policy,
         },
         'operations': operations,
         'cal_targets': cal_targets,
         'scan_tag': None,
         'az_speed' : az_speed,
         'az_accel' : az_accel,
+        'stages': {
+            'build_op': {
+                'plan_moves': {
+                    'sun_policy': sun_policy,
+                    'az_step': 0.5,
+                    'az_limits': [-90, 450],
+                }
+            }
+        }
     }
     return config
 

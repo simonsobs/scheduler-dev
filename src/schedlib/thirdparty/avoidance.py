@@ -8,16 +8,17 @@ for documentation
 
 import datetime
 import math
-import time
 import json
 import ephem
 import numpy as np
 from pixell import enmap
 from so3g.proj import coords, quat
-from dataclasses import dataclass
-from functools import singledispatchmethod
+from dataclasses import dataclass, asdict
+from functools import singledispatchmethod, lru_cache
 
-from .. import core, utils as u, source as src, instrument as inst
+from .. import core, utils as u, source as src, instrument as inst, commands as cmd
+
+logger = u.init_logger(__name__)
 
 DEG = np.pi / 180
 
@@ -29,61 +30,62 @@ NO_TIME = DAY * 2
 #: trajectories.  Note the Agent code may apply different defaults,
 #: based on known platform details.
 DEFAULT_POLICY = {
-    'exclusion_radius': 45,
+    'min_angle': 41,
     'min_el': 0,
     'max_el': 90,
     'min_az': -45,
     'max_az': 405,
     'el_horizon': 0,
     'el_dodging': False,
-    'min_sun_time': 1800,
+    'min_sun_time': 1980,
     'response_time': HOUR * 4,
 }
 
 REFRESH_INTERVAL = HOUR * 6
 
-SUN_TRACKER = {}
-
 def get_sun_tracker(base_time, policy=None) -> "SunTracker":
     """
     cache machanism based on refresh interval
     """
-    t0 = base_time
-    look_up = hash(json.dumps(policy, sort_keys=True))
-    if look_up in SUN_TRACKER:
-        tracker = SUN_TRACKER[look_up]
-        if abs(tracker.base_time - t0) > REFRESH_INTERVAL:
-            SUN_TRACKER[look_up] = SunTracker(policy=policy, base_time=t0)
-    else:
-        tracker = SunTracker(policy=policy, base_time=t0)
-        SUN_TRACKER[look_up] = tracker
+    t0 = base_time // REFRESH_INTERVAL * REFRESH_INTERVAL
+    policy_str = json.dumps(policy, sort_keys=True)
+    return _get_sun_tracker(t0, policy_str)
 
-    return SUN_TRACKER[look_up]
-
+@lru_cache(maxsize=None)
+def _get_sun_tracker(base_time, policy:str) -> "SunTracker":
+    policy = json.loads(policy)
+    return SunTracker(policy=policy, base_time=base_time)
 
 @dataclass(frozen=True)
 class SunAvoidance(core.MappableRule):
-    min_angle: float = 45
-    min_sun_time: float = 1800
+    min_angle: float = 41
+    min_sun_time: float = 1920
+    min_el: float = 0,
+    max_el: float = 90,
+    min_az: float = -45,
+    max_az: float = 405,
+    el_horizon: float = 0,
+    el_dodging: bool = False,
+    response_time: float = 4*u.hour
 
     @singledispatchmethod
     def apply_block(self, block):
+        logger.warning(f"SunAvoidance rule does not know how to apply block of type {type(block)}")
         return block
 
     @apply_block.register(inst.ScanBlock)
     @apply_block.register(src.SourceBlock)
     def _(self, block):
-        policy = {'exclusion_radius': self.min_angle}
-        sun = get_sun_tracker(u.dt2ct(block.t0), policy=policy)
+        sun = get_sun_tracker(u.dt2ct(block.t0), policy=asdict(self))
         t, az, alt = block.get_az_alt()
-        sun_time, sun_dist = sun.check_trajectory(az, alt, t=t[0], raw=True)
+        j, i = sun._azel_pix(az, alt, dt=t-sun.base_time)
+        sun_time = sun.sun_times[j, i]
         safe_intervals = u.mask2ranges(sun_time > self.min_sun_time)
         if len(safe_intervals) == 0:
             return None
         if np.all(safe_intervals[0] == [0, len(t)]):
             return block
         return [block.replace(t0=u.ct2dt(t[i0]), t1=u.ct2dt(t[i1-1])) for i0, i1 in safe_intervals]
-
 
 class SunTracker:
     """Provide guidance on what horizion coordinate positions and
@@ -96,13 +98,6 @@ class SunTracker:
       site (EarthlySite or None): Site to use; default is the SO LAT.
         If not None, pass an so3g.proj.EarthlySite or compatible.
       map_res (float, deg): resolution to use for the Sun Safety Map.
-      sun_time_shift (float, seconds): For debugging and testing,
-        compute the Sun's position as though it were this manys
-        seconds in the future.  If None or zero, this feature is
-        disabled.
-      fake_now (float, seconds): For debugging and testing, replace
-        the tracker's computation of the current time (time.time())
-        with this value.  If None, this testing feature is disabled.
       compute (bool): If True, immediately compute the Sun Safety Map
         by calling .reset().
       base_time (unix timestamp): Store this base_time and, if compute
@@ -110,15 +105,9 @@ class SunTracker:
 
     """
 
-    def __init__(self, policy=None, site=None,
-                 map_res=.5, sun_time_shift=None, fake_now=None,
-                 compute=True, base_time=None):
+    def __init__(self, policy=None, site=None, map_res=0.5, compute=True, base_time=None):
         # Note res is stored in radians.
         self.res = map_res * DEG
-        if sun_time_shift is None:
-            sun_time_shift = 0.
-        self.sun_time_shift = sun_time_shift
-        self.fake_now = fake_now
         self.base_time = base_time
 
         # Process and store the instrument config and safety policy.
@@ -126,9 +115,7 @@ class SunTracker:
             policy = {}
         for k in policy.keys():
             assert k in DEFAULT_POLICY
-        _p = dict(DEFAULT_POLICY)
-        _p.update(policy)
-        self.policy = _p
+        self.policy = DEFAULT_POLICY | policy
 
         if site is None:
             # This is close enough.
@@ -148,7 +135,7 @@ class SunTracker:
 
     def _sun(self, t):
         self._site.date = \
-            datetime.datetime.utcfromtimestamp(t + self.sun_time_shift)
+            datetime.datetime.utcfromtimestamp(t)
         return ephem.Sun(self._site)
 
     def reset(self, base_time=None):
@@ -190,7 +177,7 @@ class SunTracker:
         qsun = quat.rotation_lonlat(v.ra, v.dec)
         qoff = ~qsun * map_q
         r = quat.decompose_iso(qoff)[0].reshape(sun_times.shape) / DEG
-        sun_times[r <= self.policy['exclusion_radius']] = 0.
+        sun_times[r <= self.policy['min_angle']] = 0.
         for g in sun_times:
             if (g < 0).all():
                 continue
@@ -271,12 +258,13 @@ class SunTracker:
         - ``'sun_dist_stop'``: Distance to Sun, at last point.
 
         """
-        j, i = self._azel_pix(az, el, dt=t - self.base_time)
+        j, i = self._azel_pix(az, el, dt=t-self.base_time)
         sun_delta = self.sun_times[j, i]
         sun_dists = self.sun_dist[j, i]
 
         # If sun is below horizon, rail sun_dist to 180 deg.
-        if self.get_sun_pos(t=t)['sun_azel'][1] < self.policy['el_horizon']:
+        t_ref = t if isinstance(t, float) else t[0]
+        if self.get_sun_pos(t=t_ref)['sun_azel'][1] < self.policy['el_horizon']:
             sun_dists[:] = 180.
 
         if raw:
@@ -309,8 +297,6 @@ class SunTracker:
             'sun_radec': (v.ra / DEG, v.dec / DEG),
             'sun_azel': ((-neg_zen_az / DEG) % 360., zen_el / DEG),
         }
-        if self.sun_time_shift != 0:
-            results['WARNING'] = 'Fake Sun Position is in use!'
 
         if az is not None:
             qtel = coords.CelestialSightLine.naive_az_el(
@@ -450,7 +436,7 @@ class SunTracker:
                     for j, i in segments:
                         ax.plot(i, j, color='green')
 
-            pl.savefig(plot_file)
+            plt.savefig(plot_file)
         return all_moves
 
     def find_escape_paths(self, az0, el0, t=None, debug=False):
