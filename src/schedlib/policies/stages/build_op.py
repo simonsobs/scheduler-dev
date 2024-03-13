@@ -556,32 +556,41 @@ class BuildOp:
             state = state.replace(curr_time=constraint.t1)
 
         # block has been trimmed properly, so we can just do this
-        op_seq += [
-            IR(name=pre_block_name,
-               subtype=IRMode.PreBlock,
-               t0=block.t0-dt.timedelta(seconds=pre_dur),
-               t1=block.t0,
-               az=block.az,
-               alt=block.alt,
-               block=block,
-               operations=pre_ops),
-            IR(name=block.name,
-               subtype=IRMode.InBlock,
-               t0=block.t0,
-               t1=block.t1,
-               az=block.az,
-               alt=block.alt,
-               block=block,
-               operations=in_ops),
-            IR(name=post_block_name,
-               subtype=IRMode.PostBlock,
-               t0=block.t1,
-               t1=block.t1+dt.timedelta(seconds=post_dur),
-               az=block.az,
-               alt=block.alt,
-               block=block,
-               operations=post_ops) 
-        ]
+        if len(pre_ops) > 0:
+            op_seq += [
+                IR(name=pre_block_name,
+                subtype=IRMode.PreBlock,
+                t0=block.t0-dt.timedelta(seconds=pre_dur),
+                t1=block.t0,
+                az=block.az,
+                alt=block.alt,
+                block=block,
+                operations=pre_ops),
+            ]
+        if len(in_ops) > 0:
+            op_seq += [
+                IR(name=block.name,
+                subtype=IRMode.InBlock,
+                t0=block.t0,
+                t1=block.t1,
+                az=block.az,
+                alt=block.alt,
+                block=block,
+                operations=in_ops),
+            ]
+
+        if len(post_ops) > 0:
+            op_seq += [
+                IR(name=post_block_name,
+                subtype=IRMode.PostBlock,
+                t0=block.t1,
+                t1=block.t1+dt.timedelta(seconds=post_dur),
+                az=block.az,
+                alt=block.alt,
+                block=block,
+                operations=post_ops) 
+            ]
+
         return state, op_seq
 
 @dataclass(frozen=True)
@@ -615,8 +624,9 @@ class PlanMoves:
 
         # fill up gaps first
         gapfill = core.NamedBlock(name='_gap', t0=seq[0].t0, t1=seq[-1].t1)
-        seq = core.seq_merge([gapfill], seq, flatten=True)
+        seq = core.seq_sort(core.seq_merge([gapfill], seq, flatten=True))
 
+        # replace _gap with proper IR and gives it proper pointing
         seq_ = []
         for i in range(len(seq)):
             block = seq[i]
@@ -627,6 +637,7 @@ class PlanMoves:
                 block = IR(name='gap', subtype=IRMode.Gap, t0=block.t0, t1=block.t1, 
                            az=seq[i-1].az, alt=seq[i-1].alt)
             seq_ += [block]
+
         seq_body = seq_[1:-1]  # skip pre/post session blocks for now
         sun_intervals = core.seq_map(f, seq_body) 
 
@@ -721,13 +732,18 @@ class PlanMoves:
         az_seq = best_move[-1]
         updated = []
         for i, b in enumerate(seq_body):
-            if i == 0:
-                updated += [WaitUntil(t1=b.t0, az=seq[0].az, alt=seq[0].alt), MoveTo(az=az_seq[0], alt=b.alt), b.replace(az=az_seq[0])]
+            b = b.replace(az=az_seq[i])
+            # no need to worry about gap
+            if b.name == 'gap': 
+                updated += [b]
             else:
-                if ~np.isclose(az_seq[i], az_seq[i-1]):
-                    updated += [WaitUntil(t1=b.t0, az=az_seq[i-1], alt=seq_body[i-1].alt), MoveTo(az=az_seq[i], alt=b.alt), b.replace(az=az_seq[i])]
+                if i == 0:
+                    updated += [WaitUntil(t1=b.t0, az=seq[0].az, alt=seq[0].alt), MoveTo(az=az_seq[0], alt=b.alt), b]
                 else:
-                    updated += [b.replace(az=az_seq[i])]
+                    if ~np.isclose(az_seq[i], az_seq[i-1]):
+                        updated += [WaitUntil(t1=b.t0, az=az_seq[i-1], alt=seq_body[i-1].alt), MoveTo(az=az_seq[i], alt=b.alt), b]
+                    else:
+                        updated += [b]
         updated = [seq[0]] + updated + [seq[-1]]
         return updated 
 
@@ -735,24 +751,33 @@ class PlanMoves:
 class SimplifyMoves:
     def apply(self, ir):
         """simplify moves by removing redundant MoveTo blocks"""
+        i_pass = 0
+        while True:
+            logger.info(f"simplify_moves: {i_pass=}")
+            ir_new = self.round_trip(ir)
+            if ir_new == ir:
+                logger.info("simplify_moves: IR converged")
+                return ir
+            ir = ir_new
+            i_pass += 1
+
+    def round_trip(self, ir):
         if len(ir) == 0: return ir
-        ir_new = [ir[0]]
         for b1, b2 in zip(ir[:-1], ir[1:]):
             if isinstance(b1, MoveTo) and isinstance(b2, MoveTo):
                 # repeated moves will be replaced by the last move
-                b = MoveTo(az=b2.az, alt=b2.alt)
-                ir_new = ir_new[:-1] + [b]
+                # b = MoveTo(az=b2.az, alt=b2.alt)
+                return [i for i in ir if i != b1]
             elif isinstance(b1, WaitUntil) and isinstance(b2, WaitUntil):
                 # repeated wait untils will be replaced by the longer wait
-                b = b1 if b1.t1 >= b2.t1 else b2
-                ir_new = ir_new[:-1] + [b]
+                b = b1 if b1.t1 <= b2.t1 else b2
+                return [i for i in ir if i != b]
             elif (isinstance(b1, IR) and b1.subtype == IRMode.Gap) and isinstance(b2, WaitUntil):
                 # gap followed by wait until will be replaced by the wait until
-                # ir_new = ir_new[:-1] + [b]
-                pass
-            else:
-                ir_new += [b2]
-        return ir_new
+                # return [(i if i != b1 else b1.replace(t1=b2.t1)) for i in ir if i != b2]
+                return ir
+        return ir
+        
 
 def find_unwrap(az, az_limits=[-90, 450]) -> List[float]:
     az = (az - az_limits[0]) % 360 + az_limits[0]  # min az becomes az_limits[0]
