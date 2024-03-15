@@ -68,6 +68,8 @@ class SunAvoidance(core.MappableRule):
     el_horizon: float = 0,
     el_dodging: bool = False,
     response_time: float = 4*u.hour
+    cut_buffer: int = 60
+    time_step: float = 1
 
     @singledispatchmethod
     def apply_block(self, block):
@@ -77,16 +79,37 @@ class SunAvoidance(core.MappableRule):
     @apply_block.register(inst.ScanBlock)
     @apply_block.register(src.SourceBlock)
     def _(self, block):
-        sun = get_sun_tracker(u.dt2ct(block.t0), policy=asdict(self))
-        t, az, alt = block.get_az_alt()
+        sun = get_sun_tracker(u.dt2ct(block.t0), policy=self.to_dict())
+        t, az, alt = block.get_az_alt(time_step=self.time_step)
         j, i = sun._azel_pix(az, alt, dt=t-sun.base_time)
         sun_time = sun.sun_times[j, i]
-        safe_intervals = u.mask2ranges(sun_time > self.min_sun_time)
+        ok = sun_time > self.min_sun_time
+
+        # find safe intervals
+        n_buffer = self.cut_buffer // self.time_step
+        safe_intervals = u.ranges_complement(
+            u.ranges_pad(
+                u.mask2ranges(~ok),
+                n_buffer,
+                len(t)),
+            len(t))
+
+        # it's possible that adding the buffer will make entire block unsafe
         if len(safe_intervals) == 0:
             return None
+
+        # if the whole block is safe, return it (don't think it will happen here)
         if np.all(safe_intervals[0] == [0, len(t)]):
             return block
+        
         return [block.replace(t0=u.ct2dt(t[i0]), t1=u.ct2dt(t[i1-1])) for i0, i1 in safe_intervals]
+
+    def to_dict(self):
+        res = asdict(self)
+        # get rid of unnecessary fields for sun tracker
+        res.pop("cut_buffer", None) 
+        res.pop("time_step", None)
+        return res
 
 class SunTracker:
     """Provide guidance on what horizion coordinate positions and
