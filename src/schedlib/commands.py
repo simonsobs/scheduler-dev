@@ -354,9 +354,7 @@ def make_op(name, *args, **kwargs):
 # common operations
 @operation(name='wait_until', return_duration=True)
 def wait_until(state, t1: dt.datetime):
-    if state.curr_time >= t1:
-        return state, 0, []
-    return state, (t1-state.curr_time).total_seconds(), [
+    return state, max((t1-state.curr_time).total_seconds(), 0), [
         f"run.wait_until('{t1.isoformat()}')"
     ]
 
