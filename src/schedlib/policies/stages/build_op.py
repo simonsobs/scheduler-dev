@@ -317,7 +317,7 @@ class BuildOp:
                 # if we are running late, truncate our blocks to make up the time
                 logger.info("not enough time for post-session operations, trimming...")
                 seq_t1 = seq[-1].t1
-                seq = core.seq_flatten(core.seq_trim(t0, seq_t1-(session_end-t1)))
+                seq = core.seq_flatten(core.seq_trim(seq, t0, seq_t1-(session_end-t1)))
         return seq
 
     def lift(self, ir):

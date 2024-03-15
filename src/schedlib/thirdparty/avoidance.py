@@ -43,16 +43,17 @@ DEFAULT_POLICY = {
 
 REFRESH_INTERVAL = HOUR * 6
 
-def get_sun_tracker(base_time, policy=None) -> "SunTracker":
+def get_sun_tracker(t_lookup, policy=None) -> "SunTracker":
     """
-    cache machanism based on refresh interval
+    cache machanism based on refresh interval. It will look up
+    the latest sun tracker object from within the `REFRESH_INTERVAL`.
     """
-    t0 = base_time // REFRESH_INTERVAL * REFRESH_INTERVAL
+    t0 = t_lookup // REFRESH_INTERVAL * REFRESH_INTERVAL
     policy_str = json.dumps(policy, sort_keys=True)
     return _get_sun_tracker(t0, policy_str)
 
 @lru_cache(maxsize=None)
-def _get_sun_tracker(base_time, policy:str) -> "SunTracker":
+def _get_sun_tracker(base_time: float, policy: str) -> "SunTracker":
     policy = json.loads(policy)
     return SunTracker(policy=policy, base_time=base_time)
 
@@ -419,6 +420,7 @@ class SunTracker:
             all_moves.append(direct)
 
         if plot_file:
+            import matplotlib.pyplot as plt
             # Add the direct traj, in blue.
             segments = self._azel_pix(*direct['moves'].get_traj(), round=True, segments=True)
             for ax in axes:
