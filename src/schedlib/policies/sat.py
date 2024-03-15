@@ -140,7 +140,7 @@ preamble = [
     "                time.sleep(60*30)",
     "",
     "        while cur_freq > 0.2:",
-    "            cur_freq = float(pid.get_freq()[2]['messages'][1][1].split(' ')[3])",
+    "            cur_freq = float(pid.acq.status().session['data']['current_freq'])",
     "            print ('Current Frequency =', cur_freq, 'Hz    ', end = '\\r')",
     "",
     "        pmx.set_off()",
