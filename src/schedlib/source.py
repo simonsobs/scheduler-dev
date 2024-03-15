@@ -133,8 +133,8 @@ def _source_az_alt_interpolators(
     times = [t0 + i * time_step for i in range(int((t1 - t0) / time_step))]
     az, alt = _source_get_az_alt(source, times)
     times = [u.dt2ct(t) for t in times]
-    interp_az = interpolate.interp1d(times, az, kind='cubic')
-    interp_alt = interpolate.interp1d(times, alt, kind='cubic')
+    interp_az = interpolate.interp1d(times, az, kind='cubic', fill_value='extrapolate')
+    interp_alt = interpolate.interp1d(times, alt, kind='cubic', fill_value='extrapolate')
     return interp_az, interp_alt
 
 # global registry of precomputed sources
