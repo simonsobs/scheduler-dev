@@ -3,8 +3,8 @@ from abc import ABC, abstractmethod
 import datetime as dt
 import numpy as np
 import jax.tree_util as tu
-import equinox
-from dataclasses import dataclass, replace as dc_replace
+from dataclasses import dataclass, replace as dc_replace, asdict
+from functools import reduce
 
 from . import utils
 
@@ -39,13 +39,20 @@ class Block:
         return block_trim_left_to(self, t)
     def trim_right_to(self, t: dt.datetime) -> List["Block"]:
         return block_trim_right_to(self, t)
-    def isa(self, block_type: "BlockType") -> bool:
+    def isa(self, block_type) -> bool:
         return block_isa(block_type)(self)
     def replace(self, **kwargs) -> "Block":
         return dc_replace(self, **kwargs)
+    def to_dict(self):
+        # unlike __dict__, it makes deep copy
+        return asdict(self)
 
 BlockType = type(Block)
 Blocks = List[Union[Block, None, "Blocks"]]  # maybe None, maybe nested
+
+@dataclass(frozen=True)
+class NamedBlock(Block):
+    name: str
 
 def is_block(x: Any) -> bool:
     return isinstance(x, Block)
@@ -131,7 +138,7 @@ def block_trim_right_to(block: Block, t: dt.datetime) -> Blocks:
         return None
     return block.replace(t1=min(block.t1, t))
 
-def block_isa(block_type:BlockType) -> Callable[[Block], bool]:
+def block_isa(block_type) -> Callable[[Block], bool]:
     def isa(block: Block) -> bool:
         return isinstance(block, block_type)
     return isa
@@ -152,6 +159,23 @@ def block_overlap(block1: Block, block2: Block) -> bool:
         True if the two blocks overlap, False otherwise
     """
     return (block1.t0 - block2.t1).total_seconds() * (block1.t1 - block2.t0).total_seconds() < 0
+
+def block_intersect(block1: Block, block2: Block) -> Block:
+    """get the intersection of two blocks
+
+    Parameters
+    ----------
+    block1 : Block
+        the first block
+    block2 : Block
+        the second block
+
+    Returns
+    -------
+    Block
+        the intersection of the two blocks
+    """
+    return block_trim(block1, t0=block2.t0, t1=block2.t1)
 
 def block_merge(block1: Block, block2: Block) -> Blocks:
     """merge block2 into block1. It will return a sorted seq. block2 will take
@@ -227,7 +251,12 @@ def seq_sort(seq: Blocks, flatten=False, key_fn=lambda b: b.t0) -> Blocks:
     """
     if seq_is_nested(seq) and not flatten:
         raise ValueError("Cannot sort nested sequence, use flatten=True")
-    return sorted(seq_flatten(seq), key=key_fn)
+    seq = seq_flatten(seq)
+
+    # preserve causal ordering
+    order = np.arange(len(seq))
+    seq = [x[0] for x in sorted(zip(seq, order), key=lambda x: (key_fn(x[0]), x[1]))]
+    return seq
 
 def seq_has_overlap(blocks: Blocks) -> bool:
     """check if a sequence has overlap between blocks
@@ -276,7 +305,7 @@ def seq_assert_sorted(blocks: Blocks) -> None:
 def seq_assert_no_overlap(seq: Blocks) -> None:
     assert not seq_has_overlap(seq), "Sequence has overlap"
 
-def seq_has_overlap_with_block(seq: Blocks, block: Block) -> bool:
+def seq_has_overlap_with_block(seq: Blocks, block: Block, allowance: int = 0) -> bool:
     """check if a sequence has overlap with a block
     
     Parameters
@@ -285,12 +314,18 @@ def seq_has_overlap_with_block(seq: Blocks, block: Block) -> bool:
         a sequence of blocks
     block : Block
         a block to check overlap with
+    allowance: int
+        minimum overlap to be considered overlap in seconds
         
     Returns
     -------
     bool
         True if the sequence has overlap with the block, False otherwise
     """
+    # if we pass in a non-zero allowance, it effectively acts as
+    # a smaller block on both side.
+    if allowance > 0:
+        block = block.shrink(dt.timedelta(seconds=2*allowance))  # shrink go by total duration so 2*allowance for left and right.
     for b in seq_flatten(seq):
         if block_overlap(b, block):
             return True
@@ -326,6 +361,16 @@ def seq_merge_block(seq: Blocks, block: Block, flatten=False) -> Blocks:
             lambda b: block_merge(b, block), 
             seq), 
         flatten=True)
+
+def seq_resolve_overlap(seq: Blocks, reverse=False):
+    """merge blocks in sequentially to resolve conflict in a flattened list of blocks.
+    Block that comes later in the seq always take higher priority. If reverse is true,
+    the merging will happen in reverse order, and the block that comes earlier in the seq
+    always take priority in merging"""
+    seq_assert_not_nested(seq)
+    if reverse: seq = seq[::-1]
+    return seq_sort(reduce(lambda carry, b: seq_merge_block(carry, b), seq, []),
+                    flatten=True)
 
 def seq_drop_duplicates(seq: Blocks, flatten=False, sort=True) -> Blocks:
     if not flatten and seq_is_nested(seq):
@@ -364,6 +409,14 @@ def seq_merge(seq1: Blocks, seq2: Blocks, flatten=False) -> Blocks:
     for block in seq2:
         seq = seq_merge_block(seq, block)
     return seq_sort(seq)
+
+def seq_remove_overlap(seq1, seq2, flatten=False):
+    """return a copy of seq with regions that overlap with seq2 removed"""
+    seq2 = seq_map(lambda b: NamedBlock(name="_dummy", t0=b.t0, t1=b.t1), seq2)
+    return seq_flatten(seq_filter_out(
+        lambda b: isinstance(b, NamedBlock) and b.name=="_dummy",
+        seq_merge(seq1, seq2, flatten=flatten)
+    ))
 
 # =========================
 # Tree related
@@ -594,6 +647,7 @@ def seq_partition(op, blocks: BlocksTree) -> List[Any]:
     unmatched : BlocksTree
         a tree of blocks where the blocks don't satisfy the predicate
     """
+    import equinox
     filter_spec = tu.tree_map(op, blocks, is_leaf=is_block)
     return equinox.partition(blocks, filter_spec)
 
@@ -615,6 +669,7 @@ def seq_partition_with_path(op, blocks: BlocksTree, **kwargs) -> List[Any]:
     unmatched : BlocksTree
         a tree of blocks where the blocks don't satisfy the predicate
     """
+    import equinox
     filter_spec = tu.tree_map_with_path(op, blocks, is_leaf=is_block)
     return equinox.partition(blocks, filter_spec, **kwargs)
 
@@ -654,16 +709,9 @@ def seq_combine(*blocks: BlocksTree) -> BlocksTree:
     BlocksTree
         a tree of blocks where the blocks are combined in a list
     """
+    import equinox
     seq_assert_same_structure(*blocks)
     return equinox.combine(*blocks, is_leaf=is_block)
-
-# =========================
-# Other useful Block types
-# =========================
-
-@dataclass(frozen=True)
-class NamedBlock(Block):
-    name: str 
 
 # =========================
 # Rules and Policies
@@ -681,6 +729,48 @@ Rule = Union[BlocksTransformation, Callable[[Blocks], Blocks]]
 RuleSet = List[Rule]
 
 @dataclass(frozen=True)
+class GreenRule(BlocksTransformation, ABC):
+    """GreenRule preserves trees. A check is explicitly made to ensure
+    that the input and output are both trees."""
+    def __call__(self, blocks: BlocksTree) -> BlocksTree:
+        out = self.apply(blocks)
+        # did we destroy nestedness?
+        if not seq_is_nested(out) and seq_is_nested(blocks):
+            raise RuntimeError("GreenRule should preserves trees, not destroying trees!")
+        return out
+
+@dataclass(frozen=True)
+class ConstrainedRule(GreenRule):
+    """ConstrainedRule applies a rule to a subset of blocks. Here
+    constraint is a fnmatch pattern that matches to the `key` of a
+    block. This is implemented by first partitioning the tree into
+    one part that matches the constraint and one part that doesn't,
+    and then applying the rule to the matching part before combining
+    the two parts back together.
+
+    Parameters
+    ----------
+    rule : Rule. the rule to apply to the matching blocks
+    constraint : str. fnmatch pattern that matches to the `key` of a block
+    """
+    rule: Rule
+    constraint: str
+    def apply(self, blocks: BlocksTree) -> BlocksTree:
+        matched, unmatched = seq_partition_with_query(self.constraint, blocks)
+        return seq_combine(self.rule(matched), unmatched)
+
+
+@dataclass(frozen=True)
+class MappableRule(GreenRule, ABC):
+    """MappableRule applies the same rule to all blocks in a tree. One needs
+    to implement the `apply_block` method to define how the rule is applied
+    to a single block."""
+    def apply(self, blocks: BlocksTree) -> BlocksTree:
+        return seq_map(self.apply_block, blocks)
+    @abstractmethod
+    def apply_block(self, block) -> Blocks: ...
+
+@dataclass(frozen=True)
 class Policy(BlocksTransformation, ABC):
     """apply: apply policy to a tree of blocks"""
     # initialize a tree of blocks
@@ -688,6 +778,30 @@ class Policy(BlocksTransformation, ABC):
     def init_seqs(self) -> BlocksTree: ...
     @abstractmethod
     def apply(self, blocks: BlocksTree) -> Blocks: ...
+
+@dataclass(frozen=True)
+class BasePolicy(Policy, ABC):
+    """we split the policy into two parts: transform and merge where
+    transform are the part that preserves nested structure and merge
+    is the part that flattens the nested structure into a single
+    sequence. This is mostly for visualization purposes, so that we
+    preserve the nested structure for the user to see, but we can
+    also flatten the structure for the scheduler to consume."""
+
+    def transform(self, blocks: BlocksTree) -> BlocksTree:
+        return blocks
+
+    def merge(self, blocks: BlocksTree) -> Blocks:
+        return blocks
+
+    def apply(self, blocks: BlocksTree) -> Blocks:
+        """main interface"""
+        blocks = self.transform(blocks)
+        blocks = self.merge(blocks)
+        return blocks
+
+    @abstractmethod
+    def seq2cmd(self, seq: Blocks) -> str: ...
 
 # ===============================
 # Others convenience types alias

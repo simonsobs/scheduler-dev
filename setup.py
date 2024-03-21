@@ -9,11 +9,11 @@ setup(
     package_dir={'': 'src'},
     packages=find_packages(where='src'),    
     install_requires=[
-        "toolz",
         "pandas",
         "pyephem",
         "jax[cpu]",
         "equinox",
-        "so3g"
+        "so3g",
+        "pixell"
     ],
 )

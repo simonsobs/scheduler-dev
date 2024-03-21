@@ -1,52 +1,12 @@
 from typing import Tuple, Dict, List, Optional
 import numpy as np
-from abc import ABC, abstractmethod
 import datetime as dt
 from dataclasses import dataclass
 
 from . import core, source as src, instrument as inst, utils
 
 @dataclass(frozen=True)
-class GreenRule(core.BlocksTransformation, ABC):
-    """GreenRule preserves trees. A check is explicitly made to ensure
-    that the input and output are both trees."""
-    def __call__(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        out = self.apply(blocks)
-        assert core.seq_is_nested(out) == core.seq_is_nested(blocks), "GreenRule must preserve trees"
-        return out
-
-@dataclass(frozen=True)
-class ConstrainedRule(GreenRule):
-    """ConstrainedRule applies a rule to a subset of blocks. Here
-    constraint is a fnmatch pattern that matches to the `key` of a
-    block. This is implemented by first partitioning the tree into
-    one part that matches the constraint and one part that doesn't,
-    and then applying the rule to the matching part before combining
-    the two parts back together. 
-
-    Parameters
-    ----------
-    rule : core.Rule. the rule to apply to the matching blocks
-    constraint : str. fnmatch pattern that matches to the `key` of a block
-    """
-    rule: core.Rule
-    constraint: str
-    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        matched, unmatched = core.seq_partition_with_query(self.constraint, blocks)
-        return core.seq_combine(self.rule(matched), unmatched)
-
-@dataclass(frozen=True)
-class MappableRule(GreenRule, ABC):
-    """MappableRule applies the same rule to all blocks in a tree. One needs
-    to implement the `apply_block` method to define how the rule is applied
-    to a single block."""
-    def apply(self, blocks: core.BlocksTree) -> core.BlocksTree:
-        return core.seq_map(self.apply_block, blocks)
-    @abstractmethod
-    def apply_block(self, block) -> core.Blocks: ...
-
-@dataclass(frozen=True)
-class AltRange(MappableRule):
+class AltRange(core.MappableRule):
     """Restrict the altitude range of source blocks. 
 
     Parameters
@@ -55,15 +15,17 @@ class AltRange(MappableRule):
     """
     alt_range: Tuple[float, float]
 
-    def apply_block(self, block:core.Block) -> core.Block:
+    def apply_block(self, block: core.Block) -> core.Block:
         if isinstance(block, src.SourceBlock):
             return block.trim_by_az_alt_range(alt_range=self.alt_range)
         else:
             return block
 
 @dataclass(frozen=True)
-class AzRange(MappableRule):
+class AzRange(core.MappableRule):
     """Restrict the azimuth range of scan blocks
+
+    TODO: fix drift
     
     Parameters
     ----------
@@ -76,7 +38,8 @@ class AzRange(MappableRule):
 
     def apply_block(self, block: core.Block) -> core.Block:
         # passthrough if not a scan block which has az and throw
-        if not isinstance(block, inst.ScanBlock): return block
+        if not isinstance(block, inst.ScanBlock):
+            return block
 
         def is_good(az, throw):
             return (az >= self.az_range[0]) and (az + throw <= self.az_range[1])
@@ -129,7 +92,7 @@ class AzRange(MappableRule):
             raise RuntimeError("This should not happen")
             
 @dataclass(frozen=True)
-class DayMod(GreenRule):
+class DayMod(core.GreenRule):
     """Restrict the blocks to a specific day of the week.
     (day, day_mod): (0, 1) means everyday, (4, 7) means every 4th day in a week, ...
 
@@ -152,7 +115,7 @@ class DayMod(GreenRule):
         return np.floor((t - self.day_ref).total_seconds() / utils.sidereal_day).astype(int)
 
 @dataclass(frozen=True)
-class DriftMode(MappableRule):
+class DriftMode(core.MappableRule):
     """Restrict the blocks to a specific drift mode.
     
     Parameters
@@ -168,7 +131,7 @@ class DriftMode(MappableRule):
             return block if block.mode == self.mode else None
 
 @dataclass(frozen=True)
-class MinDuration(GreenRule):
+class MinDuration(core.GreenRule):
     """Restrict the minimum block size.
     
     Parameters
@@ -182,7 +145,7 @@ class MinDuration(GreenRule):
         return core.seq_filter(filt, blocks)
 
 @dataclass(frozen=True)
-class RephaseFirst(GreenRule):
+class RephaseFirst(core.GreenRule):
     """Randomize the phase of the first block"""
     max_fraction: float
     min_block_size: float  # in seconds
@@ -198,7 +161,7 @@ class RephaseFirst(GreenRule):
         return core.seq_replace_block(blocks, src, tgt)
 
 @dataclass(frozen=True)
-class MakeSourcePlan(MappableRule):
+class MakeSourcePlan(core.MappableRule):
     """Convert source blocks to scan blocks"""
     specs: List[Dict[str, List[float]]]
     spec_shape: str
@@ -286,48 +249,82 @@ class MakeSourcePlan(MappableRule):
         if len(blocks) == 1: return blocks[0]
 
 @dataclass(frozen=True)
-class SunAvoidance(MappableRule):
-    """Avoid sources that are too close to the Sun.
+class SunAvoidance(core.MappableRule):
+    """Avoid sources that are too close to the Sun. This rule is
+    applicable to both source and scan blocks. Note that any other
+    block types will automatically passthrough.
 
     Parameters
     ----------
-    min_angle_az : float. minimum angle in deg
-    min_angle_alt: float. minimum angle in deg
-    n_buffer: int. number of time steps to buffer the sun mask
-    time_step : int. time step in seconds
+    min_angle : float
+        The minimum angle in degrees for the azimuth.
+    time_step : int, optional
+        The time step in seconds, by default 1.
+    cut_buffer : int, optional
+        Buffers added to each sun cut in seconds, default is 60, i.e., 1 minute
+        buffer is added to each side of the sun cut.
+
+    Examples
+    --------
+    To apply sun avoidance the minimum angle in altitude of 15 degrees,
+    and a buffer of 5 time steps:
+
+    >>> sun_avoidance = SunAvoidance(min_angle)
+    >>> blocks = sun_avoidance(blocks)
+
     """
-    min_angle_az: float
-    min_angle_alt: float
-    n_buffer: int = 10
-    time_step: int = 30
+    min_angle: float
+    time_step: int = 1
+    cut_buffer: int = 60
 
     def apply_block(self, block: core.Block) -> core.Blocks:
-        """Calculate the distance between a block and a sun block."""
-        if not isinstance(block, (inst.ScanBlock, src.SourceBlock)): return block
+        """This function defines how this rule transform a block. Currently
+        it only supports source and scan blocks. Other block types will be
+        automatically passed through.
 
+        """
+        if not isinstance(block, (inst.ScanBlock, src.SourceBlock)):
+            return block
+
+        # get locations of the Sun
         sun_block = src.block_get_matching_sun_block(block)
-        t, az_sun, alt_sun = sun_block.get_az_alt(time_step = dt.timedelta(seconds=self.time_step))
 
         if isinstance(block, inst.ScanBlock):
-            daz, dalt = ((block.az - az_sun) + 180) % 360 - 180, block.alt - alt_sun
-            daz, dalt = np.abs(daz) - block.throw, np.abs(dalt)
-        elif isinstance(block, src.SourceBlock):  # no throw for source blocks
-            az_interp, alt_interp = block.get_az_alt_interpolators()
-            az, alt = az_interp(t), alt_interp(t)
-            daz, dalt = ((az - az_sun) + 180) % 360 - 180, alt - alt_sun
-            daz, dalt = np.abs(daz), np.abs(dalt)
-        else:
-            raise ValueError("Unknown block type")
-        ok = np.logical_or(daz > self.min_angle_az, dalt > self.min_angle_alt)
-        safe_intervals = utils.ranges_complement(utils.ranges_pad(utils.mask2ranges(~ok), self.n_buffer, len(az_sun)), len(az_sun))
-        if len(safe_intervals) == 0: return None
-        # if the whole block is safe, return it
-        if np.all(safe_intervals[0] == [0, len(az_sun)]): return block
+            time_step = self.time_step
+        elif isinstance(block, src.SourceBlock):
+            time_step = 60  # source is slow
+
+        # calculate distance to the Sun
+        t, az_sun, alt_sun = sun_block.get_az_alt(time_step=time_step)
+        _, az_scan, alt_scan = block.get_az_alt(ctimes=t)
+        r = src.radial_distance(t, az_scan, alt_scan, az_sun, alt_sun)
+        ok = r > self.min_angle
+
+        # if the whole block is safe, nothing to do
+        if np.all(ok): return block
+
+        # find safe intervals
+        n_buffer = self.cut_buffer // time_step
+        safe_intervals = utils.ranges_complement(
+            utils.ranges_pad(
+                utils.mask2ranges(~ok),
+                n_buffer,
+                len(az_sun)),
+            len(az_sun))
+
+        # it's possible that adding the buffer will make entire block unsafe
+        if len(safe_intervals) == 0:
+            return None
+
+        # if the whole block is safe, return it (don't think it will happen here)
+        if np.all(safe_intervals[0] == [0, len(az_sun)]):
+            return block
+
         # otherwise, split it up into safe intervals
         return [block.replace(t0=utils.ct2dt(t[i0]), t1=utils.ct2dt(t[i1-1])) for i0, i1 in safe_intervals]
 
 @dataclass(frozen=True)
-class MakeSourceScan(MappableRule):
+class MakeSourceScan(core.MappableRule):
     """convert observing window to actual scan blocks and allow for
     rephasing of the block. Applicable to only ObservingWindow blocks.
     """
@@ -353,7 +350,7 @@ class MakeSourceScan(MappableRule):
         return scan
 
 @dataclass(frozen=True)
-class MakeCESourceScan(MappableRule):
+class MakeCESourceScan(core.MappableRule):
     """Transform SourceBlock into fixed-elevation ScanBlocks that support
     az drift mode.
    
@@ -405,11 +402,14 @@ RULES = {
     'az-range': AzRange,
 }
 def get_rule(name: str) -> core.Rule:
-    return RULES[name]
+    if name in RULES:
+        return RULES[name]
+    else:
+        raise ValueError(f"{name} is not a registered rule")
 
 def make_rule(name: str, **kwargs) -> core.Rule:
     assert name in RULES, f"unknown rule {name}"
     block_query = kwargs.pop('block_query', None)
     if block_query is not None:
-        return ConstrainedRule(make_rule(name, **kwargs), block_query)
+        return core.ConstrainedRule(make_rule(name, **kwargs), block_query)
     return get_rule(name)(**kwargs)

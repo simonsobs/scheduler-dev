@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from jax.tree_util import SequenceKey, DictKey
 import fnmatch
 
+second = 1
 minute = 60 # second
 hour = 60 * minute
 day = 24 * hour
@@ -45,6 +46,29 @@ def dt2ct(dtime):
             raise ValueError(f"dtime should be datetime or iterable, not {type(dtime)}")
 
 def mask2ranges(mask):
+    """
+    Convert a boolean mask to a set of ranges.
+
+    This function takes a boolean mask and returns an array of start and end indices
+    that define the true regions of the mask. Note that the end index is exclusive.
+
+    Parameters
+    ----------
+    mask : np.ndarray
+        A 1-D boolean mask.
+
+    Returns
+    -------
+    ranges : np.ndarray
+        2-D array of start and end indices for the true regions of the mask.
+
+    Examples
+    --------
+    >>> mask = np.array([0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0])
+    >>> mask2ranges(mask)
+    array([[2, 5],
+           [7, 11]])
+    """
     # handle a bunch of special cases first
     if len(mask) == 0: return np.empty((0, 2), dtype=int)
     if np.all(mask): return np.array([[0, len(mask)]], dtype=int)
@@ -74,6 +98,13 @@ def ranges_complement(ranges, imax):
     """return the complement ranges"""
     return mask2ranges(~ranges2mask(ranges, imax))
 
+def ranges_contain(ranges, x):
+    """is x within the ranges"""
+    return np.any((x >= ranges[:, 0]) * (x <= ranges[:, 1]))
+
+def ranges_intersect(ranges, r):
+    """find intersection between one range versus a set of ranges"""
+    return np.any((r[0] <= ranges[:, 1]) * (r[1] >= ranges[:, 0]))
 
 # convenience wrapper for interpolation: numpy-like scipy interpolate
 def interp_extra(x_new, x, y, fill_value='extrapolate'):
@@ -133,10 +164,24 @@ def uniform(key: PRNGKey, low=0.0, high=1.0, size=None):
 def daily_static_key(t: datetime):
     return PRNGKey((t.year, t.month, t.day))
 
-def pprint(seq):
+def pprint(seq, **kwargs):
     """pretty print"""
-    from equinox import tree_pprint
-    tree_pprint(seq)
+    print(pformat(seq, **kwargs))
+
+def pformat(seq, **kwargs):
+    """pretty format"""
+    from unittest.mock import patch
+    from dataclasses import is_dataclass
+    from equinox import tree_pformat
+    from schedlib.core import Block
+    # force is_dataclass to return False for Block
+    def _new_isdataclass(fun):
+        def wrapper(obj):
+            if isinstance(obj, Block): return False
+            else: return fun(obj)
+        return wrapper
+    with patch("dataclasses.is_dataclass", _new_isdataclass(is_dataclass)):
+        return tree_pformat(seq, **kwargs)
 
 # ====================
 # path related
@@ -196,3 +241,108 @@ def nested_update(dictionary, update_dict, new_keys_allowed=True):
             if key in dictionary or new_keys_allowed:
                 dictionary[key] = value
     return dictionary
+
+def round_robin(lists):
+    """
+    Iterate over several lists in a round-robin fashion.
+
+    This generator function takes a list of lists as input and yields elements from each list
+    in a round-robin order, cycling through the lists until all elements are exhausted.
+
+    Parameters
+    ----------
+    lists : list of lists
+        A list of lists from which elements will be yielded in a round-robin manner.
+
+    Yields
+    ------
+    element :
+        The next element in the round-robin sequence. The type of `element` depends on the
+        content of the input `lists`.
+
+    Examples
+    --------
+    >>> lists = [[1, 2, 3], ['a', 'b'], [10.1, 10.2]]
+    >>> for element in round_robin(lists):
+    ...     print(element)
+    ...
+    1
+    a
+    10.1
+    2
+    b
+    10.2
+    3
+
+    Notes
+    -----
+    - The function cycles through each list, yielding one element at a time from each list, before
+      moving to the next list in the sequence.
+    - If the lists are of unequal length, the function will continue cycling through the shorter lists
+      until all lists are fully exhausted.
+    - The function internally manages the index of each list to keep track of the next element to yield.
+      Once all elements from all lists have been yielded, the generator stops.
+
+    """
+    n = len(lists)  # Number of lists
+    idxs = [0] * n  # Index tracker for each list
+    while True:
+        for i in range(n):
+            if idxs[i] < len(lists[i]):
+                yield lists[i][idxs[i]]  # Yield the next element from the current list
+                idxs[i] += 1
+            elif all(idxs[i] >= len(lists[i]) for i in range(n)):
+                return
+            else:
+                continue  # Move to the next list if the current one is exhausted
+
+
+# ------------------
+# logging utils
+# ------------------
+
+def init_logger(name):
+    import logging, sys
+    logger = logging.getLogger(name)
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    ch = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s ')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    return logger
+
+def set_logging_level(level=2):
+    import logging
+    try:
+        level = {
+            1: logging.DEBUG,
+            2: logging.INFO,
+            3: logging.WARNING,
+            4: logging.ERROR,
+            5: logging.CRITICAL,
+            "debug": logging.DEBUG,
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+            "critical": logging.CRITICAL,
+        }[level]
+    except KeyError: pass
+
+    for logger_name in logging.Logger.manager.loggerDict:
+        if logger_name.startswith("schedlib"):
+            logging.getLogger(logger_name).setLevel(level)
+
+def set_verbosity(verbosity=2):
+    import logging
+
+    verbosity = {
+        0: logging.ERROR,
+        1: logging.WARNING,
+        2: logging.INFO,
+        3: logging.DEBUG,
+    }[verbosity]
+
+    for logger_name in logging.Logger.manager.loggerDict:
+        if logger_name.startswith("schedlib"):
+            logging.getLogger(logger_name).setLevel(verbosity)

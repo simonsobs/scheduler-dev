@@ -5,12 +5,11 @@ import datetime as dt
 from typing import List
 import jax.tree_util as tu
 
-from . import basic
 from .. import config as cfg, core, utils, source as src, rules as ru, commands as cmd, instrument as inst
 
 
 @dataclass(frozen=True)
-class FlexPolicy(basic.BasePolicy):
+class FlexPolicy(core.BasePolicy):
     """a flexible policy. `config` is a string yaml config *content*"""
     blocks: dict
     rules: List[core.Rule]
@@ -47,7 +46,7 @@ class FlexPolicy(basic.BasePolicy):
                 block_query = rule_cfg.pop('block_query')
                 rule = ru.MakeCESourceScan.from_config(rule_cfg)
                 if block_query is not None:
-                    rule = ru.ConstrainedRule(rule, block_query)
+                    rule = core.ConstrainedRule(rule, block_query)
             else:
                 rule = ru.make_rule(rule_name, **rule_cfg)
             rules += [rule]
@@ -98,24 +97,9 @@ class FlexPolicy(basic.BasePolicy):
 
         return core.seq_sort(seq)
 
-    def block2cmd(self, block: core.Block):
-        if isinstance(block, inst.ScanBlock):
-            return cmd.CompositeCommand([
-                    f"# {block.name}",
-                    cmd.Goto(block.az, block.alt),
-                    cmd.BiasDets(),
-                    cmd.Wait(block.t0),
-                    cmd.BiasStep(),
-                    cmd.Scan(block.name, block.t1, block.throw, block.az_drift),
-                    cmd.BiasStep(),
-                    "",
-            ])
-
     def seq2cmd(self, seq: core.Blocks):
         """map a scan to a command"""
-        commands = core.seq_flatten(core.seq_map(self.block2cmd, seq))
-        commands = [cmd.Preamble()] + commands
-        return cmd.CompositeCommand(commands)
+        raise NotImplementedError
 
     def get_drift_scans(self, t0, t1, el_bore, array_query):
         """a convenience function to build drift source scans from a policy.
