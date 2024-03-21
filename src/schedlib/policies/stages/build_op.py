@@ -27,6 +27,7 @@ class Aux: pass
 class MoveTo(Aux):
     az: float
     alt: float
+    subtype: str = "aux"
     def __repr__(self):
         return f"# move to az={self.az:.2f}"
 
@@ -35,9 +36,12 @@ class WaitUntil(Aux):
     t1: dt.datetime
     az: float
     alt: float
+    subtype: str = "aux"
     def __repr__(self):
         return f"# wait until {self.t1} at az = {self.az:.2f}"
 
+# full intermediate representation of operation used in this
+# build stage
 @dataclass(frozen=True)
 class IR(core.Block):
     name: str
@@ -54,11 +58,12 @@ class IR(core.Block):
         return f"{self.name[:15]:<15} ({self.subtype[:8]:<8}) az = {az}: {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}"
 
     def replace(self, **kwargs):
-        """link replace to the block it contains.
-        Note that when IR is produced, we assume no trimming needs
-        to happen, so we use dc_replace instead of super().replace which
-        accounts for trimming effect on drift scans. It is not necessary
-        here as we are merely solving for different unwraps for drift scan
+        """link `replace` in the wrapper block with the block it contains. 
+        Note that when IR is produced, we assume no trimming needs to happen, 
+        so we use `dc_replace` instead of `super().replace` which accounts for 
+        trimming effect on drift scans. It is not necessary here as we are 
+        merely solving for different unwraps for drift scan.
+
         """
         if self.block is not None:
             block_kwargs = {k: v for k, v in kwargs.items() if k in ['t0', 't1', 'az', 'alt']}
@@ -81,6 +86,22 @@ class IRMode:
 
 @dataclass(frozen=True)
 class BuildOp:
+    """
+    BuildOp represents the stage that converts ScanBlock into a schedule of
+    Operations (called intermediate representation, or `IR`, in this script).
+
+    Attributes
+    ----------
+    min_duration : float
+        parameter for min-duration rule: minimum duration of a block to schedule.
+    max_pass : int
+        Maximum number of attempts
+    plan_moves : Dict[str, Any]
+        Config dict for PlanMoves pass
+    simplify_moves : Dict[str, Any]
+        Config dict for SimplifyMoves pass
+
+    """
     min_duration: float = 1 * u.minute
     max_pass: int = 3
     plan_moves: Dict[str, Any] = field(default_factory=dict)
@@ -120,6 +141,7 @@ class BuildOp:
         # now we do lowering further into full ops
         logger.info(f"================ lowering (ops) ================")
         ir_ops = self.lower_ops(ir, init_state)
+        logger.info(u.pformat(ir_ops))
 
         logger.info(f"================ done ================")
 
@@ -331,7 +353,7 @@ class BuildOp:
                 op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Aux, 't1': ir.t1}]
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif isinstance(ir, MoveTo):
-                op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt}]
+                op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt, 'force': True}]  # aux move_to should be enforced
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif ir.subtype in [IRMode.PreSession, IRMode.PostSession]:
                 state, _, op_blocks = self._apply_ops(state, ir.operations, az=ir.az, alt=ir.alt)
@@ -601,7 +623,8 @@ class PlanMoves:
     az_limits: Tuple[float, float] = (-90, 450)
 
     def apply(self, seq):
-        """work with the IR from Prioritize to solve for sun-safe moves"""
+        """take a list of IR from BuildOp as input to solve for optimal sun-safe moves"""
+
         # compute sun safe az ranges for each block
         def f(block):
             sun_tracker = get_sun_tracker(u.dt2ct(block.t0), policy=self.sun_policy)  # TODO: allow policy updates
@@ -620,13 +643,14 @@ class PlanMoves:
             ranges = u.ranges_pad(ranges, 1, len(az_full))  # 1 sample tolerance
             az_ranges = [(az_full[r[0]], az_full[r[1]-1]) for r in ranges]
             return az_ranges
+
         seq = core.seq_sort(seq, flatten=True)
 
         # fill up gaps first
         gapfill = core.NamedBlock(name='_gap', t0=seq[0].t0, t1=seq[-1].t1)
         seq = core.seq_sort(core.seq_merge([gapfill], seq, flatten=True))
 
-        # replace _gap with proper IR and gives it proper pointing
+        # replace _gap with proper IR and give it proper pointing
         seq_ = []
         for i in range(len(seq)):
             block = seq[i]
@@ -744,6 +768,13 @@ class PlanMoves:
                         updated += [WaitUntil(t1=b.t0, az=az_seq[i-1], alt=seq_body[i-1].alt), MoveTo(az=az_seq[i], alt=b.alt), b]
                     else:
                         updated += [b]
+
+        # for every scan block, we add a move_to after it to make az deterministic
+        # otherwise if we start late, we don't know the phase of az at the end of
+        # the block so sun safety calculation can be wrong if the scan is wide enough.
+        updated = core.seq_flatten(
+            core.seq_map(lambda b: [b, MoveTo(az=b.az, alt=b.alt)] if b.subtype == IRMode.InBlock else [b], updated)
+        )
         updated = [seq[0]] + updated + [seq[-1]]
         return updated 
 
@@ -774,8 +805,7 @@ class SimplifyMoves:
                 return [i for i in ir if i != b]
             elif (isinstance(b1, IR) and b1.subtype == IRMode.Gap) and isinstance(b2, WaitUntil):
                 # gap followed by wait until will be replaced by the wait until
-                # return [(i if i != b1 else b1.replace(t1=b2.t1)) for i in ir if i != b2]
-                return ir
+                return [i for i in ir if i != b1]
         return ir
         
 
