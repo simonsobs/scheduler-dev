@@ -109,7 +109,7 @@ def preamble(hwp_cfg):
     "",
     "# HWP Params",
     "use_pid = True",
-    "forward = True",
+    f"forward = {hwp_cfg['forward']}",
     "hwp_freq = 2.0",
     "",
     "def HWPPrep():",
@@ -230,6 +230,7 @@ def preamble(hwp_cfg):
     "        print('CHWP stopped')",
     "    else:",
     "        print('Error: Not using PID')",
+    "",
     ]
 
 @cmd.operation(name='sat.ufm_relock', return_duration=True)
@@ -244,6 +245,7 @@ def ufm_relock(state):
     if doit:
         state = state.replace(last_ufm_relock=state.curr_time)
         return state, 15*u.minute, [
+            "############# Daily Relock",
             "for smurf in pysmurfs:",
             "    smurf.zero_biases.start()",
             "for smurf in pysmurfs:",
@@ -258,7 +260,7 @@ def ufm_relock(state):
         return state, 0, ["# no ufm relock needed at this time"]
 
 @cmd.operation(name='sat.hwp_spin_up', return_duration=True)
-def hwp_spin_up(state, disable_hwp=False):
+def hwp_spin_up(state, disable_hwp=False, forward=True):
     if disable_hwp:
         return state, 0, ["# hwp disabled"]
     elif state.hwp_spinning:
@@ -267,7 +269,7 @@ def hwp_spin_up(state, disable_hwp=False):
         state = state.replace(hwp_spinning=True)
         return state, 20*u.minute, [
             "HWPPrep()",
-            "forward = True",
+            f"forward = {forward}",
             "hwp_freq = 2.0",
             "HWPSpinUp()",
         ]
@@ -321,12 +323,14 @@ def det_setup(state, block, apply_boresight_rot=True):
 @cmd.operation(name='sat.cmb_scan', return_duration=True)
 def cmb_scan(state, block):
     commands = [
-        "run.seq.scan(",
-        f"    description='{block.name}',",
-        f"    stop_time='{block.t1.isoformat()}',",
-        f"    width={round(block.throw,3)}, az_drift=0,",
-        f"    subtype='cmb', tag='{block.tag}',",
-        ")",
+        f"scan_stop = {repr(block.t1)}",
+        f"if datetime.datetime.now(tz=UTC) < scan_stop - datetime.timedelta(minutes=10):",
+        "    run.seq.scan(",
+        f"        description='{block.name}',",
+        f"        stop_time='{block.t1.isoformat()}',",
+        f"        width={round(block.throw,3)}, az_drift=0,",
+        f"        subtype='cmb', tag='{block.tag}',",
+        "    )",
     ]
     return state, (block.t1 - state.curr_time).total_seconds(), commands
 
@@ -381,7 +385,7 @@ def setup_boresight(state, block, apply_boresight_rot=True):
 def bias_step(state, min_interval=10*u.minute):
     if state.last_bias_step is None or (state.curr_time - state.last_bias_step).total_seconds() > min_interval:
         state = state.replace(last_bias_step=state.curr_time)
-        return state, 60, [ "run.smurf.bias_step(concurrent=True)" ]
+        return state, 60, [ "run.smurf.bias_step(concurrent=True)", ]
     else:
         return state, 0, []
 
