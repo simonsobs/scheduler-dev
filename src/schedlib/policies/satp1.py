@@ -106,10 +106,10 @@ def make_cal_target(
 
     return CalTarget(
         source=source, 
-        array_query=array_focus[boresight][focus], 
+        array_query=focus_str, 
         el_bore=elevation, 
         boresight_rot=boresight, 
-        tag=array_focus[boresight][focus],
+        tag=focus_str,
         allow_partial=allow_partial,
         drift=drift
     )
