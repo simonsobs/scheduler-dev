@@ -773,7 +773,7 @@ class PlanMoves:
         # otherwise if we start late, we don't know the phase of az at the end of
         # the block so sun safety calculation can be wrong if the scan is wide enough.
         updated = core.seq_flatten(
-            core.seq_map(lambda b: [b, MoveTo(az=b.az, alt=b.alt)] if b.subtype == IRMode.InBlock else [b], updated)
+            core.seq_map(lambda b: [b, MoveTo(az=b.az, alt=b.alt)] if b.subtype == IRMode.PostBlock else [b], updated)
         )
         updated = [seq[0]] + updated + [seq[-1]]
         return updated 
