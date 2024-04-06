@@ -67,7 +67,7 @@ class BuildSched:
             indent = op_cfg.pop('indent', None)
 
             # not implemented now
-            op_cfg.pop('divider', None)
+            divider = op_cfg.pop('divider', None)
 
             # not needed now
             op_cfg.pop('sched_mode', None)
@@ -87,5 +87,8 @@ class BuildSched:
             duration += dur
             state = state.increment_time(dt.timedelta(seconds=dur))
             commands += command
+
+            if divider:
+                commands += divider
 
         return state, duration, commands 

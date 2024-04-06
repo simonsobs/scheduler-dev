@@ -183,7 +183,7 @@ def make_operations(
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, },
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
-        { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostObs, },
+        { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostObs, 'indent': 4, 'divider': ['']},
     ]
     post_session_ops = [
         { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
