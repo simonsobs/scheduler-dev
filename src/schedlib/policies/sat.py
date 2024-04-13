@@ -305,7 +305,7 @@ def det_setup(state, block, apply_boresight_rot=True):
             "",
             "################### Detector Setup######################",
             "run.smurf.take_bgmap(concurrent=True)",
-            "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
+            "run.smurf.iv_curve(concurrent=True, iv_kwargs={'run_serially': False, 'cool_wait': 60*5})",
             "run.smurf.bias_dets(concurrent=True)",
             "time.sleep(180)",
             "run.smurf.bias_step(concurrent=True)",
