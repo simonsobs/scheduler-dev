@@ -316,7 +316,7 @@ def det_setup(state, block, apply_boresight_rot=True):
             last_bias_step=state.curr_time,
             is_det_setup=True
         )
-        return state, 40*u.minute, commands
+        return state, 10*u.minute, commands
     else:
         return state, 0, []
 
