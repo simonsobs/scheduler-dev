@@ -130,7 +130,7 @@ class BuildOp:
         logger.info("step 1: solve sun-safe moves")
         ir = PlanMoves(**self.plan_moves).apply(ir)
 
-        # logger.info("step 2: simplify moves")
+        logger.info("step 2: simplify moves")
         ir = SimplifyMoves(**self.simplify_moves).apply(ir)
 
         # in full generality we should do some round-trips to make sure
@@ -215,7 +215,7 @@ class BuildOp:
             # cmb scans are just used to get the state right, no operations
             # are actually added to our list
             if block.subtype == 'cmb':
-                constraint = core.Block(t0=state.curr_time, t1=t1) # no future bound
+                constraint = core.Block(t0=state.curr_time, t1=block.t1)
                 state, _ = self._plan_block_operations(state, block, constraint, **cmb_ops)
             elif block.subtype == 'cal':
                 logger.info(f"-> planning cal block: {block}")
@@ -224,7 +224,7 @@ class BuildOp:
                 # from cmb scans, but we don't extend into previous cal block as they have equal
                 # priority, hence our constraint start from when last cal finishes and till the 
                 # end of schedule
-                constraint = core.Block(t0=cal_ref_state.curr_time, t1=t1) # no future bound
+                constraint = core.Block(t0=cal_ref_state.curr_time, t1=block.t1)
 
                 # start at the beginning of our constraint
                 state = state.replace(curr_time=constraint.t0)
@@ -283,7 +283,7 @@ class BuildOp:
             logger.debug(f"-> planning block ({block.subtype}): {block.name}: {block.t0} - {block.t1}")
             logger.debug(f"--> pre-block state: {u.pformat(state)}")
 
-            constraint = core.Block(t0=state.curr_time, t1=t1)
+            constraint = core.Block(t0=state.curr_time, t1=block.t1)
             logger.debug(f"--> causal constraint: {constraint.t0} to {constraint.t1}")
 
             if block.subtype == 'cmb':
@@ -747,8 +747,6 @@ class PlanMoves:
         assert len(moves) > 0, "unexpected exception, an exception should have been raised earlier"
         best_move = moves[0]
         logger.info(f"found a best move that deviates from original plan by {best_move[0]:.3f} degrees overall in az")
-
-        # u.pprint(best_move)
 
         # apply moves to the sequence
         # -> change az of each block in the sequence
