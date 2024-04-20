@@ -322,7 +322,7 @@ def det_setup(state, block, apply_boresight_rot=True, iv_cadence=None):
             is_det_setup=True,
             last_iv = state.curr_time,
         )
-        return state, 10*u.minute, commands
+        return state, 12*u.minute, commands
     else:
         return state, 0, []
 
