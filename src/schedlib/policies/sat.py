@@ -41,6 +41,7 @@ class State(cmd.State):
     hwp_spinning: bool = False
     last_ufm_relock: Optional[dt.datetime] = None
     last_bias_step: Optional[dt.datetime] = None
+    last_iv: Optional[dt.datetime] = None
     is_det_setup: bool = False
 
 
@@ -290,13 +291,16 @@ def hwp_spin_down(state, disable_hwp=False):
 
 # per block operation: block will be passed in as parameter
 @cmd.operation(name='sat.det_setup', return_duration=True)
-def det_setup(state, block, apply_boresight_rot=True):
+def det_setup(state, block, apply_boresight_rot=True, iv_cadence=None):
     # when should det setup be done?
     # -> should always be done if the block is a cal block
     # -> should always be done if elevation has changed
     # -> should always be done if det setup has not been done yet
+    # -> should be done at a regular interval if iv_cadence is not None
     # -> should always be done if boresight rotation has changed
-    doit = (block.subtype == 'cal') or (block.alt != state.el_now) or (not state.is_det_setup) 
+    doit = (block.subtype == 'cal') or (block.alt != state.el_now) 
+    doit = doit or (not state.is_det_setup) 
+    doit = doit or (iv_cadence is not None and ((state.last_iv is None) or ((state.curr_time - state.last_iv).total_seconds() > iv_cadence)))  
     if apply_boresight_rot and (block.boresight_angle != state.boresight_rot_now):
         doit = True
 
@@ -305,7 +309,8 @@ def det_setup(state, block, apply_boresight_rot=True):
             "",
             "################### Detector Setup######################",
             "run.smurf.take_bgmap(concurrent=True)",
-            "run.smurf.iv_curve(concurrent=False, settling_time=0.1)",
+            "run.smurf.iv_curve(concurrent=True, ",
+            "    iv_kwargs={'run_serially': False, 'cool_wait': 60*5})",
             "run.smurf.bias_dets(concurrent=True)",
             "time.sleep(180)",
             "run.smurf.bias_step(concurrent=True)",
@@ -314,9 +319,10 @@ def det_setup(state, block, apply_boresight_rot=True):
         ]
         state = state.replace(
             last_bias_step=state.curr_time,
-            is_det_setup=True
+            is_det_setup=True,
+            last_iv = state.curr_time,
         )
-        return state, 40*u.minute, commands
+        return state, 10*u.minute, commands
     else:
         return state, 0, []
 
