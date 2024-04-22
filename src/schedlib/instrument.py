@@ -9,18 +9,152 @@ from so3g.proj import quat
 
 from . import core, utils as u
 
+
 @dataclass(frozen=True)
 class ScanBlock(core.NamedBlock):
+    """
+    Dataclass representing a scan block.
+
+    Parameters
+    ----------
+    az : float
+        Azimuth angle in degrees.
+    alt : float
+        Altitude angle in degrees.
+    throw : float
+        Throw angle in degrees.
+    az_drift : float, optional
+        Azimuth drift rate in degrees per second (default is 0).
+    az_speed : float, optional
+        Azimuth speed in degrees per second (default is 1).
+    boresight_angle : float, optional
+        Boresight angle in degrees (default is None).
+    subtype : str, optional
+        Subtype of the scan block (default is an empty string).
+    tag : str, optional
+        Tag for the scan block (default is an empty string).
+    """
     az: float        # deg
     alt: float       # deg
     throw: float     # deg
     az_drift: float = 0. # deg / s
+    az_speed: float = 1. # deg / s
     boresight_angle: Optional[float] = None # deg
     subtype: str = ""
     tag: str = ""
 
+    def replace(self, **kwargs) -> "ScanBlock":
+        """
+        Update the parameters of the ScanBlock and ensure consistency between azimuth and drift when t0 is changed.
+
+        Parameters
+        ----------
+        kwargs : keyword arguments
+            Keyword arguments representing the parameters to update.
+
+        Returns
+        -------
+        ScanBlock
+            Updated ScanBlock object.
+
+        Notes
+        -----
+        Updating the t0 parameter will trigger the recalculation of azimuth (az) based on drift (az_drift) if it is not zero. 
+        If azimuth (az) is also provided in the kwargs, the consistency between azimuth and t0 will be checked.
+
+        """
+        # when t0 is changed, az should be updated to reflect the drift
+        if "t0" in kwargs and self.az_drift != 0:
+            new_az = (kwargs["t0"] - self.t0).total_seconds() * self.az_drift + self.az
+            if "az" in kwargs:
+                assert np.isclose(kwargs["az"], new_az), "inconsistent az and t0"
+            kwargs['az'] = new_az
+        return super().replace(**kwargs)
+
+    def get_az_alt(self, time_step=1, ctimes=None):
+        """
+        Calculate the azimuth and altitude for the scan block.
+
+        Parameters
+        ----------
+        time_step : float, optional
+            The time step between each calculated azimuth and altitude.
+            Default is 1.
+        ctimes : iterable, optional
+            A list of times to calculate the azimuth and altitude for.
+            Default is None, in which case the times are calculated
+            automatically. Otherwise time_step is ignored.
+
+        Returns
+        -------
+        t : numpy.ndarray
+            A 1D array of times.
+        az : numpy.ndarray
+            A 1D array of azimuths.
+        alt : numpy.ndarray
+            A 1D array of altitudes.
+
+        """
+        t0, t1 = u.dt2ct(self.t0), u.dt2ct(self.t1)
+
+        # allow passing in a list of ctimes
+        if ctimes is not None:
+            t = ctimes
+        else:
+            t = np.arange(t0, t1+time_step, time_step)  # inclusive
+
+        # find left and right az limits, accounting for drift
+        drift = self.az_drift * (t-t0)
+        left = self.az + drift
+        right = self.az + self.throw + drift
+
+        # calculate the phase of the scan, assuming it
+        # moves at a constant speed from az to az+throw
+        phase = (t - t0) / (self.throw / self.az_speed) % 2
+        phase[m] = 2 - phase[(m:=(phase>1))]
+        az = left*(1-phase) + right*phase
+        return t, az, az*0 + self.alt
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.name}, {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}, az={self.az:.2f}, el={self.alt:.2f}, throw={self.throw:.2f}, drift={self.az_drift:.5f}))"
+
 @dataclass(frozen=True)
-class IVBlock(core.NamedBlock): pass
+class StareBlock(ScanBlock):
+    throw: float = 0.
+
+    def get_az_alt(self, time_step=1, ctimes=None):
+        """
+        Calculate the azimuth and altitude for the scan block.
+
+        Parameters
+        ----------
+        time_step : float, optional
+            The time step between each calculated azimuth and altitude.
+            Default is 1.
+        ctimes : iterable, optional
+            A list of times to calculate the azimuth and altitude for.
+            Default is None, in which case the times are calculated
+            automatically. Otherwise time_step is ignored.
+
+        Returns
+        -------
+        t : numpy.ndarray
+            A 1D array of times.
+        az : numpy.ndarray
+            A 1D array of azimuths.
+        alt : numpy.ndarray
+            A 1D array of altitudes.
+
+        """
+        t0, t1 = u.dt2ct(self.t0), u.dt2ct(self.t1)
+
+        # allow passing in a list of ctimes
+        if ctimes is not None:
+            t = ctimes
+        else:
+            t = np.arange(t0, t1+time_step, time_step)  # inclusive
+
+        return t, t*0+self.az, t*0+self.alt
 
 # dummy type variable for readability
 Spec = TypeVar('Spec')
@@ -103,9 +237,17 @@ def parse_sequence_from_toast(ifile):
     """
     Parameters
     ----------
-    ifile: input master schedule from toast
+    ifile : str
+        Path to the input master schedule from toast.
+
+    Returns
+    -------
+    list of ScanBlock
+        List of ScanBlock objects parsed from the input file.
+
     """
     columns = ["start_utc", "stop_utc", "rotation", "patch", "az_min", "az_max", "el", "pass", "sub"]
+
     # count the number of lines to skip
     with open(ifile) as f:
         for i, l in enumerate(f):
@@ -123,6 +265,7 @@ def parse_sequence_from_toast(ifile):
             alt=row['el'],
             az=row['az_min'],
             throw=np.abs(row['az_max'] - row['az_min']),
+            boresight_angle=row['rotation'],
         )
         blocks.append(block)
     return blocks

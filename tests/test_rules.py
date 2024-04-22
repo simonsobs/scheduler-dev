@@ -76,10 +76,7 @@ def test_sun_avoidance():
     t1 = dt.datetime(2022, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc)
     blocks = src.source_get_blocks('sun', t0, t1)
     rule = rules.SunAvoidance(
-        min_angle_az = 3,
-        min_angle_alt = 3,
-        n_buffer = 0,
-        time_step = 30, 
+        min_angle = 30
     )
     assert len(blocks) == 6
     assert rule.apply(blocks) == [None] * len(blocks)

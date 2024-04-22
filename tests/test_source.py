@@ -31,7 +31,7 @@ def test_source_get_az_alt():
     # Test case 1: Verify azimuth and altitude values for a single time
     source = 'sun'
     times = [dt.datetime(2023, 1, 1, tzinfo=dt.timezone.utc)]
-    expected_az = [240.15972382]
+    expected_az = [-119.83992101]
     expected_alt = [-9.01748468]
     az, alt = src._source_get_az_alt(source, times)
     assert np.allclose(az, expected_az)
@@ -49,7 +49,7 @@ def test_source_get_az_alt():
         dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.timezone.utc),
         dt.datetime(2023, 1, 3, 0, 0, 0, tzinfo=dt.timezone.utc)
     ]
-    expected_az = [302.1017805 , 301.28101033, 300.48955533]
+    expected_az = [-57.8982195 , -58.71898967, -59.51044467]
     expected_alt = [52.57749508, 51.85943046, 51.13723016]
     az, alt = src._source_get_az_alt(source, times)
     assert np.allclose(az, expected_az)
@@ -141,7 +141,7 @@ def test_source_block_get_az_alt():
         name='uranus',
         mode='setting'
     )
-    times, az, alt = src.source_block_get_az_alt(srcblk)
-    assert len(times) == 67
+    times, az, alt = srcblk.get_az_alt(time_step=30)
+    assert len(times) == 69
     assert np.allclose(az[:5], [0.00580815, -0.18562059, -0.37705974, -0.56848984, -0.75989556])
     assert np.allclose(alt[:5], [51.01486071, 51.01468336, 51.01411836, 51.01316534, 51.01183098])

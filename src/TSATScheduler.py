@@ -72,7 +72,7 @@ def make_config(pos='top', elevation=50, caltype='beam',user_mvs=[]):
              '33':'5',
              '17':'6',
              }
-             
+
     ufms = {
         'left': ['ws3,ws2', 'Mv12Mv35'],
         'right': ['ws5,ws6', 'Mv17Mv33'],
@@ -94,7 +94,7 @@ def make_config(pos='top', elevation=50, caltype='beam',user_mvs=[]):
         wsstr=wsstr[:-1]
         mvstr=mvstr[:-1]
         ufms['userinput']=[wsstr,mvstr]
-            
+
     blocks = {
         'calibration': {
             'saturn': {
@@ -121,8 +121,7 @@ def make_config(pos='top', elevation=50, caltype='beam',user_mvs=[]):
         'baseline': {
             'cmb': {
                 'type': 'toast',
-                #'file': '/so/home/kmharrin/public_html/observation_scripts/baseline_schedule_20231031.txt'
-                'file': '/so/home/ykyohei/public_html/schedule/E60_A40_S2023-12-01_F2025-01-01_D-10_-40_L0.86_6.86_12.86_18.86_T65.00_M045_S045.txt'
+                'file': 'E60_A40_S2023-12-01_F2025-01-01_D-10_-40_L0.86_6.86_12.86_18.86_T65.00_M045_S045.txt'
             }
         }
     }
@@ -146,8 +145,7 @@ def make_config(pos='top', elevation=50, caltype='beam',user_mvs=[]):
         'geometries': geometries,
         'rules': {
             'sun-avoidance': {
-                'min_angle_az': 49, #keep-out angle, i.e. tells script not to build scans within 49 degrees of the sun
-                'min_angle_alt': 49,
+                'min_angle': 49, #keep-out angle, i.e. tells script not to build scans within 49 degrees of the sun
             },
             'min-duration': {
                 'min_duration': 600
@@ -178,7 +176,7 @@ if __name__ == '__main__':
     parser.add_argument('--output-dir','-o', type=str, default='./', help='output directory')
     parser.add_argument('--elevation',type=float,default=None,help='Run calibration schedules at a specific elevation.')
     parser.add_argument('--mvs',nargs='+',default=[],help='User input Mv list to observe; i.e. 5 27 23 will run center wafers.')
-    
+
     args = parser.parse_args()
     if not os.path.exists(args.output_dir):
         os.mkdir(args.output_dir)

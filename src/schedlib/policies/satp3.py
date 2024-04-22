@@ -425,4 +425,4 @@ class SATPolicy:
 
         commands += wrap_up
 
-        return cmd.CompositeCommand(commands)
+        return '\n'.join(commands)
