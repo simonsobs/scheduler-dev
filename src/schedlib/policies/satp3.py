@@ -222,7 +222,6 @@ def make_config(
             }
         }
     }
-    print('satp3 config', config)
     return config
 
 
