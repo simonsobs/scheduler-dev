@@ -150,7 +150,7 @@ def make_blocks(master_file):
 
 def make_operations(
     az_speed, az_accel, disable_hwp=False,
-    apply_boresight_rot=True, hwp_cfg=None, hwp_dir=True,
+    apply_boresight_rot=False, hwp_cfg=None, hwp_dir=True,
     iv_cadence=4*u.hour,
 ):
     if hwp_cfg is None:
