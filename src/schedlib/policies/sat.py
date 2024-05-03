@@ -95,14 +95,15 @@ class CalTarget:
 @cmd.operation(name="sat.preamble", duration=0)
 def preamble(hwp_cfg):
     return [
+    "from nextline import disable_trace",
     "import time",
     "import datetime",
     "",
-    "import numpy as np",
-    "import sorunlib as run",
-    "from ocs.ocs_client import OCSClient",
-    "",
-    "run.initialize()",
+    "with disable_trace():",
+    "    import numpy as np",
+    "    import sorunlib as run",
+    "    from ocs.ocs_client import OCSClient",
+    "    run.initialize()",
     "",
     "UTC = datetime.timezone.utc",
     "acu = run.CLIENTS['acu']",
