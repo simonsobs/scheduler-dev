@@ -2,9 +2,8 @@ import numpy as np
 from dataclasses import dataclass
 import datetime as dt
 
-from .. import source as src, utils as u
+from .. import source as src, utils as u, commands as cmd
 from .sat import SATPolicy, State, CalTarget
-from .. import commands as cmd
 from ..commands import SchedMode
 
 logger = u.init_logger(__name__)
