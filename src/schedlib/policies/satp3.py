@@ -2,7 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 import datetime as dt
 
-from .. import source as src, utils as u
+from .. import source as src, utils as u, commands as cmd
 from .sat import SATPolicy, State, CalTarget
 from ..commands import SchedMode
 
@@ -148,6 +148,42 @@ def make_blocks(master_file):
         },
     }
 
+@cmd.operation(name='satp3.det_setup', return_duration=True)
+def det_setup(state, block, apply_boresight_rot=False, iv_cadence=None):
+    # when should det setup be done?
+    # -> should always be done if the block is a cal block
+    # -> should always be done if elevation has changed
+    # -> should always be done if det setup has not been done yet
+    # -> should be done at a regular interval if iv_cadence is not None
+    # -> should always be done if boresight rotation has changed
+    doit = (block.subtype == 'cal') or (block.alt != state.el_now)
+    doit = doit or (not state.is_det_setup)
+    doit = doit or (iv_cadence is not None and ((state.last_iv is None) or ((state.curr_time - state.last_iv).total_seconds() > iv_cadence)))
+    if apply_boresight_rot and (block.boresight_angle != state.boresight_rot_now):
+        doit = True
+
+    if doit:
+        commands = [
+            "",
+            "################### Detector Setup######################",
+            "run.smurf.take_bgmap(concurrent=True)",
+            "run.smurf.iv_curve(concurrent=True)",
+            "for smurf in pysmurfs:",
+            "    smurf.bias_dets.start(rfrac=0.5, kwargs=dict(bias_groups=[0,1,2,3,4,5,6,7,8,9,10,11]))",
+            "time.sleep(300)",
+            "run.smurf.bias_step(concurrent=True)",
+            "#################### Detector Setup Over ####################",
+            "",
+        ]
+        state = state.replace(
+            last_bias_step=state.curr_time,
+            is_det_setup=True,
+            last_iv = state.curr_time,
+        )
+        return state, 12*u.minute, commands
+    else:
+        return state, 0, []
+
 def make_operations(
     az_speed, az_accel, disable_hwp=False,
     apply_boresight_rot=False, hwp_cfg=None, hwp_dir=True,
@@ -161,16 +197,13 @@ def make_operations(
         { 'name': 'set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
     ]
     cal_ops = [
-        { 'name': 'sat.setup_boresight' , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, },
-        { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, 'iv_cadence':iv_cadence},
-        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, },
+        { 'name': 'satp3.det_setup'     , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, },
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
         { 'name': 'sat.source_scan'     , 'sched_mode': SchedMode.InCal, },
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostCal, 'indent': 4},
     ]
     cmb_ops = [
-        { 'name': 'sat.setup_boresight' , 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot, },
-        { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot, 'iv_cadence':iv_cadence},
+        { 'name': 'satp3.det_setup'     , 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot, 'iv_cadence':iv_cadence},
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, },
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
