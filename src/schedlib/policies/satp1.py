@@ -167,12 +167,12 @@ def make_operations(
         hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper', 'forward':hwp_dir }
     pre_session_ops = [
         { 'name': 'sat.preamble'        , 'sched_mode': SchedMode.PreSession, 'hwp_cfg': hwp_cfg, },
+        { 'name': 'start_time'          ,'sched_mode': SchedMode.PreSession},
         { 'name': 'sat.ufm_relock'      , 'sched_mode': SchedMode.PreSession, },
         { 'name': 'set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
     ]
     cal_ops = [
         { 'name': 'sat.setup_boresight' , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, },
-        #{ 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, 'iv_cadence':iv_cadence },
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
         { 'name': 'sat.source_scan'     , 'sched_mode': SchedMode.InCal, },
@@ -197,6 +197,8 @@ def make_config(
     az_speed,
     az_accel,
     cal_targets,
+    iso_scan_speeds=None,
+    boresight_override=None,
     **op_cfg
 ):
     blocks = make_blocks(master_file)
@@ -220,6 +222,8 @@ def make_config(
         'operations': operations,
         'cal_targets': cal_targets,
         'scan_tag': None,
+        'iso_scan_speeds': iso_scan_speeds,
+        'boresight_override': boresight_override,
         'az_speed' : az_speed,
         'az_accel' : az_accel,
         'stages': {
@@ -227,7 +231,7 @@ def make_config(
                 'plan_moves': {
                     'sun_policy': sun_policy,
                     'az_step': 0.5,
-                    'az_limits': [-90, 450],
+                    'az_limits': [-45, 405],
                 }
             }
         }
@@ -245,8 +249,13 @@ def make_config(
 @dataclass
 class SATP1Policy(SATPolicy):
     @classmethod
-    def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5, cal_targets=[], **op_cfg):
-        return cls(**make_config(master_file, az_speed, az_accel, cal_targets, **op_cfg))
+    def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5, 
+        cal_targets=[], iso_scan_speeds=None, boresight_override=None, **op_cfg
+    ):
+        return cls(**make_config(
+            master_file, az_speed, az_accel, 
+            cal_targets, iso_scan_speeds, boresight_override, **op_cfg
+        ))
 
     def add_cal_target(self, *args, **kwargs):
         self.cal_targets.append(make_cal_target(*args, **kwargs))
@@ -257,6 +266,6 @@ class SATP1Policy(SATPolicy):
             curr_time=t0,
             az_now=180,
             el_now=48,
-            boresight_rot_now=0,
+            boresight_rot_now=None,
             hwp_spinning=False,
         )
