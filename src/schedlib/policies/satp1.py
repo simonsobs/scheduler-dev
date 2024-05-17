@@ -59,8 +59,8 @@ def make_geometry():
 
 def make_cal_target(
     source: str, 
-    boresight: int, 
-    elevation: int, 
+    boresight: float, 
+    elevation: float, 
     focus: str, 
     allow_partial=False,
     drift=True,
@@ -89,18 +89,18 @@ def make_cal_target(
         },
     }
 
-    boresight = int(boresight)
-    elevation = int(elevation)
+    boresight = float(boresight)
+    elevation = float(elevation)
     focus = focus.lower()
 
     focus_str = None
-    if boresight not in array_focus:
+    if int(boresight) not in array_focus:
         logger.warning(
             f"boresight not in {array_focus.keys()}, assuming {focus} is a wafer string"
         )
         focus_str = focus ##
     else:
-        focus_str = array_focus[boresight].get(focus, focus)
+        focus_str = array_focus[int(boresight)].get(focus, focus)
 
     assert source in src.SOURCES, f"source should be one of {src.SOURCES.keys()}"
 

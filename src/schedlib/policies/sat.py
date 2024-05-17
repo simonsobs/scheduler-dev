@@ -37,7 +37,7 @@ class State(cmd.State):
     is_det_setup : bool
         Whether the detectors have been set up or not.
     """
-    boresight_rot_now: int = 0
+    boresight_rot_now: float = 0
     hwp_spinning: bool = False
     last_ufm_relock: Optional[dt.datetime] = None
     last_bias_step: Optional[dt.datetime] = None
