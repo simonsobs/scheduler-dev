@@ -358,6 +358,12 @@ def wait_until(state, t1: dt.datetime):
         f"run.wait_until('{t1.isoformat()}')"
     ]
 
+@operation(name='start_time')
+def start_time(state):
+    return state, [
+        f"run.wait_until('{state.curr_time.isoformat()}')"
+    ]
+
 @operation(name="move_to", duration=0)
 def move_to(state, az, el, force=False):
     if not force and (state.az_now == az and state.el_now == el):

@@ -6,7 +6,7 @@ import yaml
 import os.path as op
 from dataclasses import dataclass, field
 import datetime as dt
-from typing import List, Union, Optional, Dict, Any
+from typing import List, Union, Optional, Dict, Any, Tuple
 import jax.tree_util as tu
 from functools import reduce
 
@@ -37,7 +37,7 @@ class State(cmd.State):
     is_det_setup : bool
         Whether the detectors have been set up or not.
     """
-    boresight_rot_now: int = 0
+    boresight_rot_now: float = 0
     hwp_spinning: bool = False
     last_ufm_relock: Optional[dt.datetime] = None
     last_bias_step: Optional[dt.datetime] = None
@@ -207,7 +207,21 @@ def det_setup(state, block, apply_boresight_rot=True, iv_cadence=None):
 
 @cmd.operation(name='sat.cmb_scan', return_duration=True)
 def cmb_scan(state, block):
-    commands = [
+    if (
+        block.az_speed != state.az_speed_now or 
+        block.az_accel != state.az_accel_now
+    ):
+        commands = [
+            f"run.acu.set_scan_params({block.az_speed}, {block.az_accel})"
+        ]
+        state = state.replace(
+            az_speed_now=block.az_speed, 
+            az_accel_now=block.az_accel
+        )
+    else:
+        commands = []
+
+    commands.extend([
         f"scan_stop = {repr(block.t1)}",
         f"if datetime.datetime.now(tz=UTC) < scan_stop - datetime.timedelta(minutes=10):",
         "    run.seq.scan(",
@@ -216,7 +230,7 @@ def cmb_scan(state, block):
         f"        width={round(block.throw,3)}, az_drift=0,",
         f"        subtype='cmb', tag='{block.tag}',",
         "    )",
-    ]
+    ])
     return state, (block.t1 - state.curr_time).total_seconds(), commands
 
 @cmd.operation(name='sat.source_scan', return_duration=True)
@@ -224,8 +238,22 @@ def source_scan(state, block):
     block = block.trim_left_to(state.curr_time)
     if block is None:
         return state, 0, ["# too late, don't scan"]
+    if (
+        block.az_speed != state.az_speed_now or 
+        block.az_accel != state.az_accel_now
+    ):
+        commands = [
+            f"run.acu.set_scan_params({block.az_speed}, {block.az_accel})"
+        ]
+        state = state.replace(
+            az_speed_now=block.az_speed, 
+            az_accel_now=block.az_accel
+        )
+    else:
+        commands = []
+    
     state = state.replace(az_now=block.az, el_now=block.alt)
-    return state, block.duration.total_seconds(), [
+    commands.extend([
         "now = datetime.datetime.now(tz=UTC)",
         f"scan_start = {repr(block.t0)}",
         f"scan_stop = {repr(block.t1)}",
@@ -251,14 +279,17 @@ def source_scan(state, block):
         f"        subtype='{block.subtype}',",
         f"        tag='{block.tag}',",
         "    )",
-    ]
+    ])
+    return state, block.duration.total_seconds(), commands
 
 @cmd.operation(name='sat.setup_boresight', return_duration=True)
 def setup_boresight(state, block, apply_boresight_rot=True):
     commands = []
     duration = 0
 
-    if apply_boresight_rot and state.boresight_rot_now != block.boresight_angle:
+    if apply_boresight_rot and (
+            state.boresight_rot_now is None or state.boresight_rot_now != block.boresight_angle
+        ):
         commands += [f"run.acu.set_boresight({block.boresight_angle})"]
         state = state.replace(boresight_rot_now=block.boresight_angle)
         duration += 1*u.minute
@@ -316,6 +347,8 @@ class SATPolicy:
     cal_targets: List[CalTarget] = field(default_factory=list)
     cal_policy: str = 'round-robin'
     scan_tag: Optional[str] = None
+    iso_scan_speeds: Optional =None
+    boresight_override: Optional[float] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
     allow_az_maneuver: bool = True
@@ -366,7 +399,14 @@ class SATPolicy:
             if loader_cfg['type'] == 'source':
                 return src.source_gen_seq(loader_cfg['name'], t0, t1)
             elif loader_cfg['type'] == 'toast':
-                return inst.parse_sequence_from_toast(loader_cfg['file'])
+                blocks = inst.parse_sequence_from_toast(loader_cfg['file'])
+                if self.boresight_override is not None:
+                    blocks = core.seq_map(
+                        lambda b: b.replace(
+                            boresight_angle=self.boresight_override
+                        ), blocks
+                    )
+                return blocks
             else:
                 raise ValueError(f"unknown sequence type: {loader_cfg['type']}")
 
@@ -385,7 +425,7 @@ class SATPolicy:
             lambda b: isinstance(b, inst.ScanBlock),
             lambda b: b.replace(az_speed=self.az_speed),
             blocks
-        )
+        )   
 
         # trim to given time range
         blocks = core.seq_trim(blocks, t0, t1)
@@ -483,7 +523,11 @@ class SATPolicy:
 
             # add tags to the scans
             cal_blocks.append(core.seq_map(
-                lambda block: block.replace(tag=f"{block.tag},{target.tag}"),
+                lambda block: block.replace(
+                                az_speed = self.az_speed,
+                                az_accel = self.az_accel,
+                                tag=f"{block.tag},{target.tag}"
+                            ),
                 source_scans
             ))
 
@@ -543,6 +587,19 @@ class SATPolicy:
             )
 
         blocks = core.seq_sort(blocks['baseline']['cmb'] + blocks['calibration'], flatten=True)
+
+        # alternate scan speeds for ISO testing
+        # run after flattening to presume order is set
+        if self.iso_scan_speeds is not None:
+            self.c = 0
+            def iso_set(block):
+                if block.subtype != 'cmb':
+                    return block
+                v,a = self.iso_scan_speeds[ self.c % len(self.iso_scan_speeds)]
+                self.c += 1
+                return block.replace(az_speed=v, az_accel=a)
+            blocks = core.seq_map(iso_set, blocks)
+            del self.c
 
         return blocks
 

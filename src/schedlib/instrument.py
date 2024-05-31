@@ -27,6 +27,8 @@ class ScanBlock(core.NamedBlock):
         Azimuth drift rate in degrees per second (default is 0).
     az_speed : float, optional
         Azimuth speed in degrees per second (default is 1).
+    az_accel : float, optional
+        Azimuth acceleration in degrees per second squared (default is 2).
     boresight_angle : float, optional
         Boresight angle in degrees (default is None).
     subtype : str, optional
@@ -39,6 +41,7 @@ class ScanBlock(core.NamedBlock):
     throw: float     # deg
     az_drift: float = 0. # deg / s
     az_speed: float = 1. # deg / s
+    az_accel: float = 2. # deg / s**2
     boresight_angle: Optional[float] = None # deg
     subtype: str = ""
     tag: str = ""
