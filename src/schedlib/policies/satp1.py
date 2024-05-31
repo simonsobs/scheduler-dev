@@ -2,6 +2,8 @@ import numpy as np
 from dataclasses import dataclass
 import datetime as dt
 
+from typing import Optional
+
 from .. import source as src, utils as u
 from .sat import SATPolicy, State, CalTarget
 from ..commands import SchedMode
@@ -254,20 +256,30 @@ def make_config(
 
 @dataclass
 class SATP1Policy(SATPolicy):
+    state_file: Optional[str] = None
+
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5, 
-        cal_targets=[], iso_scan_speeds=None, boresight_override=None, **op_cfg
+        cal_targets=[], iso_scan_speeds=None, boresight_override=None, 
+        state_file=None, **op_cfg
     ):
-        return cls(**make_config(
+        x = cls(**make_config(
             master_file, az_speed, az_accel, 
             cal_targets, iso_scan_speeds, boresight_override, **op_cfg
         ))
+        x.state_file=state_file
+        return x
 
     def add_cal_target(self, *args, **kwargs):
         self.cal_targets.append(make_cal_target(*args, **kwargs))
 
     def init_state(self, t0: dt.datetime) -> State:
         """customize typical initial state for satp1, if needed"""
+        if self.state_file is not None:
+            logger.info(f"using state from {self.state_file}")
+            state = State.load(self.state_file)
+            return state
+
         return State(
             curr_time=t0,
             az_now=180,
