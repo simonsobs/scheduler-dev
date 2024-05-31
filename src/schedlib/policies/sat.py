@@ -5,6 +5,8 @@ import numpy as np
 import yaml
 import os.path as op
 from dataclasses import dataclass, field
+from dataclasses_json import dataclass_json
+
 import datetime as dt
 from typing import List, Union, Optional, Dict, Any, Tuple
 import jax.tree_util as tu
@@ -17,6 +19,7 @@ from .stages import get_build_stage
 
 logger = u.init_logger(__name__)
 
+@dataclass_json
 @dataclass(frozen=True)
 class State(cmd.State):
     """
@@ -122,7 +125,10 @@ def ufm_relock(state):
         doit = False
 
     if doit:
-        state = state.replace(last_ufm_relock=state.curr_time)
+        state = state.replace(
+            last_ufm_relock=state.curr_time,
+            is_det_setup=False,
+        )
         return state, 15*u.minute, [
             "############# Daily Relock",
             "for smurf in pysmurfs:",
@@ -631,7 +637,8 @@ class SATPolicy:
         seq, 
         t0: dt.datetime, 
         t1: dt.datetime, 
-        state: Optional[State] = None
+        state: Optional[State] = None,
+        return_state: bool = False,
     ) -> List[Any]:
         """
         Converts a sequence of blocks into a list of commands to be executed
@@ -665,7 +672,9 @@ class SATPolicy:
 
         # load building stage
         build_op = get_build_stage('build_op', **self.stages.get('build_op', {}))
-        ops = build_op.apply(seq, t0, t1, state, self.operations)
+        ops, state = build_op.apply(seq, t0, t1, state, self.operations)
+        if return_state:
+            return ops, state
         return ops
 
     def cmd2txt(self, irs, t0, t1, state=None):
