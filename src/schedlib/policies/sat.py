@@ -164,7 +164,7 @@ def hwp_spin_down(state, disable_hwp=False):
     else:
         state = state.replace(hwp_spinning=False)
         return state, 10*u.minute, [
-            "run.hwp.stop(active=True)",
+            "run.hwp.stop(active=True, brake_voltage=31)",
             "sup.disable_driver_board()",
         ]
 
