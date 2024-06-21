@@ -168,7 +168,7 @@ def make_operations(
     if hwp_cfg is None:
         hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper', 'forward':hwp_dir }
     pre_session_ops = [
-        { 'name': 'sat.preamble'        , 'sched_mode': SchedMode.PreSession, 'hwp_cfg': hwp_cfg, },
+        { 'name': 'sat.preamble'        , 'sched_mode': SchedMode.PreSession},
         { 'name': 'start_time'          ,'sched_mode': SchedMode.PreSession},
         { 'name': 'set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
     ]
@@ -205,7 +205,6 @@ def make_config(
     az_speed,
     az_accel,
     cal_targets,
-    iso_scan_speeds=None,
     boresight_override=None,
     **op_cfg
 ):
@@ -230,7 +229,6 @@ def make_config(
         'operations': operations,
         'cal_targets': cal_targets,
         'scan_tag': None,
-        'iso_scan_speeds': iso_scan_speeds,
         'boresight_override': boresight_override,
         'az_speed' : az_speed,
         'az_accel' : az_accel,
@@ -260,12 +258,12 @@ class SATP1Policy(SATPolicy):
 
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5, 
-        cal_targets=[], iso_scan_speeds=None, boresight_override=None, 
+        cal_targets=[], boresight_override=None, 
         state_file=None, **op_cfg
     ):
         x = cls(**make_config(
             master_file, az_speed, az_accel, 
-            cal_targets, iso_scan_speeds, boresight_override, **op_cfg
+            cal_targets, boresight_override, **op_cfg
         ))
         x.state_file=state_file
         return x
@@ -278,6 +276,12 @@ class SATP1Policy(SATPolicy):
         if self.state_file is not None:
             logger.info(f"using state from {self.state_file}")
             state = State.load(self.state_file)
+            if state.curr_time < t0:
+                logger.info(
+                    f"Loaded state is at {state.curr_time}. Updating time to"
+                    f" {t0}"
+                )
+                state = state.replace(curr_time = t0)
             return state
 
         return State(

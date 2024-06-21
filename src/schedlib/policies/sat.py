@@ -44,7 +44,12 @@ class State(cmd.State):
     hwp_spinning: bool = False
     last_ufm_relock: Optional[dt.datetime] = None
     last_bias_step: Optional[dt.datetime] = None
+    last_bias_step_boresight: Optional[float] = None
+    last_bias_step_elevation: Optional[float] = None
     last_iv: Optional[dt.datetime] = None
+    last_iv_boresight: Optional[float] = None
+    last_iv_elevation: Optional[float] = None
+    # relock sets to false, tracks if detectors are biased at all
     is_det_setup: bool = False
 
 
@@ -96,7 +101,7 @@ class CalTarget:
 #      return state, 10, ["do something"]
 
 @cmd.operation(name="sat.preamble", duration=0)
-def preamble(hwp_cfg):
+def preamble():
     return [
     "from nextline import disable_trace",
     "import time",
@@ -183,11 +188,24 @@ def det_setup(state, block, apply_boresight_rot=True, iv_cadence=None):
     # -> should always be done if det setup has not been done yet
     # -> should be done at a regular interval if iv_cadence is not None
     # -> should always be done if boresight rotation has changed
-    doit = (block.subtype == 'cal') or (block.alt != state.el_now) 
-    doit = doit or (not state.is_det_setup) 
-    doit = doit or (iv_cadence is not None and ((state.last_iv is None) or ((state.curr_time - state.last_iv).total_seconds() > iv_cadence)))  
-    if apply_boresight_rot and (block.boresight_angle != state.boresight_rot_now):
-        doit = True
+    doit = (block.subtype == 'cal')
+    doit = doit or (not state.is_det_setup) or (state.last_iv is None)
+    if not doit:
+        if state.last_iv_elevation is not None:
+            doit = doit or ( 
+                not np.isclose(state.last_iv_elevation, block.alt, atol=1)
+            )
+        if apply_boresight_rot and state.last_iv_boresight is not None:
+            doit = doit or ( 
+                not np.isclose(
+                    state.last_iv_boresight,
+                    block.boresight_angle,
+                    atol=1
+                )
+            )
+        if iv_cadence is not None:
+            time_since_last = (state.curr_time - state.last_iv).total_seconds()
+            doit = doit or (time_since_last > iv_cadence)  
 
     if doit:
         commands = [
@@ -203,9 +221,13 @@ def det_setup(state, block, apply_boresight_rot=True, iv_cadence=None):
             "",
         ]
         state = state.replace(
-            last_bias_step=state.curr_time,
             is_det_setup=True,
             last_iv = state.curr_time,
+            last_bias_step=state.curr_time,
+            last_iv_elevation = block.alt,
+            last_iv_boresight = block.boresight_angle,
+            last_bias_step_elevation = block.alt,
+            last_bias_step_boresight = block.boresight_angle,
         )
         return state, 12*u.minute, commands
     else:
@@ -304,9 +326,35 @@ def setup_boresight(state, block, apply_boresight_rot=True):
 
 # passthrough any arguments, to be used in any sched-mode
 @cmd.operation(name='sat.bias_step', return_duration=True)
-def bias_step(state, min_interval=10*u.minute):
-    if state.last_bias_step is None or (state.curr_time - state.last_bias_step).total_seconds() > min_interval:
-        state = state.replace(last_bias_step=state.curr_time)
+def bias_step(state, block, min_interval=10*u.minute):
+    doit = state.last_bias_step is None
+    if not doit:
+        time_since = (state.curr_time - state.last_bias_step).total_seconds()
+        doit = doit or (time_since > min_interval)
+        
+        if state.last_bias_step_elevation is not None:
+            doit = doit or ( 
+                not np.isclose(
+                    state.last_bias_step_elevation, 
+                    block.alt,
+                    atol=1
+                )
+            )
+        if state.last_bias_step_boresight is not None:
+            doit = doit or ( 
+                not np.isclose(
+                    state.last_bias_step_boresight,
+                    block.boresight_angle,
+                    atol=1
+                )
+            )
+    
+    if doit :
+        state = state.replace(
+            last_bias_step=state.curr_time,
+            last_bias_step_elevation = block.alt,
+            last_bias_step_boresight = block.boresight_angle,
+        )
         return state, 60, [ "run.smurf.bias_step(concurrent=True)", ]
     else:
         return state, 0, []
@@ -353,7 +401,6 @@ class SATPolicy:
     cal_targets: List[CalTarget] = field(default_factory=list)
     cal_policy: str = 'round-robin'
     scan_tag: Optional[str] = None
-    iso_scan_speeds: Optional =None
     boresight_override: Optional[float] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
@@ -429,7 +476,7 @@ class SATPolicy:
         # update az speed in scan blocks
         blocks = core.seq_map_when(
             lambda b: isinstance(b, inst.ScanBlock),
-            lambda b: b.replace(az_speed=self.az_speed),
+            lambda b: b.replace(az_speed=self.az_speed,az_accel=self.az_accel),
             blocks
         )   
 
@@ -593,19 +640,6 @@ class SATPolicy:
             )
 
         blocks = core.seq_sort(blocks['baseline']['cmb'] + blocks['calibration'], flatten=True)
-
-        # alternate scan speeds for ISO testing
-        # run after flattening to presume order is set
-        if self.iso_scan_speeds is not None:
-            self.c = 0
-            def iso_set(block):
-                if block.subtype != 'cmb':
-                    return block
-                v,a = self.iso_scan_speeds[ self.c % len(self.iso_scan_speeds)]
-                self.c += 1
-                return block.replace(az_speed=v, az_accel=a)
-            blocks = core.seq_map(iso_set, blocks)
-            del self.c
 
         return blocks
 
