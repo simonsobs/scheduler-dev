@@ -142,7 +142,7 @@ def ufm_relock(state):
             "    smurf.zero_biases.wait()",
             "",
             "time.sleep(120)",
-            "run.smurf.take_noise(concurrent=True, tag='oper,take_noise,res_check')",
+            "run.smurf.take_noise(concurrent=True, tag='res_check')",
             "run.smurf.uxm_relock(concurrent=True)",
             "",
         ]
@@ -212,11 +212,13 @@ def det_setup(state, block, apply_boresight_rot=True, iv_cadence=None):
             "",
             "################### Detector Setup######################",
             "run.smurf.take_bgmap(concurrent=True)",
+            "run.smurf.take_noise(concurrent=True, tag='res_check')",
             "run.smurf.iv_curve(concurrent=True, ",
             "    iv_kwargs={'run_serially': False, 'cool_wait': 60*5})",
             "run.smurf.bias_dets(concurrent=True)",
             "time.sleep(180)",
             "run.smurf.bias_step(concurrent=True)",
+            "run.smurf.take_noise(concurrent=True, tag='bias_check')",
             "#################### Detector Setup Over ####################",
             "",
         ]
