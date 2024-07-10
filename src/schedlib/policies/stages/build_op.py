@@ -666,6 +666,11 @@ class PlanMoves:
         sun_intervals = core.seq_map(f, seq_body) 
 
         def get_az_options(ir: IR, sints: List[Tuple[float, float]]) -> List[float]:
+            if ir.subtype == IRMode.InBlock:
+                return [ir.block.az]
+            return [ir.az]
+
+        def xxx_get_az_options(ir: IR, sints: List[Tuple[float, float]]) -> List[float]:
             """As our goal is to find az movement plan that minimally deviates 
             from original plan, this resembles a linear programming problem, so
             the optimal solution will lie in one of the vertices of the feasible 

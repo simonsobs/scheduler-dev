@@ -99,6 +99,8 @@ class ScanBlock(core.NamedBlock):
 
         """
         t0, t1 = u.dt2ct(self.t0), u.dt2ct(self.t1)
+        # Additional buffer distance for turn-arounds (like ACU Agent)
+        turn = self.az_speed**2 / self.az_accel
 
         # allow passing in a list of ctimes
         if ctimes is not None:
@@ -108,8 +110,8 @@ class ScanBlock(core.NamedBlock):
 
         # find left and right az limits, accounting for drift
         drift = self.az_drift * (t-t0)
-        left = self.az + drift
-        right = self.az + self.throw + drift
+        left = self.az + drift - turn
+        right = self.az + self.throw + drift + turn
 
         # calculate the phase of the scan, assuming it
         # moves at a constant speed from az to az+throw
