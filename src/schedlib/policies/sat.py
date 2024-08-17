@@ -181,7 +181,7 @@ def hwp_spin_down(state, disable_hwp=False):
 
 # per block operation: block will be passed in as parameter
 @cmd.operation(name='sat.det_setup', return_duration=True)
-def det_setup(state, block, apply_boresight_rot=True, iv_cadence=None):
+def det_setup(state, block, commands=None, apply_boresight_rot=True, iv_cadence=None):
     # when should det setup be done?
     # -> should always be done if the block is a cal block
     # -> should always be done if elevation has changed
@@ -192,11 +192,11 @@ def det_setup(state, block, apply_boresight_rot=True, iv_cadence=None):
     doit = doit or (not state.is_det_setup) or (state.last_iv is None)
     if not doit:
         if state.last_iv_elevation is not None:
-            doit = doit or ( 
+            doit = doit or (
                 not np.isclose(state.last_iv_elevation, block.alt, atol=1)
             )
         if apply_boresight_rot and state.last_iv_boresight is not None:
-            doit = doit or ( 
+            doit = doit or (
                 not np.isclose(
                     state.last_iv_boresight,
                     block.boresight_angle,
@@ -205,23 +205,24 @@ def det_setup(state, block, apply_boresight_rot=True, iv_cadence=None):
             )
         if iv_cadence is not None:
             time_since_last = (state.curr_time - state.last_iv).total_seconds()
-            doit = doit or (time_since_last > iv_cadence)  
+            doit = doit or (time_since_last > iv_cadence)
 
     if doit:
-        commands = [
-            "",
-            "################### Detector Setup######################",
-            "run.smurf.take_bgmap(concurrent=True)",
-            "run.smurf.take_noise(concurrent=True, tag='res_check')",
-            "run.smurf.iv_curve(concurrent=True, ",
-            "    iv_kwargs={'run_serially': False, 'cool_wait': 60*5})",
-            "run.smurf.bias_dets(concurrent=True)",
-            "time.sleep(180)",
-            "run.smurf.bias_step(concurrent=True)",
-            "run.smurf.take_noise(concurrent=True, tag='bias_check')",
-            "#################### Detector Setup Over ####################",
-            "",
-        ]
+        if commands is None:
+            commands = [
+                "",
+                "################### Detector Setup######################",
+                "run.smurf.take_bgmap(concurrent=True)",
+                "run.smurf.take_noise(concurrent=True, tag='res_check')",
+                "run.smurf.iv_curve(concurrent=True, ",
+                "    iv_kwargs={'run_serially': False, 'cool_wait': 60*5})",
+                "run.smurf.bias_dets(concurrent=True)",
+                "time.sleep(180)",
+                "run.smurf.bias_step(concurrent=True)",
+                "run.smurf.take_noise(concurrent=True, tag='bias_check')",
+                "#################### Detector Setup Over ####################",
+                "",
+            ]
         state = state.replace(
             is_det_setup=True,
             last_iv = state.curr_time,
