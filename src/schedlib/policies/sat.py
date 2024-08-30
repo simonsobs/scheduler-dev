@@ -62,7 +62,9 @@ class CalTarget:
     boresight_rot: float = 0
     allow_partial: bool = False
     drift: bool = True
-    az_branch: float = None
+    az_branch: Optional[float] = None
+    az_speed: Optional[float]= None
+    az_accel: Optional[float] = None
 
 # ----------------------------------------------------
 #                  Register operations
@@ -598,8 +600,8 @@ class SATPolicy:
 
             # add tags to the scans
             cal_blocks += source_scans[0].replace(
-                az_speed = self.az_speed,
-                az_accel = self.az_accel,
+                az_speed = target.az_speed if target.az_speed is not None else self.az_speed,
+                az_accel = target.az_accel if target.az_accel is not None else self.az_accel,
                 tag=f"{source_scans[0].tag},{target.tag}"
             )
 
