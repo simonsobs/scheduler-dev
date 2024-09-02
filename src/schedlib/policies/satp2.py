@@ -221,7 +221,7 @@ def make_config(
         **op_cfg
     )
 
-    sun_policy = { 'min_angle': 41, 'min_sun_time': 1980 }
+    sun_policy = { 'min_angle': 49, 'min_sun_time': 1980 }
 
     config = {
         'blocks': blocks,
