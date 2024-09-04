@@ -168,7 +168,7 @@ def make_blocks(master_file):
 def make_operations(
     az_speed, az_accel, disable_hwp=False, 
     apply_boresight_rot=True, hwp_cfg=None, hwp_dir=True,
-    iv_cadence=4*u.hour, stow_at_end=False, run_relock=False
+    iv_cadence=4*u.hour, home_at_end=False, run_relock=False
 ):
     if hwp_cfg is None:
         hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper', 'forward':hwp_dir }
@@ -196,10 +196,10 @@ def make_operations(
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostObs, 'indent': 4, 'divider': ['']},
     ]
-    if stow_at_end:
+    if home_at_end:
         post_session_ops = [
             { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
-            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 50},
+            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 60},
         ]
     else:
         post_session_ops = []

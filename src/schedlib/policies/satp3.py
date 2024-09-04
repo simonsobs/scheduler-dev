@@ -169,15 +169,20 @@ commands_det_setup = [
 def make_operations(
     az_speed, az_accel, disable_hwp=False,
     apply_boresight_rot=False, hwp_cfg=None, hwp_dir=True,
-    iv_cadence=4*u.hour,
+    iv_cadence=4*u.hour, home_at_end=False, run_relock=False,
 ):
     if hwp_cfg is None:
         hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper', 'forward':hwp_dir }
+
     pre_session_ops = [
         { 'name': 'sat.preamble'        , 'sched_mode': SchedMode.PreSession, },
-        { 'name': 'sat.ufm_relock'      , 'sched_mode': SchedMode.PreSession, },
+        { 'name': 'start_time'          ,'sched_mode': SchedMode.PreSession},
         { 'name': 'set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
     ]
+    if run_relock:
+        pre_session_ops += [
+            { 'name': 'sat.ufm_relock'      , 'sched_mode': SchedMode.PreSession, }
+        ]
     cal_ops = [
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'commands': commands_det_setup, 'apply_boresight_rot': apply_boresight_rot, },
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
@@ -191,10 +196,13 @@ def make_operations(
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostObs, 'indent': 4, 'divider': ['']},
     ]
-    post_session_ops = [
-        { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
-        { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 60},
-    ]
+    if home_at_end:
+        post_session_ops = [
+            { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
+            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 60},
+        ]
+    else:
+        post_session_ops = []
     return pre_session_ops + cal_ops + cmb_ops + post_session_ops
 
 def make_config(
@@ -202,6 +210,7 @@ def make_config(
     az_speed,
     az_accel,
     cal_targets,
+    boresight_override=None,
     **op_cfg
 ):
     blocks = make_blocks(master_file)
@@ -210,6 +219,9 @@ def make_config(
         az_speed, az_accel,
         **op_cfg
     )
+
+    if boresight_override is not None:
+        logger.warning("Boresight Override does nothing for SATp3")
 
     sun_policy = { 'min_angle': 49, 'min_sun_time': 1980 }
 
@@ -250,8 +262,15 @@ def make_config(
 @dataclass
 class SATP3Policy(SATPolicy):
     @classmethod
-    def from_defaults(cls, master_file, az_speed=0.5, az_accel=0.25, cal_targets=[], **op_cfg):
-        return cls(**make_config(master_file, az_speed, az_accel, cal_targets, **op_cfg))
+    def from_defaults(cls, master_file, az_speed=0.5, az_accel=0.25,
+        cal_targets=[], state_file=None, **op_cfg
+    ):
+        x = cls(**make_config(
+            master_file, az_speed, az_accel, 
+            cal_targets, **op_cfg)
+        )
+        x.state_file = state_file
+        return x
 
     def add_cal_target(self, *args, **kwargs):
         self.cal_targets.append(make_cal_target(*args, **kwargs))
