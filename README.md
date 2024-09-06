@@ -27,3 +27,6 @@ The basic task of scheduler is to take sequences of planned observations, optimi
 3. convert the sequence of blocks into a sequence of commands to operate the telescope.
 
 A `Policy` defines how this three-step process is orchastrated. In other words, a policy defines how sequences of `Blocks` get transformed into commands. Step 1 is implemented with `Policy.init_seq`, step 2 is implemented with `Policy.apply`, and step 3 is implemented with `Policy.seq2cmd`. Different policies can be implemented to correspond to the needs of different instruments. 
+
+## Usage
+[Confluence link for instructions on setting up and using scheduler](https://simonsobs.atlassian.net/wiki/spaces/SOPS/pages/289374233/Using+Scheduler)
