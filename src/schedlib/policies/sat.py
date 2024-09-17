@@ -405,7 +405,7 @@ class SATPolicy:
     rules: Dict[str, core.Rule] = field(default_factory=dict)
     geometries: List[Dict[str, Any]] = field(default_factory=list)
     cal_targets: List[CalTarget] = field(default_factory=list)
-    cal_policy: str = 'round-robin'
+    cal_policy: str = 'identity'
     scan_tag: Optional[str] = None
     boresight_override: Optional[float] = None
     az_speed: float = 1. # deg / s
@@ -599,11 +599,11 @@ class SATPolicy:
             logger.info(f"-> found {len(source_scans)} scan options for {target.source} ({target.array_query}): {u.pformat(source_scans)}, adding the first one...")
 
             # add tags to the scans
-            cal_blocks += source_scans[0].replace(
+            cal_blocks += [ source_scans[0].replace(
                 az_speed = target.az_speed if target.az_speed is not None else self.az_speed,
                 az_accel = target.az_accel if target.az_accel is not None else self.az_accel,
                 tag=f"{source_scans[0].tag},{target.tag}"
-            )
+            ) ]
 
         # -----------------------------------------------------------------
         # step 3: resolve calibration target conflicts
@@ -615,7 +615,10 @@ class SATPolicy:
 
         try:
             # currently only implemented round-robin approach, but can be extended to other strategies
-            cal_policy = { 'round-robin': round_robin }[self.cal_policy]
+            cal_policy = { 
+                'round-robin': round_robin,
+                'identity': lambda x, **kwargs: x,
+            }[self.cal_policy]
         except KeyError:
             raise ValueError(f"unsupported calibration policy: {self.cal_policy}")
 

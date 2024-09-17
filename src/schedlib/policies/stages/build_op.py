@@ -687,6 +687,15 @@ class PlanMoves:
                     IR(name='gap', subtype=IRMode.Gap, t0=t1_parking, t1=block1.t0,
                        az=block1.az, alt=block1.alt),
                     ]
+        
+        # go through the sequence and wrap az if falls outside limits
+        seq_ = []
+        for b in seq:
+            if b.az < self.az_limits[0] or b.az > self.az_limits[1]:
+                logger.info(f"block az ({b.az}) outside limits, unwrapping...")
+                az_unwrap = find_unwrap(b.az, az_limits=self.az_limits)[0]
+                logger.info(f"-> unwrapping az: {b.az} -> {az_unwrap}")
+                seq_ += [b.replace(az=az_unwrap)]
 
         seq_ = [seq[0]]
         for i in range(1, len(seq)):

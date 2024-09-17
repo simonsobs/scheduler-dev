@@ -584,6 +584,7 @@ def make_source_ces(
         q_cover = q_bore_rot * q_cover
 
     t, az_src, el_src = block.get_az_alt()  # degs
+
     # make sure we are in a monotonic range
     if block.mode == 'rising':
         i_beg = np.argmin(el_src)
@@ -644,7 +645,7 @@ def make_source_ces(
         throw = az1 - az0
         return az0, throw
 
-    def _set_branch(az0):
+    def _set_branch(az0, az_branch=az_branch):
         if az_branch is None:
             return az0
         return (az0 - (az_branch - 180)) % 360 + (az_branch - 180)
