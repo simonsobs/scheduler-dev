@@ -591,6 +591,8 @@ class SATPolicy:
                 lambda b: not any([b.overlaps(b_) for b_ in cal_blocks]),
                 source_scans
             )
+            # flatten and sort
+            source_scans = core.seq_sort(source_scans, flatten=True)
             
             if len(source_scans) == 0:
                 logger.warning(f"-> all scan options overlap with already planned source scans...")
