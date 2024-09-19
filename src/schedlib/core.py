@@ -43,6 +43,8 @@ class Block:
         return block_isa(block_type)(self)
     def replace(self, **kwargs) -> "Block":
         return dc_replace(self, **kwargs)
+    def overlaps(self, block: "Block") -> bool:
+        return block_overlap(self, block)
     def to_dict(self):
         # unlike __dict__, it makes deep copy
         return asdict(self)

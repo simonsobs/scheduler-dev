@@ -68,6 +68,8 @@ def make_cal_target(
     allow_partial=False,
     drift=True,
     az_branch=None,
+    az_speed=None,
+    az_accel=None,
 ) -> CalTarget:
     array_focus = {
         0 : {
@@ -120,6 +122,8 @@ def make_cal_target(
         allow_partial=allow_partial,
         drift=drift,
         az_branch=az_branch,
+        az_speed=az_speed,
+        az_accel=az_accel
     )
 
 def make_blocks(master_file):
