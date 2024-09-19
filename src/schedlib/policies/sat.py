@@ -405,7 +405,6 @@ class SATPolicy:
     rules: Dict[str, core.Rule] = field(default_factory=dict)
     geometries: List[Dict[str, Any]] = field(default_factory=list)
     cal_targets: List[CalTarget] = field(default_factory=list)
-    cal_policy: str = 'identity'
     scan_tag: Optional[str] = None
     boresight_override: Optional[float] = None
     az_speed: float = 1. # deg / s
@@ -484,7 +483,7 @@ class SATPolicy:
             lambda b: isinstance(b, inst.ScanBlock),
             lambda b: b.replace(az_speed=self.az_speed,az_accel=self.az_accel),
             blocks
-        )   
+        )
 
         # trim to given time range
         blocks = core.seq_trim(blocks, t0, t1)
@@ -555,17 +554,16 @@ class SATPolicy:
             logger.debug(f"-> array_info: {array_info}")
 
             # apply MakeCESourceScan rule to transform known observing windows into
-            # actual scans
+            # actual scan blocks
             rule = ru.MakeCESourceScan(
                 array_info=array_info,
                 el_bore=target.el_bore,
-                drift=True,
+                drift=target.drift,
                 boresight_rot=target.boresight_rot,
                 allow_partial=target.allow_partial,
                 az_branch=target.az_branch,
             )
             source_scans = rule(blocks['calibration'][target.source])
-            source_scans = core.seq_sort(source_scans, flatten=True)
 
             # sun check again: previous sun check ensure source is not too
             # close to the sun, but our scan may still get close enough to
@@ -574,25 +572,23 @@ class SATPolicy:
             if target.allow_partial:
                 logger.info("-> allow_partial = True: trimming scan options by sun rule")
                 min_dur_rule = ru.make_rule('min-duration', **self.rules['min-duration'])
-                source_scans = core.seq_sort(min_dur_rule(sun_rule(source_scans)), flatten=True)
+                source_scans = min_dur_rule(sun_rule(source_scans))
             else:
                 logger.info("-> allow_partial = False: filtering scan options by sun rule")
-                source_scans = core.seq_sort(
-                    core.seq_filter(lambda b: b == sun_rule(b), source_scans),
-                    flatten=True
-                )
+                source_scans = core.seq_filter(lambda b: b == sun_rule(b), source_scans)
+
+            # flatten and sort
+            source_scans = core.seq_sort(source_scans, flatten=True)
 
             if len(source_scans) == 0:
                 logger.warning(f"-> no scan options available for {target.source} ({target.array_query})")
                 continue
             
-            # filter for non-overlapping scans with existing cal_blocks
-            source_scans = core.seq_filter(
-                lambda b: not any([b.overlaps(b_) for b_ in cal_blocks]),
-                source_scans
+            # which one can be added without conflicting with already planned calibration blocks?
+            source_scans = core.seq_sort(
+                core.seq_filter(lambda b: not any([b.overlaps(b_) for b_ in cal_blocks]), source_scans), 
+                flatten=True
             )
-            # flatten and sort
-            source_scans = core.seq_sort(source_scans, flatten=True)
             
             if len(source_scans) == 0:
                 logger.warning(f"-> all scan options overlap with already planned source scans...")
@@ -600,33 +596,19 @@ class SATPolicy:
 
             logger.info(f"-> found {len(source_scans)} scan options for {target.source} ({target.array_query}): {u.pformat(source_scans)}, adding the first one...")
 
-            # add tags to the scans
-            cal_blocks += [ source_scans[0].replace(
+            # add the first scan option
+            cal_block = source_scans[0]
+
+            # update tag, speed, accel, etc
+            cal_block = cal_block.replace(
                 az_speed = target.az_speed if target.az_speed is not None else self.az_speed,
                 az_accel = target.az_accel if target.az_accel is not None else self.az_accel,
-                tag=f"{source_scans[0].tag},{target.tag}"
-            ) ]
+                tag=f"{cal_block.tag},{target.tag}"
+            )
+            cal_blocks.append(cal_block)
 
-        # -----------------------------------------------------------------
-        # step 3: resolve calibration target conflicts
-        #   currently we adopt a simple round-robin strategy to resolve
-        #   conflicts between multiple calibration targets. This is done
-        #   by cycling through the calibration targets and add scan blocks
-        #   successively in the order given in the cal_targets config.
-        # -----------------------------------------------------------------
+        blocks['calibration'] = cal_blocks
 
-        try:
-            # currently only implemented round-robin approach, but can be extended to other strategies
-            cal_policy = { 
-                'round-robin': round_robin,
-                'identity': lambda x, **kwargs: x,
-            }[self.cal_policy]
-        except KeyError:
-            raise ValueError(f"unsupported calibration policy: {self.cal_policy}")
-
-        # done with the calibration blocks
-        logger.info(f"applying calibration policy - {self.cal_policy} - to resolve calibration target conflicts")
-        blocks['calibration'] = core.seq_resolve_overlap(list(cal_policy(cal_blocks, sun_avoidance=sun_rule)))
         logger.info(f"-> after calibration policy: {u.pformat(blocks['calibration'])}")
 
         # check sun avoidance again
