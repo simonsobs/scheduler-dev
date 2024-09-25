@@ -720,7 +720,6 @@ class PlanMoves:
                     last_az, last_alt = b.az, b.alt
                 else:
                     if (b.block != seq[i-1].block) & (i>0):
-                        print(i)
                         seq_ += [MoveTo(az=b.az, alt=b.alt)]
                 seq_ += [b]
 
