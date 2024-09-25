@@ -718,6 +718,9 @@ class PlanMoves:
                     or np.round(b.alt - last_alt, 3) != 0):
                     seq_ += [MoveTo(az=b.az, alt=b.alt)]
                     last_az, last_alt = b.az, b.alt
+                else:
+                    if (b.block != seq[bi-1].block):
+                        seq_ += [MoveTo(az=b.az, alt=b.alt)]
                 seq_ += [b]
 
         return seq_
