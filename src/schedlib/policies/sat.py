@@ -124,7 +124,7 @@ def preamble():
     ]
 
 @cmd.operation(name='sat.ufm_relock', return_duration=True)
-def ufm_relock(state):
+def ufm_relock(state, commands=None):
     if state.last_ufm_relock is None:
         doit = True
     elif (state.curr_time - state.last_ufm_relock).total_seconds() > 12*u.hour:
@@ -133,22 +133,24 @@ def ufm_relock(state):
         doit = False
 
     if doit:
+        if commands is None:
+            commands = [
+                "############# Daily Relock",
+                "for smurf in pysmurfs:",
+                "    smurf.zero_biases.start()",
+                "for smurf in pysmurfs:",
+                "    smurf.zero_biases.wait()",
+                "",
+                "time.sleep(120)",
+                "run.smurf.take_noise(concurrent=True, tag='res_check')",
+                "run.smurf.uxm_relock(concurrent=True)",
+                "",
+            ]
         state = state.replace(
             last_ufm_relock=state.curr_time,
             is_det_setup=False,
         )
-        return state, 15*u.minute, [
-            "############# Daily Relock",
-            "for smurf in pysmurfs:",
-            "    smurf.zero_biases.start()",
-            "for smurf in pysmurfs:",
-            "    smurf.zero_biases.wait()",
-            "",
-            "time.sleep(120)",
-            "run.smurf.take_noise(concurrent=True, tag='res_check')",
-            "run.smurf.uxm_relock(concurrent=True)",
-            "",
-        ]
+        return state, 15*u.minute, commands
     else:
         return state, 0, ["# no ufm relock needed at this time"]
 

@@ -2,7 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 import datetime as dt
 
-from .. import source as src, utils as u, commands as cmd
+from .. import source as src, utils as u
 from .sat import SATPolicy, State, CalTarget
 from ..commands import SchedMode
 
@@ -146,6 +146,10 @@ def make_blocks(master_file):
                 'type' : 'source',
                 'name' : 'mars',
             },
+            'rcw38': {
+                'type' : 'source',
+                'name' : 'rcw38',
+            },
             'taua': {
                 'type' : 'source',
                 'name' : 'taua',
@@ -156,6 +160,21 @@ def make_blocks(master_file):
             },
         },
     }
+
+commands_uxm_relock = [
+    "############# Daily Relock",
+    "for smurf in pysmurfs:",
+    "    smurf.zero_biases.start()",
+    "for smurf in pysmurfs:",
+    "    smurf.zero_biases.wait()",
+    "",
+    "time.sleep(120)",
+    "run.smurf.take_noise(concurrent=True, tag='res_check')",
+    "run.smurf.uxm_relock(concurrent=True)",
+    "run.smurf.take_bgmap(concurrent=True)",
+    "",
+]
+
 
 commands_det_setup = [
     "",
@@ -185,7 +204,7 @@ def make_operations(
     ]
     if run_relock:
         pre_session_ops += [
-            { 'name': 'sat.ufm_relock'      , 'sched_mode': SchedMode.PreSession, }
+            { 'name': 'sat.ufm_relock'  , 'sched_mode': SchedMode.PreSession, 'commands': commands_uxm_relock, }
         ]
     cal_ops = [
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'commands': commands_det_setup, 'apply_boresight_rot': apply_boresight_rot, },
@@ -270,7 +289,7 @@ class SATP3Policy(SATPolicy):
         cal_targets=[], state_file=None, **op_cfg
     ):
         x = cls(**make_config(
-            master_file, az_speed, az_accel, 
+            master_file, az_speed, az_accel,
             cal_targets, **op_cfg)
         )
         x.state_file = state_file
