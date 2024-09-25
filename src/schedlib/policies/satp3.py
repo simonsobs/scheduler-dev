@@ -179,7 +179,6 @@ commands_uxm_relock = [
 commands_det_setup = [
     "",
     "################### Detector Setup######################",
-    "run.smurf.take_bgmap(concurrent=True)",
     "run.smurf.iv_curve(concurrent=True)",
     "for smurf in pysmurfs:",
     "    smurf.bias_dets.start(rfrac=0.5, kwargs=dict(bias_groups=[0,1,2,3,4,5,6,7,8,9,10,11]))",
@@ -217,7 +216,6 @@ def make_operations(
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, },
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
-        { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostObs, 'indent': 4, 'divider': ['']},
     ]
     if home_at_end:
         post_session_ops = [
@@ -267,7 +265,7 @@ def make_config(
                 'plan_moves': {
                     'sun_policy': sun_policy,
                     'az_step': 0.5,
-                    'az_limits': [-90, 450],
+                    'az_limits': [-45, 405],
                 }
             }
         }
