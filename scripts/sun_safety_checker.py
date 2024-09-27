@@ -9,7 +9,11 @@ import socs.agents.acu.avoidance as avoidance
 
 ## Code to check sun safety
 
-satp1_policy_info = {'az_limits': [-45, 405], 'min_sun_angle': 41, 'min_sun_time': 1980}
+satp1_policy_info = {
+    'az_limits': [-45, 405], 
+    'min_sun_angle': 41, 
+    'min_sun_time': 1980
+}
 
 parser = argparse.ArgumentParser()
 parser.add_argument('sched_path')
@@ -74,7 +78,7 @@ class SunCrawler:
 
         d1 = self.sungod.check_trajectory(init_az_range, [self.cur_el, self.cur_el], t=self.cur_time)
         d2 = self.sungod.check_trajectory(end_az_range, [self.cur_el, self.cur_el], t=stop)
-        assert((d1['sun_dist_min'] > self.satp1_policy['exclusion_radius']) and (d2['sun_dist_min'] > self.satp1_policy['exclusion_radius']))
+        assert((d1['sun_dist_min'] > self.policy['exclusion_radius']) and (d2['sun_dist_min'] > self.policy['exclusion_radius']))
 
         #print('Min scan distance to sun at start', d1['sun_dist_min'])
         print('Min scan distance to sun at end', d2['sun_dist_min'])
@@ -106,12 +110,12 @@ class SunCrawler:
                 break
 
     def _generate_sun_solution(self):
-        self.satp1_policy = avoidance.DEFAULT_POLICY
-        self.satp1_policy['min_el'] = 48.
-        self.satp1_policy['min_sun_time'] = satp1_policy_info['min_sun_time']
-        self.satp1_policy['exclusion_radius'] = satp1_policy_info['min_sun_angle']
+        self.policy = avoidance.DEFAULT_POLICY
+        self.policy['min_el'] = 48.
+        self.policy['min_sun_time'] = satp1_policy_info['min_sun_time']
+        self.policy['exclusion_radius'] = satp1_policy_info['min_sun_angle']
 
-        self.sungod = avoidance.SunTracker(policy=self.satp1_policy, base_time=self.cur_time, compute=True)
+        self.sungod = avoidance.SunTracker(policy=self.policy, base_time=self.cur_time, compute=True)
 
     def _test_sungod(self):
         out = self.sungod.get_sun_pos(t=self.cur_time+500.)
@@ -170,7 +174,7 @@ class SunCrawler:
                 #print(az_range, el_range)
                 d = self.sungod.check_trajectory(az_range, el_range, t=self.cur_time)
                 print('Min slew distance to sun', d['sun_dist_min'])
-                assert(d['sun_dist_min'] > self.satp1_policy['exclusion_radius'])
+                assert(d['sun_dist_min'] > self.policy['exclusion_radius'])
 
             if 'az = ' in l:
                 az = float(l.split('az = ')[1].split('+')[0])
