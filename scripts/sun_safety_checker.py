@@ -4,6 +4,9 @@ import numpy as np
 import argparse
 import datetime
 
+## going to require the actual agent code here
+import socs.agents.acu.avoidance as avoidance
+
 ## Code to check sun safety
 
 satp1_policy_info = {'az_limits': [-45, 405], 'min_sun_angle': 41, 'min_sun_time': 1980}
@@ -103,10 +106,6 @@ class SunCrawler:
                 break
 
     def _generate_sun_solution(self):
-        import sys
-        sys.path.append('/so/home/ktcrowley/repos/')
-        import socs.socs.agents.acu.avoidance as avoidance
-
         self.satp1_policy = avoidance.DEFAULT_POLICY
         self.satp1_policy['min_el'] = 48.
         self.satp1_policy['min_sun_time'] = satp1_policy_info['min_sun_time']
