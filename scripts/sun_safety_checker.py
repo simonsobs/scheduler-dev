@@ -42,7 +42,8 @@ class SunCrawler:
         return az, el
 
     def _wait_parse(self, l):
-        time = datetime.datetime.fromisoformat(l.split("('")[1].rstrip("')\n")).timestamp()
+        t = l.split("('")[1].rstrip("')\n").split(",")[0].strip("'")
+        time = datetime.datetime.fromisoformat(t).timestamp()
         return time
 
     def _scan_parse(self, b, debug=False):
