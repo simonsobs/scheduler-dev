@@ -2,7 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 import datetime as dt
 
-from .. import source as src, utils as u, commands as cmd
+from .. import source as src, utils as u
 from .sat import SATPolicy, State, CalTarget
 from ..commands import SchedMode
 
@@ -146,6 +146,10 @@ def make_blocks(master_file):
                 'type' : 'source',
                 'name' : 'mars',
             },
+            'rcw38': {
+                'type' : 'source',
+                'name' : 'rcw38',
+            },
             'taua': {
                 'type' : 'source',
                 'name' : 'taua',
@@ -157,10 +161,24 @@ def make_blocks(master_file):
         },
     }
 
+commands_uxm_relock = [
+    "############# Daily Relock",
+    "for smurf in pysmurfs:",
+    "    smurf.zero_biases.start()",
+    "for smurf in pysmurfs:",
+    "    smurf.zero_biases.wait()",
+    "",
+    "time.sleep(120)",
+    "run.smurf.take_noise(concurrent=True, tag='res_check')",
+    "run.smurf.uxm_relock(concurrent=True)",
+    "run.smurf.take_bgmap(concurrent=True)",
+    "",
+]
+
+
 commands_det_setup = [
     "",
     "################### Detector Setup######################",
-    "run.smurf.take_bgmap(concurrent=True)",
     "run.smurf.iv_curve(concurrent=True)",
     "for smurf in pysmurfs:",
     "    smurf.bias_dets.start(rfrac=0.5, kwargs=dict(bias_groups=[0,1,2,3,4,5,6,7,8,9,10,11]))",
@@ -185,7 +203,7 @@ def make_operations(
     ]
     if run_relock:
         pre_session_ops += [
-            { 'name': 'sat.ufm_relock'      , 'sched_mode': SchedMode.PreSession, }
+            { 'name': 'sat.ufm_relock'  , 'sched_mode': SchedMode.PreSession, 'commands': commands_uxm_relock, }
         ]
     cal_ops = [
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'commands': commands_det_setup, 'apply_boresight_rot': apply_boresight_rot, },
@@ -198,7 +216,6 @@ def make_operations(
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, },
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
-        { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostObs, 'indent': 4, 'divider': ['']},
     ]
     if home_at_end:
         post_session_ops = [
@@ -248,7 +265,7 @@ def make_config(
                 'plan_moves': {
                     'sun_policy': sun_policy,
                     'az_step': 0.5,
-                    'az_limits': [-90, 450],
+                    'az_limits': [-45, 405],
                 }
             }
         }
@@ -270,7 +287,7 @@ class SATP3Policy(SATPolicy):
         cal_targets=[], state_file=None, **op_cfg
     ):
         x = cls(**make_config(
-            master_file, az_speed, az_accel, 
+            master_file, az_speed, az_accel,
             cal_targets, **op_cfg)
         )
         x.state_file = state_file

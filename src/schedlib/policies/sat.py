@@ -103,6 +103,8 @@ class CalTarget:
 #  def my_op(state):
 #      return state, 10, ["do something"]
 
+HWP_SPIN_DOWN = 10*u.minute
+
 @cmd.operation(name="sat.preamble", duration=0)
 def preamble():
     return [
@@ -124,7 +126,7 @@ def preamble():
     ]
 
 @cmd.operation(name='sat.ufm_relock', return_duration=True)
-def ufm_relock(state):
+def ufm_relock(state, commands=None):
     if state.last_ufm_relock is None:
         doit = True
     elif (state.curr_time - state.last_ufm_relock).total_seconds() > 12*u.hour:
@@ -133,22 +135,24 @@ def ufm_relock(state):
         doit = False
 
     if doit:
+        if commands is None:
+            commands = [
+                "############# Daily Relock",
+                "for smurf in pysmurfs:",
+                "    smurf.zero_biases.start()",
+                "for smurf in pysmurfs:",
+                "    smurf.zero_biases.wait()",
+                "",
+                "time.sleep(120)",
+                "run.smurf.take_noise(concurrent=True, tag='res_check')",
+                "run.smurf.uxm_relock(concurrent=True)",
+                "",
+            ]
         state = state.replace(
             last_ufm_relock=state.curr_time,
             is_det_setup=False,
         )
-        return state, 15*u.minute, [
-            "############# Daily Relock",
-            "for smurf in pysmurfs:",
-            "    smurf.zero_biases.start()",
-            "for smurf in pysmurfs:",
-            "    smurf.zero_biases.wait()",
-            "",
-            "time.sleep(120)",
-            "run.smurf.take_noise(concurrent=True, tag='res_check')",
-            "run.smurf.uxm_relock(concurrent=True)",
-            "",
-        ]
+        return state, 15*u.minute, commands
     else:
         return state, 0, ["# no ufm relock needed at this time"]
 
@@ -177,7 +181,7 @@ def hwp_spin_down(state, disable_hwp=False):
         return state, 0, ["# hwp already stopped"]
     else:
         state = state.replace(hwp_spinning=False)
-        return state, 10*u.minute, [
+        return state, HWP_SPIN_DOWN, [
             "run.hwp.stop(active=True)",
             "sup.disable_driver_board()",
         ]
@@ -324,6 +328,15 @@ def setup_boresight(state, block, apply_boresight_rot=True):
     if apply_boresight_rot and (
             state.boresight_rot_now is None or state.boresight_rot_now != block.boresight_angle
         ):
+        if state.hwp_spinning:
+            state = state.replace(hwp_spinning=False)
+            duration += HWP_SPIN_DOWN
+            commands += [
+                "run.hwp.stop(active=True)",
+                "sup.disable_driver_board()",
+            ]
+
+        assert not state.hwp_spinning
         commands += [f"run.acu.set_boresight({block.boresight_angle})"]
         state = state.replace(boresight_rot_now=block.boresight_angle)
         duration += 1*u.minute

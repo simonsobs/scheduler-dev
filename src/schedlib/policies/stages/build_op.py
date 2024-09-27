@@ -710,7 +710,7 @@ class PlanMoves:
         seq_, seq = [], seq_
         last_az, last_alt = None, None
         # Combine, but skipping first and last blocks, which are init/shutdown.
-        for b in seq:
+        for i, b in enumerate(seq):
             if b.name in ['pre_session', 'post_session']:
                 # Pre/post-ambles, leave it alone.
                 seq_ += [b]
@@ -730,6 +730,9 @@ class PlanMoves:
                     or np.round(b.alt - last_alt, 3) != 0):
                     seq_ += [MoveTo(az=b.az, alt=b.alt)]
                     last_az, last_alt = b.az, b.alt
+                else:
+                    if (b.block != seq[i-1].block) & (i>0):
+                        seq_ += [MoveTo(az=b.az, alt=b.alt)]
                 seq_ += [b]
 
         return seq_
