@@ -103,6 +103,8 @@ class CalTarget:
 #  def my_op(state):
 #      return state, 10, ["do something"]
 
+HWP_SPIN_DOWN = 10*u.minute
+
 @cmd.operation(name="sat.preamble", duration=0)
 def preamble():
     return [
@@ -179,7 +181,7 @@ def hwp_spin_down(state, disable_hwp=False):
         return state, 0, ["# hwp already stopped"]
     else:
         state = state.replace(hwp_spinning=False)
-        return state, 10*u.minute, [
+        return state, HWP_SPIN_DOWN, [
             "run.hwp.stop(active=True)",
             "sup.disable_driver_board()",
         ]
@@ -326,6 +328,15 @@ def setup_boresight(state, block, apply_boresight_rot=True):
     if apply_boresight_rot and (
             state.boresight_rot_now is None or state.boresight_rot_now != block.boresight_angle
         ):
+        if state.hwp_spinning:
+            state = state.replace(hwp_spinning=False)
+            duration += HWP_SPIN_DOWN
+            commands += [
+                "run.hwp.stop(active=True)",
+                "sup.disable_driver_board()",
+            ]
+
+        assert not state.hwp_spinning
         commands += [f"run.acu.set_boresight({block.boresight_angle})"]
         state = state.replace(boresight_rot_now=block.boresight_angle)
         duration += 1*u.minute
