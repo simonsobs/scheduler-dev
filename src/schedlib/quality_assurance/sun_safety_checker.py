@@ -7,20 +7,44 @@ import datetime
 ## going to require the actual agent code here
 import socs.agents.acu.avoidance as avoidance
 
+import schedlib.utils as u
+logger = u.init_logger(__name__)
+
 ## Code to check sun safety
 
-satp1_policy_info = {
-    'az_limits': [-45, 405], 
-    'min_sun_angle': 41, 
-    'min_sun_time': 1980
-}
-
-parser = argparse.ArgumentParser()
-parser.add_argument('sched_path')
-
 class SunCrawler:
-    def __init__(self, path):
-        self.schedf = open(path, 'r')
+    def __init__(self, platform, path=None, cmd_txt=None):
+        assert platform in ['satp1', 'satp2', 'satp3'], (
+            f"{platform} is not an implemented platform, choose from satp1, "
+             "satp2, or satp3"
+        )
+    
+        match platform:
+            case "satp1":
+                from schedlib.policies.satp1 import make_config
+            case "satp2":
+                from schedlib.policies.satp2 import make_config
+            case "satp3":
+                from schedlib.policies.satp3 import make_config
+
+        self.configs = make_config(
+            master_file='None',
+            az_speed=None, az_accel=None,
+            cal_targets=None,
+        )['rules']['sun-avoidance']
+            
+        if not path is None:
+            self.from_cmds = False
+            self.schedf = open(path, 'r')
+        elif not cmd_txt is None:
+            self.from_cmds = True
+            self.cmd_n = 0
+            self.cmd_list = cmd_txt.split("\n")
+        else:
+            raise ValueError(
+                "SunCrawler needs either a path to a schedule file or "
+                "a list of commands."
+            )
 
         self.cur_time = 0
         self.cur_az = 0
@@ -29,6 +53,16 @@ class SunCrawler:
         self._get_initial_pos()
         self._generate_sun_solution()
         #self._test_sungod()
+        
+    def next_line(self):
+        if self.from_cmds:
+            if self.cmd_n == len(self.cmd_list):
+                return ''
+            self.cmd_n += 1
+            return self.cmd_list[self.cmd_n-1]+"\n"
+        else:
+            return schedf.readline()
+
 
     def _move_to_parse(self, l):
         try:
@@ -53,8 +87,7 @@ class SunCrawler:
         time = datetime.datetime.fromisoformat(t).timestamp()
         return time
 
-    def _scan_parse(self, b, debug=False):
-        #print(b)
+    def _scan_parse(self, b):
         planet_flag = np.any([('now = ' in l) for l in b]) or np.any([("'cal'" in l) for l in b])
 
         start_time = self.cur_time
@@ -83,9 +116,8 @@ class SunCrawler:
         #print('Min scan distance to sun at start', d1['sun_dist_min'])
         print('Min scan distance to sun at end', d2['sun_dist_min'])
 
-        if debug:
-            print('azimuth : ', self.cur_az, ' --> ', drifted_az + width)
-            print('timestamp : ', self.cur_time, ' --> ', stop)
+        logger.debug(f"azimuth : {self.cur_az} --> {drifted_az + width}")
+        logger.debug(f"timestamp : {self.cur_time} --> {stop}")
         
         self.cur_az = drifted_az + width
         self.cur_time = stop
@@ -94,7 +126,7 @@ class SunCrawler:
         time_flag = False
         pos_flag = False
         while True:
-            l = self.schedf.readline()
+            l = self.next_line()
             if 'move_to' in l:
                 az, el = self._move_to_parse(l)
                 self.cur_az = az
@@ -112,8 +144,8 @@ class SunCrawler:
     def _generate_sun_solution(self):
         self.policy = avoidance.DEFAULT_POLICY
         self.policy['min_el'] = 48.
-        self.policy['min_sun_time'] = satp1_policy_info['min_sun_time']
-        self.policy['exclusion_radius'] = satp1_policy_info['min_sun_angle']
+        self.policy['min_sun_time'] = self.configs['min_sun_time']
+        self.policy['exclusion_radius'] = self.configs['min_angle']
 
         self.sungod = avoidance.SunTracker(policy=self.policy, base_time=self.cur_time, compute=True)
 
@@ -137,17 +169,17 @@ class SunCrawler:
 
         return [self.cur_az, mid_az, az], [self.cur_el, mid_el, el]
 
-    def step_thru_schedule(self, debug=False):
+    def step_thru_schedule(self):
+        logger.info("Checking Sun Safety")
         cur_block = []
         scan_flag = False
         
         while True:
-            l = self.schedf.readline()
+            l = self.next_line()
 
             if 'wait_until' in l:
                 ts = self._wait_parse(l)
-                if debug:
-                    print('timestamp: ', self.cur_time, ' --> ', ts)
+                logger.debug(f"timestamp: '{self.cur_time} --> {ts}")
                 self.cur_time = ts
             
             if 'move_to' in l:
@@ -155,25 +187,25 @@ class SunCrawler:
 
                 if az is not None and el is not None:
                     az_range, el_range = self._get_traj(az, el)
-                    if debug:
-                        print('azimuth :', self.cur_az, ' --> ', az)
-                        print('elevation :', self.cur_el, ' --> ', el)
+                    logger.debug(f"azimuth : {self.cur_az} --> {az}")
+                    logger.debug(f"elevation : {self.cur_el} --> {el}")
                     
                     self.cur_az = az
                     self.cur_el = el
                 elif el is not None:
                     az_range, el_range = self._get_traj(0, el)
 
-                    if debug:
-                        print('azimuth :', self.cur_az, ' --> ', self.next_az)
-                        print('elevation :', self.cur_el, ' --> ', el)
+                    logger.debug(
+                        f"azimuth :{self.cur_az} --> {self.next_az}"
+                    )
+                    logger.debug(f"elevation :' {self.cur_el} --> {el}")
 
                     self.cur_az = self.next_az
                     self.cur_el = el
                     
                 #print(az_range, el_range)
                 d = self.sungod.check_trajectory(az_range, el_range, t=self.cur_time)
-                print('Min slew distance to sun', d['sun_dist_min'])
+                logger.info(f"Min slew distance to sun {d['sun_dist_min']}")
                 assert(d['sun_dist_min'] > self.policy['exclusion_radius'])
 
             if 'az = ' in l:
@@ -190,7 +222,7 @@ class SunCrawler:
 
             if l.strip() == ')':
                 scan_flag = False
-                self._scan_parse(cur_block, debug=debug)
+                self._scan_parse(cur_block)
                 cur_block = []
 
             if scan_flag:
@@ -201,6 +233,10 @@ class SunCrawler:
                 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('platform')
+    parser.add_argument('sched_path')
+
     args = parser.parse_args()
-    sc = SunCrawler(args.sched_path)
-    sc.step_thru_schedule(debug=True)
+    sc = SunCrawler(args.platform, args.sched_path)
+    sc.step_thru_schedule()
