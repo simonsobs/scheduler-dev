@@ -163,10 +163,7 @@ def make_blocks(master_file):
 
 commands_uxm_relock = [
     "############# Daily Relock",
-    "for smurf in pysmurfs:",
-    "    smurf.zero_biases.start()",
-    "for smurf in pysmurfs:",
-    "    smurf.zero_biases.wait()",
+    "run.smurf.zero_biases()",
     "",
     "time.sleep(120)",
     "run.smurf.take_noise(concurrent=True, tag='res_check')",
