@@ -5,8 +5,9 @@ import argparse
 import datetime
 
 ## going to require the actual agent code here
+import sys
+sys.path.append('/so/home/ktcrowley/repos/socs')
 import socs.agents.acu.avoidance as avoidance
-
 
 import schedlib.utils as u
 logger = u.init_logger(__name__)
@@ -64,7 +65,7 @@ class SunCrawler:
             self.cmd_n += 1
             return self.cmd_list[self.cmd_n-1]+"\n"
         else:
-            return schedf.readline()
+            return self.schedf.readline()
 
 
     def _move_to_parse(self, l):
@@ -116,8 +117,8 @@ class SunCrawler:
         
         d1 = self.sungod.check_trajectory(init_az_range, [self.cur_el, self.cur_el], t=self.cur_time)
         d2 = self.sungod.check_trajectory(end_az_range, [self.cur_el, self.cur_el], t=stop)
-        assert((d1['sun_dist_min'] > self.satp1_policy['exclusion_radius']) and (d2['sun_dist_min'] > self.satp1_policy['exclusion_radius']))
-        assert((d1['sun_time'] > self.satp1_policy['min_sun_time']) and (d2['sun_time'] > self.satp1_policy['min_sun_time']))
+        assert((d1['sun_dist_min'] > self.policy['exclusion_radius']) and (d2['sun_dist_min'] > self.policy['exclusion_radius']))
+        assert((d1['sun_time'] > self.policy['min_sun_time']) and (d2['sun_time'] > self.policy['min_sun_time']))
 
         #print('Min scan distance to sun at start', d1['sun_dist_min'])
         print('Min scan distance to sun at end', d2['sun_dist_min'])
@@ -240,7 +241,7 @@ class SunCrawler:
                 logger.info(f"Min slew distance to sun {d['sun_dist_min']}")
                 assert(d['sun_dist_min'] > self.policy['exclusion_radius'])
                 logger.info(f"Min sun clear time {d['sun_time']}")
-                assert(d['sun_time'] > self.satp1_policy['min_sun_time'])
+                assert(d['sun_time'] > self.policy['min_sun_time'])
 
                 moves = self.sungod.analyze_paths(az_range[0], el_range[0], az_range[-1], el_range[-1], t=self.cur_time)
                 move, decisions = self.sungod.select_move(moves)
