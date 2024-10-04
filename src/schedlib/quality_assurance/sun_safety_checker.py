@@ -5,8 +5,6 @@ import argparse
 import datetime
 
 ## going to require the actual agent code here
-import sys
-sys.path.append('/so/home/ktcrowley/repos/socs')
 import socs.agents.acu.avoidance as avoidance
 
 import schedlib.utils as u
