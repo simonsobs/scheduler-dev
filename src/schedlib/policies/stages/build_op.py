@@ -667,9 +667,15 @@ class PlanMoves:
                 t0_parking = t1_parking \
                     = block0.t1 + (block1.t0 - block0.t1) / 2
             else:
-                if get_traj_ok_time(az_parking, az_parking, alt_parking, alt_parking,
-                                    t0_parking) < t1_parking:
-                    raise ValueError("Sun-safe parking spot not found.")
+                safet = get_traj_ok_time(az_parking, az_parking, alt_parking, alt_parking,
+                                         t0_parking)
+                if safet< t1_parking:
+                    alt_parking = self.sun_policy['min_el']
+                    safet = get_traj_ok_time(az_parking, az_parking, alt_parking, alt_parking,
+                                             t0_parking)
+                    if safet< t1_parking:
+                        raise ValueError(f"Sun-safe parking spot not found. az {az_parking} "
+                                         f"el {alt_parking} is safe only until {safet}")
 
             # Verify we can get to the parking spot, and get out of it.
             if get_traj_ok_time(block0.az, az_parking, block0.alt, alt_parking,
