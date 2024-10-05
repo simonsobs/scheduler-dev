@@ -61,9 +61,12 @@ class SunCrawler:
             if self.cmd_n == len(self.cmd_list):
                 return ''
             self.cmd_n += 1
-            return self.cmd_list[self.cmd_n-1]+"\n"
+            l = self.cmd_list[self.cmd_n-1]+"\n"
         else:
-            return self.schedf.readline()
+            l = self.schedf.readline()
+        if len(l)>0 and l[0] == "#":
+            return self.next_line()
+        return l
 
 
     def _move_to_parse(self, l):
@@ -245,13 +248,17 @@ class SunCrawler:
                 move, decisions = self.sungod.select_move(moves)
                 try:
                     assert(move is not None)
-                except AssertionError:
+                except AssertionError as e:
                     out = self.sungod.get_sun_pos(t=self.cur_time)
                     logger.info(f'Sun position at failure time {out}')
                     logger.error('Sun-safe motions not solved!')
+                    t = datetime.datetime.utcfromtimestamp(self.cur_time)
+                    logger.error(
+                        f"Error on Line \'{l}\' at time {t.isoformat()}"
+                    )
                     logger.error('Move info (min sun dist, min sun time, min el, max el):')
                     logger.error('\n'.join([', '.join(map(str, [m['sun_dist_min'], m['sun_time'], min(m['moves'].get_traj(res=1.0)[1]), max(m['moves'].get_traj(res=1.0)[1])])) for m in moves]))
-                    break
+                    raise(e)
 
             if 'az = ' in l:
                 az = float(l.split('az = ')[1].split('+')[0])
