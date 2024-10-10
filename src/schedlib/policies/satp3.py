@@ -176,6 +176,7 @@ commands_uxm_relock = [
 commands_det_setup = [
     "",
     "################### Detector Setup######################",
+    "run.smurf.take_bgmap(concurrent=True)",
     "run.smurf.iv_curve(concurrent=True)",
     "for smurf in pysmurfs:",
     "    smurf.bias_dets.start(rfrac=0.5, kwargs=dict(bias_groups=[0,1,2,3,4,5,6,7,8,9,10,11]))",
