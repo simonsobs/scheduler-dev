@@ -186,7 +186,7 @@ commands_det_setup = [
     "",
 ]
 
-@cmd.operation(name="satp2.disable_slots", duration=1)
+@cmd.operation(name="disable_slots", duration=1)
 def disable_slots(bad_list=None):
     if bad_list is None:
         return state, 0 ## no need to disable slots
