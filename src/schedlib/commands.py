@@ -401,13 +401,15 @@ def set_scan_params(state, az_speed, az_accel):
     return state, []
 
 ## general command to diable smurf slots if necessary
-@operation(name="disable_slots", duration=1)
-def disable_slots(bad_list=None):
-    if bad_list is None:
+@operation(name="disable_smurf_slots", duration=1)
+def disable_slots(disable_list=None):
+    if disable_list is None:
         return state, 0 ## no need to disable slots
     cmds = [
         "pysmurfs = run.CLIENTS['smurf']",
-        f"new_smurfs = [s.instance_id for s in pysmurfs if s.instance_id not in {bad_list}]",
+        f"new_smurfs = [",
+        f"   s.instance_id for s in pysmurfs if s.instance_id not in {disable_list}",
+        "]",
         "run.smurf.set_targets(new_smurfs)",
     ]
     return cmds
