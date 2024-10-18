@@ -186,19 +186,6 @@ commands_det_setup = [
     "",
 ]
 
-@cmd.operation(name="disable_slots", duration=1)
-def disable_slots(bad_list=None):
-    if bad_list is None:
-        return state, 0 ## no need to disable slots
-    cmds = [
-        "pysmurfs = run.CLIENTS['smurf']",
-        f"new_smurfs = [s.instance_id for s in pysmurfs if s.instance_id not in {bad_list}]",
-        "run.smurf.set_targets(new_smurfs)",
-    ]
-    return cmds
-    
-
-
 def make_operations(
     az_speed, az_accel, disable_hwp=False, 
     apply_boresight_rot=True, hwp_cfg=None, hwp_dir=True,
@@ -209,7 +196,7 @@ def make_operations(
         hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper', 'forward':hwp_dir }
     pre_session_ops = [
         { 'name': 'sat.preamble'        , 'sched_mode': SchedMode.PreSession},
-        { 'name': 'satp2.disable_slots' , 'sched_mode': SchedMode.PreSession, bad_list : bad_smurf_slots},
+        { 'name': 'disable_smurf_slots' , 'sched_mode': SchedMode.PreSession, 'disable_list' : bad_smurf_slots},
         { 'name': 'start_time'          ,'sched_mode': SchedMode.PreSession},
         { 'name': 'set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
     ]
@@ -234,7 +221,7 @@ def make_operations(
     if home_at_end:
         post_session_ops = [
             { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
-            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 50},
+            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 48},
         ]
     else:
         post_session_ops = []
