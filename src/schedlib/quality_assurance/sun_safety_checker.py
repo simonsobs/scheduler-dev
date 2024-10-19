@@ -118,6 +118,7 @@ class SunCrawler:
         
         d1 = self.sungod.check_trajectory(init_az_range, [self.cur_el, self.cur_el], t=self.cur_time)
         d2 = self.sungod.check_trajectory(end_az_range, [self.cur_el, self.cur_el], t=stop)
+        
         assert((d1['sun_dist_min'] > self.policy['exclusion_radius']) and (d2['sun_dist_min'] > self.policy['exclusion_radius']))
         assert((d1['sun_time'] > self.policy['min_sun_time']) and (d2['sun_time'] > self.policy['min_sun_time']))
 
@@ -271,7 +272,10 @@ class SunCrawler:
 
             if l.strip() == ')':
                 scan_flag = False
-                self._scan_parse(cur_block)
+                try:
+                    self._scan_parse(cur_block)
+                except AssertionError as e:
+                    self.raise_failure(e, l)
                 cur_block = []
 
             if scan_flag:
