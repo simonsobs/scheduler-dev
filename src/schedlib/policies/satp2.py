@@ -245,7 +245,7 @@ def make_config(
     sun_policy = {
         'min_angle': 49,
         'min_sun_time': 1980,
-        'min_el': 48,
+        'min_el': 42,
     }
 
     config = {
@@ -318,7 +318,7 @@ class SATP2Policy(SATPolicy):
         return State(
             curr_time=t0,
             az_now=180,
-            el_now=48,
+            el_now=44,
             boresight_rot_now=None,
             hwp_spinning=False,
         )
