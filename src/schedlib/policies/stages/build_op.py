@@ -689,7 +689,7 @@ class PlanMoves:
                 if move_away_by < block0.t1:
                     raise ValueError("Sun-safe parking spot not accessible from prior scan.")
                 else:
-                    t0_parking = move_away_by + (move_away_by + block0.t1) / 2
+                    t0_parking = move_away_by + (move_away_by - block0.t1) / 2
 
             # You might need to wait until the last second before going to new pos
             max_delay = 300
