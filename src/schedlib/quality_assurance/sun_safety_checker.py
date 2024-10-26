@@ -77,10 +77,10 @@ class SunCrawler:
             az = None
 
         try:
-            el = float(l.split('el=')[1].rstrip(')\n'))
+            el = float(l.split('el=')[1].rstrip(',\n').rstrip(')\n'))
         except IndexError:
             try:
-                el = float(l.split(',')[1].rstrip(')\n'))
+                el = float(l.split(',')[1].rstrip(',\n').rstrip(')\n'))
             except IndexError:
                 print('Bad input!', l)
                 el = None

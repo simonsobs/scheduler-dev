@@ -288,7 +288,7 @@ def source_scan(state, block):
     
     state = state.replace(az_now=block.az, el_now=block.alt)
     commands.extend([
-        f"run.acu.move_to_target({round(block.az,3)}, {round(block.alt,3)},",
+        f"run.acu.move_to_target(az={round(block.az,3)}, el={round(block.alt,3)},",
         f"    start_time='{block.t0.isoformat()}',",
         f"    stop_time='{block.t1.isoformat()}',",
         f"    drift={round(block.az_drift,5)})",
