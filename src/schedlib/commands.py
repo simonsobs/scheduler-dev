@@ -386,10 +386,31 @@ def move_to(state, az, el, force=False):
     if el == state.el_now:
         cmd = [f"run.acu.move_to(az={round(az, 3)}, el={(round(el, 3))})"]
     else:
-        cmd = [
-            f"run.acu.move_to(az={round(az, 3)}, el={round(state.el_now, 3)})",
-            f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
-        ]
+        if (state.el_now > 47.9) and  (el < 47.9):
+            cmd = [
+                f"run.acu.move_to(az={round(state.az_now, 3)}, el={round(state.el_now, 3)})",
+                f"run.acu.move_to(az={round(state.az_now, 3)}, el={round(48.0, 3)})",
+                f"run.acu.move_to(az={round(az, 3)}, el={round(48.0, 3)})",
+                f"######## HWP spinning down ##########",
+                f"run.hwp.stop(active=False) # stop HWP rotation", 
+                f"time.sleep(15*60)",
+                f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
+            ]
+        elif (state.el_now < 47.9) and  (el > 47.9):
+            cmd = [
+                f"run.acu.move_to(az={round(state.az_now, 3)}, el={round(state.el_now, 3)})",
+                f"run.acu.move_to(az={round(state.az_now, 3)}, el={round(48.0, 3)})",
+                f"######## HWP spinning up ##########",
+                f"run.hwp.set_freq(freq=2) # start HWP rotation", 
+                f"time.sleep(15*60)",
+                f"run.acu.move_to(az={round(az, 3)}, el={round(48, 3)})",
+                f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
+            ]
+        else:
+            cmd = [
+                f"run.acu.move_to(az={round(az, 3)}, el={round(state.el_now, 3)})",
+                f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
+            ]
     state = state.replace(az_now=az, el_now=el)
 
     return state, cmd
