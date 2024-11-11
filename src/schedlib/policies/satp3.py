@@ -247,7 +247,7 @@ def make_config(
         'min_angle': 49,
         'min_sun_time': 1980,
         #'min_el': 48,
-        'min_el': 45,
+        'min_el': 40,
     }
 
     config = {
