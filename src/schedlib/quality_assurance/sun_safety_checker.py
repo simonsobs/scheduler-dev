@@ -99,7 +99,14 @@ class SunCrawler:
         drift = 0.
         for l in b:
             if 'stop_time' in l:
-                stop = datetime.datetime.fromisoformat(l.split("stop_time='")[1].rstrip("', \n")).timestamp()
+                try:
+                    stop = datetime.datetime.fromisoformat(
+                        l.split("stop_time='")[1].rstrip("', \n")
+                    ).timestamp()
+                except IndexError as e:
+                    logger.error(f"Cannot part stop time from '{l}'")
+                    logger.error("setting stop to 5min from now")
+                    stop = self.cur_time + 300
             if 'width' in l and 'drift' in l:
                 width = float(l.split(', ')[0].split('=')[1])
                 drift = float(l.split(', ')[1].split('=')[1].rstrip(', \n'))
