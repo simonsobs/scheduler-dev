@@ -36,6 +36,7 @@ class SunCrawler:
             
         if not path is None:
             self.from_cmds = False
+            self.cmd_n = 0
             self.schedf = open(path, 'r')
         elif not cmd_txt is None:
             self.from_cmds = True
@@ -61,14 +62,13 @@ class SunCrawler:
         if self.from_cmds:
             if self.cmd_n == len(self.cmd_list):
                 return ''
-            self.cmd_n += 1
-            l = self.cmd_list[self.cmd_n-1]+"\n"
+            l = self.cmd_list[self.cmd_n]+"\n"
         else:
             l = self.schedf.readline()
         if len(l)>0 and l[0] == "#":
-            return self.next_line()
+            l = self.next_line()
+        self.cmd_n += 1
         return l
-
 
     def _move_to_parse(self, l):
         try:
