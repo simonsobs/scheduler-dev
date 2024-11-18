@@ -332,7 +332,7 @@ def setup_boresight(state, block, apply_boresight_rot=True):
 
 # passthrough any arguments, to be used in any sched-mode
 @cmd.operation(name='sat.bias_step', return_duration=True)
-def bias_step(state, block, min_interval=15*u.minute, bias_cadence=None):
+def bias_step(state, block, bias_cadence=None):
     # -> should be done at a regular interval if bias_cadence is not None
     doit = state.last_bias_step is None
     if not doit:
