@@ -66,9 +66,9 @@ class SunCrawler:
             l = self.cmd_list[self.cmd_n]+"\n"
         else:
             l = self.schedf.readline()
+        self.cmd_n += 1
         if len(l)>0 and l[0] == "#":
             l = self.next_line()
-        self.cmd_n += 1
         return l
 
     def _move_to_parse(self, l):
@@ -273,7 +273,10 @@ class SunCrawler:
 
             if l.strip() == ')':
                 scan_flag = False
-                self._scan_parse(cur_block)
+                try:
+                    self._scan_parse(cur_block)
+                except AssertionError as e:
+                    self.raise_failure(e, l)
                 cur_block = []
 
             if scan_flag:
@@ -289,7 +292,7 @@ class SunCrawler:
         t = datetime.datetime.utcfromtimestamp(self.cur_time)
         l = line.strip('\n')
         logger.error(
-            f"Error on Line \'{l}\' at time {t.isoformat()}"
+            f"Error on Line {self.cmd_n} \'{l}\' at time {t.isoformat()}"
         )
         if moves is not None:
             logger.error(
