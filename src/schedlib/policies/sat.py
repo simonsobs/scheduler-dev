@@ -337,15 +337,15 @@ def bias_step(state, block, bias_cadence=None):
     doit = state.last_bias_step is None
     if not doit:
         if state.last_bias_step_elevation is not None:
-            doit = doit or ( 
+            doit = doit or (
                 not np.isclose(
-                    state.last_bias_step_elevation, 
+                    state.last_bias_step_elevation,
                     block.alt,
                     atol=1
                 )
             )
         if state.last_bias_step_boresight is not None:
-            doit = doit or ( 
+            doit = doit or (
                 not np.isclose(
                     state.last_bias_step_boresight,
                     block.boresight_angle,
@@ -354,8 +354,8 @@ def bias_step(state, block, bias_cadence=None):
             )
         if bias_cadence is not None:
             time_since = (state.curr_time - state.last_bias_step).total_seconds()
-            doit = doit or (time_since > bias_cadence)
-    
+            doit = doit or (time_since >= bias_cadence)
+
     if doit :
         state = state.replace(
             last_bias_step=state.curr_time,
