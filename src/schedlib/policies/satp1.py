@@ -170,7 +170,7 @@ def make_blocks(master_file):
     }
 
 def make_operations(
-    az_speed, az_accel, iv_cadence=4*u.hour, bias_cadence=1*u.hour,
+    az_speed, az_accel, iv_cadence=4*u.hour, bias_step_cadence=1*u.hour,
     disable_hwp=False, apply_boresight_rot=True, hwp_cfg=None,
     hwp_dir=True, home_at_end=False, run_relock=False
 ):
@@ -190,13 +190,13 @@ def make_operations(
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'apply_boresight_rot': apply_boresight_rot, 'iv_cadence':iv_cadence },
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
         { 'name': 'sat.source_scan'     , 'sched_mode': SchedMode.InCal, },
-        { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostCal, 'bias_cadence': bias_cadence},
+        { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostCal, 'bias_step_cadence': bias_step_cadence},
     ]
     cmb_ops = [
         { 'name': 'sat.setup_boresight' , 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot, },
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreObs, 'apply_boresight_rot': apply_boresight_rot, 'iv_cadence':iv_cadence},
         { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
-        { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, 'bias_cadence': bias_cadence},
+        { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, 'bias_step_cadence': bias_step_cadence},
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
     ]
     if home_at_end:
@@ -213,7 +213,8 @@ def make_config(
     az_speed,
     az_accel,
     iv_cadence,
-    bias_cadence,
+    bias_step_cadence,
+    max_cmb_scan_duration,
     cal_targets,
     boresight_override=None,
     **op_cfg
@@ -222,7 +223,7 @@ def make_config(
     geometries = make_geometry()
     operations = make_operations(
         az_speed, az_accel,
-        iv_cadence, bias_cadence,
+        iv_cadence, bias_step_cadence,
         **op_cfg
     )
 
@@ -248,7 +249,8 @@ def make_config(
         'az_speed' : az_speed,
         'az_accel' : az_accel,
         'iv_cadence' : iv_cadence,
-        'bias_cadence' : bias_cadence,
+        'bias_step_cadence' : bias_step_cadence,
+        'max_cmb_scan_duration' : max_cmb_scan_duration,
         'stages': {
             'build_op': {
                 'plan_moves': {
@@ -275,13 +277,14 @@ class SATP1Policy(SATPolicy):
 
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5,
-        iv_cadence=4*u.hour, bias_cadence=1*u.hour,
+        iv_cadence=4*u.hour, bias_step_cadence=1*u.hour, max_cmb_scan_duration=1*u.hour,
         cal_targets=[], boresight_override=None, 
         state_file=None, **op_cfg
     ):
         x = cls(**make_config(
             master_file, az_speed, az_accel, iv_cadence,
-            bias_cadence, cal_targets, boresight_override, **op_cfg
+            bias_step_cadence, max_cmb_scan_duration, cal_targets,
+            boresight_override, **op_cfg
         ))
         x.state_file=state_file
         return x

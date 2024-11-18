@@ -332,8 +332,8 @@ def setup_boresight(state, block, apply_boresight_rot=True):
 
 # passthrough any arguments, to be used in any sched-mode
 @cmd.operation(name='sat.bias_step', return_duration=True)
-def bias_step(state, block, bias_cadence=None):
-    # -> should be done at a regular interval if bias_cadence is not None
+def bias_step(state, block, bias_step_cadence=None):
+    # -> should be done at a regular interval if bias_step_cadence is not None
     doit = state.last_bias_step is None
     if not doit:
         if state.last_bias_step_elevation is not None:
@@ -352,9 +352,9 @@ def bias_step(state, block, bias_cadence=None):
                     atol=1
                 )
             )
-        if bias_cadence is not None:
+        if bias_step_cadence is not None:
             time_since = (state.curr_time - state.last_bias_step).total_seconds()
-            doit = doit or (time_since >= bias_cadence)
+            doit = doit or (time_since >= bias_step_cadence)
 
     if doit :
         state = state.replace(
@@ -411,7 +411,8 @@ class SATPolicy:
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
     iv_cadence : float = 4 * u.hour
-    bias_cadence : float = 1 * u.hour
+    bias_step_cadence : float = 1 * u.hour
+    max_cmb_scan_duration : float = 1 * u.hour
     allow_az_maneuver: bool = True
     wafer_sets: Dict[str, Any] = field(default_factory=dict)
     operations: List[Dict[str, Any]] = field(default_factory=list)
@@ -651,10 +652,9 @@ class SATPolicy:
         blocks = core.seq_sort(blocks['baseline']['cmb'] + blocks['calibration'], flatten=True)
 
         # split blocks longer than bias step cadence into smaller blocks
-        if self.bias_cadence is not None:
-            print('bias_cadence', self.bias_cadence)
+        if self.max_cmb_scan_duration is not None:
             blocks = core.seq_map(
-                lambda block: block.split_n(dt.timedelta(seconds=self.bias_cadence)) if block.subtype == 'cmb' else block,
+                lambda block: block.split_n(dt.timedelta(seconds=self.max_cmb_scan_duration)) if block.subtype == 'cmb' else block,
                 blocks
             )
             # flatten output nested list of blocks
