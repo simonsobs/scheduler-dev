@@ -306,7 +306,7 @@ def parse_sequence_from_toast(ifile):
                 continue
             else:
                 break
-    df = pd.read_csv(ifile, skiprows=i+2, delimiter="|", names=columns, comment='#')
+    df = pd.read_csv(ifile, skiprows=i, delimiter="|", names=columns, comment='#')
     blocks = []
     for _, row in df.iterrows():
         block = ScanBlock(

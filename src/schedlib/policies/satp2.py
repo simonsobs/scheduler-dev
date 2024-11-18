@@ -171,7 +171,7 @@ def make_blocks(master_file):
     }
 
 def make_operations(
-    az_speed, az_accel, iv_cadence=4*u.hour, bias_cadence=1*u.hour,
+    az_speed, az_accel, iv_cadence=4*u.hour, bias_cadence=0.5*u.hour,
     disable_hwp=False, apply_boresight_rot=True, hwp_cfg=None, hwp_dir=True,
     home_at_end=False, run_relock=False
 ):
