@@ -95,7 +95,6 @@ class SunCrawler:
         return time
 
     def _scan_parse(self, b):
-
         stop = 0.
         width = 0.
         drift = 0.
@@ -161,10 +160,13 @@ class SunCrawler:
 
             if pos_flag and time_flag:
                 break
+        logger.debug(
+            f"Initial position found to be az={self.cur_az}, el={self.cur_el}"
+        )
 
     def _generate_sun_solution(self):
         self.policy = avoidance.DEFAULT_POLICY
-        self.policy['min_el'] = 48.
+        self.policy['min_el'] = self.configs['min_el']
         self.policy['min_sun_time'] = self.configs['min_sun_time']
         self.policy['exclusion_radius'] = self.configs['min_angle']
 
