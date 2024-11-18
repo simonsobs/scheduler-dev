@@ -30,6 +30,7 @@ class SunCrawler:
         self.configs = make_config(
             master_file='None',
             az_speed=None, az_accel=None,
+            iv_cadence=None, bias_cadence=None,
             cal_targets=None,
         )['rules']['sun-avoidance']
             

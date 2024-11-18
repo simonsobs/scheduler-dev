@@ -19,6 +19,8 @@ class Block:
         return self.t1 - self.t0
     def split(self, t: dt.datetime) -> List["Block"]:
         return block_split(self, t)
+    def split_n(self, dt: dt.timedelta) -> List["Block"]:
+        return block_split_n(self, dt)
     def trim(self, t0: Optional[dt.datetime] = None, t1: Optional[dt.datetime] = None) -> List["Block"]:
         return block_trim(self, t0, t1)
     def shift(self, dt: dt.timedelta) -> "Block":
@@ -78,6 +80,35 @@ def block_split(block: Block, t: dt.datetime) -> Blocks:
     if t <= block.t0 or t >= block.t1:
         return [block]
     return [block.replace(t1=t), block.replace(t0=t)]
+
+def block_split_n(block: Block, dt: dt.timedelta) -> Blocks:
+    """split a block into a series of smaller blocks of length
+    dt
+
+    Parameters
+    ----------
+    block : Block
+        the block to be split
+    dt : dt.timedelta
+        the duration of the blocks to split into
+
+    Returns
+    -------
+    Blocks
+        a list of blocks, either the original block or multiple blocks of length dt
+    """
+    t0_off = block.t0 + dt
+    
+    blocks_left = block_split(block, t0_off)
+
+    blocks = []
+    blocks.append(blocks_left[0])
+
+    while len(blocks_left) > 1:
+        t0_off += dt
+        blocks_left = block_split(blocks_left[-1], t0_off)
+        blocks.append(blocks_left[0])
+    return blocks
 
 def block_trim(block: Block, t0: Optional[dt.datetime] = None, t1: Optional[dt.datetime] = None) -> Blocks:
     """trim a block to the given time range. If the time range is outside the block,

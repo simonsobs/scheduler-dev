@@ -13,7 +13,7 @@ setup(
         "pyephem",
         "jax[cpu]",
         "equinox",
-        "so3g",
+        #"so3g",
         "pixell",
         "dataclasses_json",
     ],

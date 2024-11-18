@@ -332,12 +332,10 @@ def setup_boresight(state, block, apply_boresight_rot=True):
 
 # passthrough any arguments, to be used in any sched-mode
 @cmd.operation(name='sat.bias_step', return_duration=True)
-def bias_step(state, block, min_interval=15*u.minute):
+def bias_step(state, block, min_interval=15*u.minute, bias_cadence=None):
+    # -> should be done at a regular interval if bias_cadence is not None
     doit = state.last_bias_step is None
     if not doit:
-        time_since = (state.curr_time - state.last_bias_step).total_seconds()
-        doit = doit or (time_since > min_interval)
-        
         if state.last_bias_step_elevation is not None:
             doit = doit or ( 
                 not np.isclose(
@@ -354,6 +352,9 @@ def bias_step(state, block, min_interval=15*u.minute):
                     atol=1
                 )
             )
+        if bias_cadence is not None:
+            time_since = (state.curr_time - state.last_bias_step).total_seconds()
+            doit = doit or (time_since > bias_cadence)
     
     if doit :
         state = state.replace(
@@ -409,6 +410,8 @@ class SATPolicy:
     boresight_override: Optional[float] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
+    iv_cadence : float = 4 * u.hour
+    bias_cadence : float = 1 * u.hour
     allow_az_maneuver: bool = True
     wafer_sets: Dict[str, Any] = field(default_factory=dict)
     operations: List[Dict[str, Any]] = field(default_factory=list)
@@ -647,6 +650,16 @@ class SATPolicy:
 
         blocks = core.seq_sort(blocks['baseline']['cmb'] + blocks['calibration'], flatten=True)
 
+        # split blocks longer than bias step cadence into smaller blocks
+        if self.bias_cadence is not None:
+            print('bias_cadence', self.bias_cadence)
+            blocks = core.seq_map(
+                lambda block: block.split_n(dt.timedelta(seconds=self.bias_cadence)) if block.subtype == 'cmb' else block,
+                blocks
+            )
+            # flatten output nested list of blocks
+            blocks = core.seq_flatten(blocks)
+        
         return blocks
 
     def init_state(self, t0: dt.datetime) -> State:

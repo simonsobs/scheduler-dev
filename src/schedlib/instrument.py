@@ -296,8 +296,9 @@ def parse_sequence_from_toast(ifile):
 
     """
     #columns = ["start_utc", "stop_utc", "rotation", "patch", "az_min", "az_max", "el", "pass", "sub"]
-    columns = ["start_utc", "stop_utc", "rotation", "az_min", "az_max", "el", "pass", "sub", "patch"]
-    
+    #columns = ["start_utc", "stop_utc", "rotation", "az_min", "az_max", "el", "pass", "sub", "patch"]
+    columns = ["start_utc", "stop_utc", "rotation", "az_min", "az_max", "el", "pass", "sub", "num", "m", "patch"]
+
     # count the number of lines to skip
     with open(ifile) as f:
         for i, l in enumerate(f):
