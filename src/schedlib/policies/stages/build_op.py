@@ -17,7 +17,6 @@ from schedlib.thirdparty.avoidance import get_sun_tracker
 from schedlib.commands import SchedMode
 
 logger = u.init_logger(__name__)
-#u.set_verbosity(3)
 # some additional auxilary command classes that will be mixed 
 # into the IR to represent some intermediate operations. They
 # don't need to contain all the fields of a regular IR
@@ -346,7 +345,7 @@ class BuildOp:
         non_overlaps = core.seq_remove_overlap(full_interval, ir_blocks)  # as constraint
 
         cmb_blocks = core.seq_remove_overlap(cmb_blocks, ir_blocks)
-        #cmb_blocks = self.merge_cmb_blocks(cmb_blocks, dt.timedelta(seconds=max_cmb_scan_duration))
+        cmb_blocks = self.merge_cmb_blocks(cmb_blocks, dt.timedelta(seconds=max_cmb_scan_duration))
         cmb_blocks = core.seq_flatten(ru.MinDuration(self.min_cmb_duration)(cmb_blocks))
 
         # re-merge all blocks
