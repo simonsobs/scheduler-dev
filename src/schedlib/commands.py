@@ -151,7 +151,6 @@ class SchedMode:
     PostObs = 'post_obs'
     PreSession = 'pre_session'
     PostSession = 'post_session'
-    Wiregrid = 'wiregrid'
 
 
 # -------------------------------------------------------------------------

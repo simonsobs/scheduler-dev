@@ -66,13 +66,6 @@ class CalTarget:
     az_speed: Optional[float]= None
     az_accel: Optional[float] = None
 
-@dataclass(frozen=True)
-class WiregridTarget:
-    hour: int
-    el_target: float
-    az_target: float = 180
-    duration: float = 15*u.minute
-
 # ----------------------------------------------------
 #                  Register operations
 # ----------------------------------------------------
@@ -246,12 +239,6 @@ def det_setup(state, block, commands=None, apply_boresight_rot=True, iv_cadence=
         return state, 12*u.minute, commands
     else:
         return state, 0, []
-
-@cmd.operation(name='sat.wiregrid', return_duration=True)
-def wiregrid(state):
-    return state, 15*u.minute, [
-        "run.wiregrid.calibrate(continuous=False, elevation_check=True, boresight_check=False, temperature_check=False)"
-    ]
 
 @cmd.operation(name='sat.cmb_scan', return_duration=True)
 def cmb_scan(state, block):
@@ -495,26 +482,6 @@ class SATPolicy:
                 source = cal_target.source
                 if source not in blocks['calibration']:
                     blocks['calibration'][source] = src.source_gen_seq(source, t0, t1)
-            elif isinstance(cal_target, WiregridTarget):
-                wiregrid_candidates = []
-                current_date = t0.date()
-                end_date = t1.date()
-
-                while current_date <= end_date:
-                    candidate_time = dt.datetime.combine(current_date, dt.time(cal_target.hour, 0), tzinfo=dt.timezone.utc)
-                    if t0 <= candidate_time <= t1:
-                        wiregrid_candidates.append(
-                            inst.StareBlock(
-                                name='wiregrid',
-                                t0=candidate_time,
-                                t1=candidate_time + dt.timedelta(seconds=cal_target.duration),
-                                az=cal_target.az_target,
-                                alt=cal_target.el_target,
-                                subtype='wiregrid'
-                            )
-                        )
-                    current_date += dt.timedelta(days=1)
-                blocks['calibration']['wiregrid'] = wiregrid_candidates
 
         # update az speed in scan blocks
         blocks = core.seq_map_when(
@@ -576,80 +543,75 @@ class SATPolicy:
 
         for target in self.cal_targets:
             logger.info(f"-> planning calibration scans for {target}...")
-            if isinstance(target, WiregridTarget):
-                logger.info(f"-> planning wiregrid scans for {target}...")
-                cal_blocks += core.seq_map(lambda b: b.replace(subtype='wiregrid'),
-                                           blocks['calibration']['wiregrid'])
+            
+            assert target.source in blocks['calibration'], f"source {target.source} not found in sequence"
+
+            # digest array_query: it could be a fnmatch pattern matching the path
+            # in the geometry dict, or it could be looked up from a predefined
+            # wafer_set dict. Here we account for the latter case:
+            # look up predefined query in wafer_set
+            if target.array_query in self.wafer_sets:
+                array_query = self.wafer_sets[target.array_query]
+            else:
+                array_query = target.array_query
+
+            # build array geometry information based on the query
+            array_info = inst.array_info_from_query(self.geometries, array_query)
+            logger.debug(f"-> array_info: {array_info}")
+
+            # apply MakeCESourceScan rule to transform known observing windows into
+            # actual scan blocks
+            rule = ru.MakeCESourceScan(
+                array_info=array_info,
+                el_bore=target.el_bore,
+                drift=target.drift,
+                boresight_rot=target.boresight_rot,
+                allow_partial=target.allow_partial,
+                az_branch=target.az_branch,
+            )
+            source_scans = rule(blocks['calibration'][target.source])
+
+            # sun check again: previous sun check ensure source is not too
+            # close to the sun, but our scan may still get close enough to
+            # the sun, in which case we will trim it or delete it depending
+            # on whether allow_partial is True
+            if target.allow_partial:
+                logger.info("-> allow_partial = True: trimming scan options by sun rule")
+                min_dur_rule = ru.make_rule('min-duration', **self.rules['min-duration'])
+                source_scans = min_dur_rule(sun_rule(source_scans))
+            else:
+                logger.info("-> allow_partial = False: filtering scan options by sun rule")
+                source_scans = core.seq_filter(lambda b: b == sun_rule(b), source_scans)
+
+            # flatten and sort
+            source_scans = core.seq_sort(source_scans, flatten=True)
+
+            if len(source_scans) == 0:
+                logger.warning(f"-> no scan options available for {target.source} ({target.array_query})")
                 continue
-            elif isinstance(target, CalTarget):
-                assert target.source in blocks['calibration'], f"source {target.source} not found in sequence"
 
-                # digest array_query: it could be a fnmatch pattern matching the path
-                # in the geometry dict, or it could be looked up from a predefined
-                # wafer_set dict. Here we account for the latter case:
-                # look up predefined query in wafer_set
-                if target.array_query in self.wafer_sets:
-                    array_query = self.wafer_sets[target.array_query]
-                else:
-                    array_query = target.array_query
+            # which one can be added without conflicting with already planned calibration blocks?
+            source_scans = core.seq_sort(
+                core.seq_filter(lambda b: not any([b.overlaps(b_) for b_ in cal_blocks]), source_scans),
+                flatten=True
+            )
 
-                # build array geometry information based on the query
-                array_info = inst.array_info_from_query(self.geometries, array_query)
-                logger.debug(f"-> array_info: {array_info}")
+            if len(source_scans) == 0:
+                logger.warning(f"-> all scan options overlap with already planned source scans...")
+                continue
 
-                # apply MakeCESourceScan rule to transform known observing windows into
-                # actual scan blocks
-                rule = ru.MakeCESourceScan(
-                    array_info=array_info,
-                    el_bore=target.el_bore,
-                    drift=target.drift,
-                    boresight_rot=target.boresight_rot,
-                    allow_partial=target.allow_partial,
-                    az_branch=target.az_branch,
-                )
-                source_scans = rule(blocks['calibration'][target.source])
+            logger.info(f"-> found {len(source_scans)} scan options for {target.source} ({target.array_query}): {u.pformat(source_scans)}, adding the first one...")
 
-                # sun check again: previous sun check ensure source is not too
-                # close to the sun, but our scan may still get close enough to
-                # the sun, in which case we will trim it or delete it depending
-                # on whether allow_partial is True
-                if target.allow_partial:
-                    logger.info("-> allow_partial = True: trimming scan options by sun rule")
-                    min_dur_rule = ru.make_rule('min-duration', **self.rules['min-duration'])
-                    source_scans = min_dur_rule(sun_rule(source_scans))
-                else:
-                    logger.info("-> allow_partial = False: filtering scan options by sun rule")
-                    source_scans = core.seq_filter(lambda b: b == sun_rule(b), source_scans)
+            # add the first scan option
+            cal_block = source_scans[0]
 
-                # flatten and sort
-                source_scans = core.seq_sort(source_scans, flatten=True)
-
-                if len(source_scans) == 0:
-                    logger.warning(f"-> no scan options available for {target.source} ({target.array_query})")
-                    continue
-
-                # which one can be added without conflicting with already planned calibration blocks?
-                source_scans = core.seq_sort(
-                    core.seq_filter(lambda b: not any([b.overlaps(b_) for b_ in cal_blocks]), source_scans),
-                    flatten=True
-                )
-
-                if len(source_scans) == 0:
-                    logger.warning(f"-> all scan options overlap with already planned source scans...")
-                    continue
-
-                logger.info(f"-> found {len(source_scans)} scan options for {target.source} ({target.array_query}): {u.pformat(source_scans)}, adding the first one...")
-
-                # add the first scan option
-                cal_block = source_scans[0]
-
-                # update tag, speed, accel, etc
-                cal_block = cal_block.replace(
-                    az_speed = target.az_speed if target.az_speed is not None else self.az_speed,
-                    az_accel = target.az_accel if target.az_accel is not None else self.az_accel,
-                    tag=f"{cal_block.tag},{target.tag}"
-                )
-                cal_blocks.append(cal_block)
+            # update tag, speed, accel, etc
+            cal_block = cal_block.replace(
+                az_speed = target.az_speed if target.az_speed is not None else self.az_speed,
+                az_accel = target.az_accel if target.az_accel is not None else self.az_accel,
+                tag=f"{cal_block.tag},{target.tag}"
+            )
+            cal_blocks.append(cal_block)
 
         blocks['calibration'] = cal_blocks
 
@@ -670,7 +632,7 @@ class SATPolicy:
 
         # add proper subtypes
         blocks['calibration'] = core.seq_map(
-            lambda block: block.replace(subtype="cal") if block.name != 'wiregrid' else block,
+            lambda block: block.replace(subtype="cal"),
             blocks['calibration']
         )
 

@@ -80,7 +80,6 @@ class IRMode:
     InBlock = 'in_block'
     PostBlock = 'post_block'
     PostSession = 'post_session'
-    WireGrid = 'wiregrid'
     Gap = 'gap'
     Aux = 'aux'
 
@@ -249,7 +248,6 @@ class BuildOp:
 
         # compile the blocks to plan
         cal_blocks = core.seq_flatten(core.seq_filter(lambda b: b.subtype == 'cal', seq))
-        cal_blocks += core.seq_flatten(core.seq_filter(lambda b: b.subtype == 'wiregrid', seq))
         cmb_blocks = core.seq_flatten(core.seq_filter(lambda b: b.subtype == 'cmb', seq))
 
         # compile calibration operations
@@ -263,9 +261,6 @@ class BuildOp:
         in_ops   = [op for op in operations if op['sched_mode'] == SchedMode.InObs]
         post_ops = [op for op in operations if op['sched_mode'] == SchedMode.PostObs]
         cmb_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
-
-        wiregrid_in = [op for op in operations if op['sched_mode'] == SchedMode.Wiregrid]
-        wiregrid_ops = {'pre_ops': [], 'in_ops': wiregrid_in, 'post_ops': []}
 
         logger.debug(f"cal_ops to plan: {cal_ops}")
         logger.debug(f"pre-cal state: {state}")
@@ -295,23 +290,6 @@ class BuildOp:
 
                 logger.debug(f"--> post-block ops: {u.pformat(block_ops)}")
                 logger.debug(f"--> post-block state: {u.pformat(state)}")
-
-                # update our reference state
-                cal_ref_state = state
-                if len(block_ops) > 0:
-                    cal_irs += [block_ops]
-            elif block.subtype == 'wiregrid':
-                logger.info(f"-> planning cal block: {block}")
-                logger.debug(f"--> pre-cal state: {state}")
-                # what's our constraint? cal takes higher priority so we ignore causal constraint
-                # from cmb scans, but we don't extend into previous cal block as they have equal
-                # priority, hence our constraint start from when last cal finishes and till the 
-                # end of schedule
-                constraint = core.Block(t0=cal_ref_state.curr_time, t1=block.t1)
-
-                # start at the beginning of our constraint
-                state = state.replace(curr_time=constraint.t0)
-                state, block_ops = self._plan_block_operations(state, block, constraint, **wiregrid_ops)
 
                 # update our reference state
                 cal_ref_state = state
@@ -384,9 +362,6 @@ class BuildOp:
             elif block.subtype == 'cal':
                 ops_ = cal_ops
                 blocks = [block]
-            elif block.subtype == 'wiregrid':
-                ops_ = wiregrid_ops
-                blocks = [block]
             else:
                 raise ValueError(f"unexpected block subtype: {block.subtype}")
             logger.debug(f"--> final constraint: {constraint.t0} to {constraint.t1}")
@@ -446,7 +421,7 @@ class BuildOp:
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif ir.subtype in [IRMode.PreSession, IRMode.PostSession]:
                 state, _, op_blocks = self._apply_ops(state, ir.operations, az=ir.az, alt=ir.alt)
-            elif ir.subtype in [IRMode.PreBlock, IRMode.InBlock, IRMode.PostBlock, IRMode.WireGrid]:
+            elif ir.subtype in [IRMode.PreBlock, IRMode.InBlock, IRMode.PostBlock]:
                 state, _, op_blocks = self._apply_ops(state, ir.operations, block=ir.block)
             elif ir.subtype == IRMode.Gap:
                 op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Gap, 't1': ir.t1}]

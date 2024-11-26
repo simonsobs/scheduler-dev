@@ -5,7 +5,7 @@ import datetime as dt
 from typing import Optional
 
 from .. import source as src, utils as u
-from .sat import SATPolicy, State, CalTarget, WiregridTarget
+from .sat import SATPolicy, State, CalTarget
 from ..commands import SchedMode
 
 logger = u.init_logger(__name__)
@@ -206,10 +206,8 @@ def make_operations(
         ]
     else:
         post_session_ops = []
-    wiregrid_ops = [
-        { 'name': 'sat.wiregrid', 'sched_mode': SchedMode.Wiregrid }
-    ]
-    return pre_session_ops + cal_ops + cmb_ops + post_session_ops + wiregrid_ops
+
+    return pre_session_ops + cal_ops + cmb_ops + post_session_ops
 
 def make_config(
     master_file,
@@ -294,9 +292,6 @@ class SATP1Policy(SATPolicy):
 
     def add_cal_target(self, *args, **kwargs):
         self.cal_targets.append(make_cal_target(*args, **kwargs))
-
-    def add_wiregrid_target(self, el_target, hour_utc=12, az_target=180, duration=15*u.minute, **kwargs):
-        self.cal_targets.append(WiregridTarget(hour=hour_utc, az_target=az_target, el_target=el_target, duration=duration))
 
     def init_state(self, t0: dt.datetime) -> State:
         """customize typical initial state for satp1, if needed"""
