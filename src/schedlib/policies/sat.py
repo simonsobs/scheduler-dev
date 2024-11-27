@@ -332,29 +332,30 @@ def setup_boresight(state, block, apply_boresight_rot=True):
 
 # passthrough any arguments, to be used in any sched-mode
 @cmd.operation(name='sat.bias_step', return_duration=True)
-def bias_step(state, block, min_interval=15*u.minute):
+def bias_step(state, block, bias_step_cadence=None):
+    # -> should be done at a regular interval if bias_step_cadence is not None
     doit = state.last_bias_step is None
     if not doit:
-        time_since = (state.curr_time - state.last_bias_step).total_seconds()
-        doit = doit or (time_since > min_interval)
-        
         if state.last_bias_step_elevation is not None:
-            doit = doit or ( 
+            doit = doit or (
                 not np.isclose(
-                    state.last_bias_step_elevation, 
+                    state.last_bias_step_elevation,
                     block.alt,
                     atol=1
                 )
             )
         if state.last_bias_step_boresight is not None:
-            doit = doit or ( 
+            doit = doit or (
                 not np.isclose(
                     state.last_bias_step_boresight,
                     block.boresight_angle,
                     atol=1
                 )
             )
-    
+        if bias_step_cadence is not None:
+            time_since = (state.curr_time - state.last_bias_step).total_seconds()
+            doit = doit or (time_since >= bias_step_cadence)
+
     if doit :
         state = state.replace(
             last_bias_step=state.curr_time,
@@ -409,6 +410,9 @@ class SATPolicy:
     boresight_override: Optional[float] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
+    iv_cadence : float = 4 * u.hour
+    bias_step_cadence : float = 0.5 * u.hour
+    max_cmb_scan_duration : float = 1 * u.hour
     allow_az_maneuver: bool = True
     wafer_sets: Dict[str, Any] = field(default_factory=dict)
     operations: List[Dict[str, Any]] = field(default_factory=list)
@@ -474,9 +478,10 @@ class SATPolicy:
 
         # by default add calibration blocks specified in cal_targets if not already specified
         for cal_target in self.cal_targets:
-            source = cal_target.source
-            if source not in blocks['calibration']:
-                blocks['calibration'][source] = src.source_gen_seq(source, t0, t1)
+            if isinstance(cal_target, CalTarget):
+                source = cal_target.source
+                if source not in blocks['calibration']:
+                    blocks['calibration'][source] = src.source_gen_seq(source, t0, t1)
 
         # update az speed in scan blocks
         blocks = core.seq_map_when(
@@ -538,6 +543,7 @@ class SATPolicy:
 
         for target in self.cal_targets:
             logger.info(f"-> planning calibration scans for {target}...")
+            
             assert target.source in blocks['calibration'], f"source {target.source} not found in sequence"
 
             # digest array_query: it could be a fnmatch pattern matching the path
@@ -586,7 +592,7 @@ class SATPolicy:
 
             # which one can be added without conflicting with already planned calibration blocks?
             source_scans = core.seq_sort(
-                core.seq_filter(lambda b: not any([b.overlaps(b_) for b_ in cal_blocks]), source_scans), 
+                core.seq_filter(lambda b: not any([b.overlaps(b_) for b_ in cal_blocks]), source_scans),
                 flatten=True
             )
 
@@ -618,7 +624,7 @@ class SATPolicy:
         if 'min-duration' in self.rules:
             logger.info(f"applying min duration rule: {self.rules['min-duration']}")
             rule = ru.make_rule('min-duration', **self.rules['min-duration'])
-            blocks = rule(blocks)
+            blocks['baseline'] = rule(blocks['baseline'])
 
         # -----------------------------------------------------------------
         # step 4: tags
@@ -712,7 +718,7 @@ class SATPolicy:
 
         # load building stage
         build_op = get_build_stage('build_op', **self.stages.get('build_op', {}))
-        ops, state = build_op.apply(seq, t0, t1, state, self.operations)
+        ops, state = build_op.apply(seq, t0, t1, state, self.operations, self.max_cmb_scan_duration)
         if return_state:
             return ops, state
         return ops

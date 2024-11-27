@@ -9,6 +9,7 @@ level without actually being lowered into commands.
 """
 import numpy as np
 import datetime as dt
+import copy
 from typing import Dict, Any, Tuple, List, Optional
 from dataclasses import dataclass, field, replace as dc_replace
 from schedlib import core, commands as cmd, utils as u, rules as ru
@@ -16,7 +17,6 @@ from schedlib.thirdparty.avoidance import get_sun_tracker
 from schedlib.commands import SchedMode
 
 logger = u.init_logger(__name__)
-
 # some additional auxilary command classes that will be mixed 
 # into the IR to represent some intermediate operations. They
 # don't need to contain all the fields of a regular IR
@@ -103,27 +103,85 @@ class BuildOp:
 
     """
     min_duration: float = 1 * u.minute
+    min_cmb_duration: float = 10 * u.minute
     max_pass: int = 3
     plan_moves: Dict[str, Any] = field(default_factory=dict)
     simplify_moves: Dict[str, Any] = field(default_factory=dict)
 
-    def apply(self, seq, t0, t1, state, operations):
+    def divide_cmb_scans(self, block, max_dt=dt.timedelta(minutes=60), min_dt=dt.timedelta(minutes=15)):
+        duration = block.duration
+
+        # if the block is small enough, return it as is
+        if duration <= (max_dt + min_dt):
+            return [block]
+
+        n_blocks = duration // max_dt
+        remainder = duration % max_dt
+
+        # split if 1 block with remainder > min duration
+        if n_blocks == 1:
+            return core.block_split(block, block.t0 + max_dt)
+
+        blocks = []
+        # calculate the offset for splitting
+        offset = (remainder + max_dt) / 2 if remainder.total_seconds() > 0 else max_dt
+
+        split_blocks = core.block_split(block, block.t0 + offset)
+        blocks.append(split_blocks[0])
+
+        # split the remaining block into chunks of max duration
+        for i in range(n_blocks - 1):
+            split_blocks = core.block_split(split_blocks[-1], split_blocks[-1].t0 + max_dt)
+            blocks.append(split_blocks[0])
+
+        # add the remaining part
+        if remainder.total_seconds() > 0:
+            split_blocks = core.block_split(split_blocks[-1], split_blocks[-1].t0 + offset)
+            blocks.append(split_blocks[0])
+
+        return blocks
+
+    def merge_cmb_blocks(self, seq, max_dt=dt.timedelta(minutes=60), min_dt=dt.timedelta(minutes=15)):
+        for i in range(1, len(seq)):
+            current, previous = seq[i], seq[i-1]
+            # skip previously merged blocks
+            if current is None or previous is None:
+                continue
+            # don't merge blocks that are too far apart in time
+            time_gap = (current.t0 - previous.t1).total_seconds()
+            combined_duration = (current.duration + previous.duration).total_seconds()
+            max_combined_duration = (max_dt + min_dt).total_seconds()
+            # if blocks were split from same block and are close in time
+            if current.tag == previous.tag and time_gap <= min_dt.total_seconds():
+                # don't merge blocks that are longer than the max length
+                if combined_duration <= max_combined_duration:
+                    seq[i-1] = previous.extend_right(current.duration)
+                    seq[i] = None
+                    # add some or all of time gaps (likely from det_setup)
+                    if time_gap > 0:
+                        if (seq[i-1].duration.total_seconds() + time_gap) <= max_combined_duration:
+                            seq[i-1] = seq[i-1].extend_right(dt.timedelta(seconds=time_gap))
+                        else:
+                            seq[i-1] = seq[i-1].extend_right(dt.timedelta(seconds=(max_combined_duration - seq[i-1].duration.total_seconds())))
+        return seq
+
+    def apply(self, seq, t0, t1, state, operations, max_cmb_scan_duration):
         init_state = state
         seq_prev_ = None
         seq_ = seq
         for i in range(self.max_pass):
             logger.info(f"================ pass {i+1} ================")
-            seq_ = self.round_trip(seq_, t0, t1, init_state, operations)
+            seq_ = self.round_trip(seq_, t0, t1, init_state, operations, max_cmb_scan_duration)
             if seq_ == seq_prev_:
                 logger.info(f"round_trip: converged in pass {i+1}, lowering...")
                 break
-            seq_prev_ = seq_ 
+            seq_prev_ = seq_
         else:
             logger.warning(f"round_trip: ir did not converge after {self.max_pass} passes")
 
         logger.info(f"================ lowering ================")
 
-        ir = self.lower(seq_, t0, t1, init_state, operations)
+        ir = self.lower(seq_, t0, t1, init_state, operations, max_cmb_scan_duration)
         assert ir[-1].t1 <= t1, "Going beyond our schedule limit, something is wrong!"
 
         logger.info(f"================ solve moves ================")
@@ -131,7 +189,7 @@ class BuildOp:
         ir = PlanMoves(**self.plan_moves).apply(ir)
 
         logger.info("step 2: simplify moves")
-        ir = SimplifyMoves(**self.simplify_moves).apply(ir)
+        ir = SimplifyMoves(**self.simplify_moves).apply(ir, max_cmb_scan_duration)
 
         # in full generality we should do some round-trips to make sure
         # the moves are still valid when we include the time costs of
@@ -144,10 +202,10 @@ class BuildOp:
         logger.info(u.pformat(ir_ops))
 
         logger.info(f"================ done ================")
-        
+
         return ir_ops, out_state
 
-    def lower(self, seq, t0, t1, state, operations):
+    def lower(self, seq, t0, t1, state, operations, max_cmb_scan_duration=None):
         ir = []
 
         # -----------------------------------------------------------------
@@ -162,7 +220,7 @@ class BuildOp:
         # i.e., assume pre-session doesn't involve any movement, if needed,
         # movement can be performed outside schedule and propogate through
         # policy.init_state()
-        ir += [ 
+        ir += [
             IR(name='pre_session', subtype=IRMode.PreSession,
                t0=t0, t1=state.curr_time, operations=ops,
                az=state.az_now, alt=state.el_now)
@@ -258,17 +316,18 @@ class BuildOp:
 
         # avoid cmb operations from colliding with calibration operations,
         # so we identify non-overlapping intervals here. This will be used as constraint.
-        ir_blocks = [] 
+        ir_blocks = []
         for cal_ir in cal_irs:
             ir_blocks += [core.Block(t0=cal_ir[0].t0, t1=cal_ir[-1].t1)]
         full_interval = core.Block(t0=t0, t1=t1)
         non_overlaps = core.seq_remove_overlap(full_interval, ir_blocks)  # as constraint
 
         cmb_blocks = core.seq_remove_overlap(cmb_blocks, ir_blocks)
+        cmb_blocks = self.merge_cmb_blocks(cmb_blocks, dt.timedelta(seconds=max_cmb_scan_duration))
+        cmb_blocks = core.seq_flatten(ru.MinDuration(self.min_cmb_duration)(cmb_blocks))
 
         # re-merge all blocks
         all_blocks = core.seq_sort(core.seq_merge(cmb_blocks, cal_blocks, flatten=True))
-        all_blocks = core.seq_flatten(ru.MinDuration(self.min_duration)(all_blocks))
 
         # done with previously planned operation seqs
         # re-plan from the end of initialization.
@@ -296,16 +355,21 @@ class BuildOp:
                 logger.debug(f"--> operational constraint: {non_overlap.t0} to {non_overlap.t1}")
                 constraint = core.block_intersect(constraint, non_overlap)
                 ops_ = cmb_ops
+                if max_cmb_scan_duration is not None:
+                    blocks = self.divide_cmb_scans(block, dt.timedelta(seconds=max_cmb_scan_duration))
+                else:
+                    blocks = [block]
             elif block.subtype == 'cal':
                 ops_ = cal_ops
+                blocks = [block]
             else:
                 raise ValueError(f"unexpected block subtype: {block.subtype}")
             logger.debug(f"--> final constraint: {constraint.t0} to {constraint.t1}")
 
-            state, block_ops = self._plan_block_operations(state, block, constraint, **ops_)
-            logger.debug(f"--> post-block state: {state}")
-
-            ir += [block_ops]
+            for b in blocks:
+                state, block_ops = self._plan_block_operations(state, b, constraint, **ops_)
+                logger.debug(f"--> post-block state: {state}")
+                ir += [block_ops]
 
         logger.debug(f"post-planning state: {state}")
 
@@ -326,8 +390,8 @@ class BuildOp:
 
         return ir
     
-    def round_trip(self, seq, t0, t1, state, operations):
-        ir = self.lower(seq, t0, t1, state, operations)
+    def round_trip(self, seq, t0, t1, state, operations, max_cmb_scan_duration):
+        ir = self.lower(seq, t0, t1, state, operations, max_cmb_scan_duration)
         seq = self.lift(ir)
 
         # opportunity to do some correction:
@@ -767,12 +831,12 @@ class PlanMoves:
 
 @dataclass(frozen=True)
 class SimplifyMoves:
-    def apply(self, ir):
+    def apply(self, ir, max_cmb_scan_duration):
         """simplify moves by removing redundant MoveTo blocks"""
         i_pass = 0
         while True:
             logger.info(f"simplify_moves: {i_pass=}")
-            ir_new = self.round_trip(ir)
+            ir_new = self.round_trip(ir, max_cmb_scan_duration)
             #ir_new = ir
             if ir_new == ir:
                 logger.info("simplify_moves: IR converged")
@@ -780,7 +844,7 @@ class SimplifyMoves:
             ir = ir_new
             i_pass += 1
 
-    def round_trip(self, ir):
+    def round_trip(self, ir, max_cmb_scan_duration):
         def without(i):
             return ir[:i] + ir[i+1:]
         for bi in range(len(ir)-1):

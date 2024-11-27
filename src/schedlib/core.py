@@ -82,7 +82,7 @@ def block_split(block: Block, t: dt.datetime) -> Blocks:
 def block_trim(block: Block, t0: Optional[dt.datetime] = None, t1: Optional[dt.datetime] = None) -> Blocks:
     """trim a block to the given time range. If the time range is outside the block,
     None will be returned.
-    
+
     Parameters
     ----------
     block : Block
@@ -91,7 +91,7 @@ def block_trim(block: Block, t0: Optional[dt.datetime] = None, t1: Optional[dt.d
         the start time of the trimmed block, by default None
     t1 : Optional[dt.datetime], optional
         the end time of the trimmed block, by default None
-    
+
     Returns
     -------
     Blocks
@@ -147,14 +147,14 @@ def block_isa(block_type) -> Callable[[Block], bool]:
 
 def block_overlap(block1: Block, block2: Block) -> bool:
     """check if two blocks overlap
-    
+
     Parameters
     ----------
     block1 : Block
         the first block
     block2 : Block
         the second block
-    
+
     Returns
     -------
     bool
@@ -183,14 +183,14 @@ def block_merge(block1: Block, block2: Block) -> Blocks:
     """merge block2 into block1. It will return a sorted seq. block2 will take
     precedence if there is overlap, and block1 will be overwritten or splitted
     whenever necessary.
-    
+
     Parameters
     ----------
     block1 : Block
         the first block
     block2 : Block
         the second block
-        
+
     Returns
     -------
     Blocks
@@ -211,12 +211,12 @@ def block_merge(block1: Block, block2: Block) -> Blocks:
 def seq_is_nested(blocks: Blocks) -> bool:
     """check if a sequence is nested, i.e. contains blocks that are not leaves
     or None
-    
+
     Parameters
     ----------
     blocks : Blocks
         a sequence of blocks
-    
+
     Returns
     -------
     bool
@@ -232,11 +232,11 @@ def seq_assert_not_nested(blocks: Blocks) -> None:
     assert not seq_is_nested(blocks), "seq has nested blocks"
 
 def seq_sort(seq: Blocks, flatten=False, key_fn=lambda b: b.t0) -> Blocks:
-    """sort a list of blocks. Only implemented for flat seq. This function 
-    will flatten the seq if flatten=True, it will raise error if seq is 
-    nested. The flatten option is to enforce that we should be explicit 
+    """sort a list of blocks. Only implemented for flat seq. This function
+    will flatten the seq if flatten=True, it will raise error if seq is
+    nested. The flatten option is to enforce that we should be explicit
     when nestedness is destroyed.
-    
+
     Parameters
     ----------
     seq : Blocks
@@ -262,12 +262,12 @@ def seq_sort(seq: Blocks, flatten=False, key_fn=lambda b: b.t0) -> Blocks:
 
 def seq_has_overlap(blocks: Blocks) -> bool:
     """check if a sequence has overlap between blocks
-    
+
     Parameters
     ----------
     blocks : Blocks
         a sequence of blocks
-        
+
     Returns
     -------
     bool
@@ -281,14 +281,14 @@ def seq_has_overlap(blocks: Blocks) -> bool:
 
 def seq_is_sorted(blocks: Blocks, key_fn=lambda b: b.t0) -> bool:
     """check if a sequence is sorted according to the key function
-    
+
     Parameters
     ----------
     blocks : Blocks
         a sequence of blocks
     key_fn : Callable[[Block], Any], optional
         the key function to sort the blocks, by default lambda b: b.t0
-    
+
     Returns
     -------
     bool
@@ -309,7 +309,7 @@ def seq_assert_no_overlap(seq: Blocks) -> None:
 
 def seq_has_overlap_with_block(seq: Blocks, block: Block, allowance: int = 0) -> bool:
     """check if a sequence has overlap with a block
-    
+
     Parameters
     ----------
     seq : Blocks
@@ -318,7 +318,7 @@ def seq_has_overlap_with_block(seq: Blocks, block: Block, allowance: int = 0) ->
         a block to check overlap with
     allowance: int
         minimum overlap to be considered overlap in seconds
-        
+
     Returns
     -------
     bool
@@ -338,7 +338,7 @@ def seq_merge_block(seq: Blocks, block: Block, flatten=False) -> Blocks:
     any block in the sequence, the overlapping blocks will be merged, and the
     new block will take precedence. The sequence will be sorted after merging.
     As usual, flatten is to acknowledge that we are destroying nestedness.
-    
+
     Parameters
     ----------
     seq : Blocks
@@ -346,7 +346,7 @@ def seq_merge_block(seq: Blocks, block: Block, flatten=False) -> Blocks:
     block : Block
         a block to be merged into the sequence
     flatten : bool, optional
-        whether to flatten the seq before merging, by default False 
+        whether to flatten the seq before merging, by default False
 
     Returns
     -------
