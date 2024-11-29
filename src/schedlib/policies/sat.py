@@ -411,7 +411,11 @@ class SATPolicy:
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
     iv_cadence : float = 4 * u.hour
+<<<<<<< HEAD
     bias_step_cadence : float = 1 * u.hour
+=======
+    bias_step_cadence : float = 0.5 * u.hour
+>>>>>>> main
     max_cmb_scan_duration : float = 1 * u.hour
     allow_az_maneuver: bool = True
     wafer_sets: Dict[str, Any] = field(default_factory=dict)

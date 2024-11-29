@@ -170,7 +170,11 @@ def make_blocks(master_file):
     }
 
 def make_operations(
+<<<<<<< HEAD
     az_speed, az_accel, iv_cadence=4*u.hour, bias_step_cadence=1*u.hour,
+=======
+    az_speed, az_accel, iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
+>>>>>>> main
     disable_hwp=False, apply_boresight_rot=True, hwp_cfg=None,
     hwp_dir=True, home_at_end=False, run_relock=False
 ):
@@ -278,7 +282,11 @@ class SATP1Policy(SATPolicy):
 
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5,
+<<<<<<< HEAD
         iv_cadence=4*u.hour, bias_step_cadence=1*u.hour, max_cmb_scan_duration=1*u.hour,
+=======
+        iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour, max_cmb_scan_duration=1*u.hour,
+>>>>>>> main
         cal_targets=[], boresight_override=None, 
         state_file=None, **op_cfg
     ):

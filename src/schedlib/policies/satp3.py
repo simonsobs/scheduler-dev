@@ -189,7 +189,11 @@ commands_det_setup = [
 ]
 
 def make_operations(
+<<<<<<< HEAD
     az_speed, az_accel, iv_cadence=4*u.hour, bias_step_cadence=1*u.hour,
+=======
+    az_speed, az_accel, iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
+>>>>>>> main
     disable_hwp=False, apply_boresight_rot=False, hwp_cfg=None,
     hwp_dir=True, home_at_end=False, run_relock=False,
 ):
@@ -296,7 +300,11 @@ def make_config(
 class SATP3Policy(SATPolicy):
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.5, az_accel=0.25,
+<<<<<<< HEAD
         iv_cadence=4*u.hour, bias_step_cadence=1*u.hour, max_cmb_scan_duration=1*u.hour,
+=======
+        iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour, max_cmb_scan_duration=1*u.hour,
+>>>>>>> main
         cal_targets=[], state_file=None, **op_cfg
     ):
         x = cls(**make_config(

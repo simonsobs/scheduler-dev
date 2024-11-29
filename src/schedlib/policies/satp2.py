@@ -279,7 +279,11 @@ class SATP2Policy(SATPolicy):
 
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5,
+<<<<<<< HEAD
         iv_cadence=4*u.hour, bias_step_cadence=1*u.hour, max_cmb_scan_duration=1*u.hour,
+=======
+        iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour, max_cmb_scan_duration=1*u.hour,
+>>>>>>> main
         cal_targets=[], boresight_override=None, 
         state_file=None, **op_cfg
     ):
