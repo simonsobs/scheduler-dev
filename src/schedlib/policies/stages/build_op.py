@@ -726,11 +726,6 @@ class PlanMoves:
             t1 = get_traj_ok_time(block0.az, block1.az, block0.alt, block1.alt,
                                   block0.t1)
             if t1 >= block1.t0:
-                '''if block1.alt <= self.sun_policy['min_el']:
-                        ir = [IR(name='sat.hwp_spin_down', subtype=IRMode.Gap, disable_hwp=False)]
-                    else:
-                        ir = []
-                '''
                 return [IR(name='gap', subtype=IRMode.Gap, t0=block0.t1, t1=block1.t0,
                            az=block1.az, alt=block1.alt)]
 
@@ -783,15 +778,6 @@ class PlanMoves:
             if t1_parking > block1.t0:
                 logger.warning("sun-safe parking delays move to next field by "
                                f"{(t1_parking - block1.t0).total_seconds()} seconds")
-
-            '''if alt_parking <= self.sun_policy['min_el']:
-                ir0 = IR(name='sat.hwp_spin_down', subtype=IRMode.Gap, disable_hwp=False)
-            else:
-                ir0 = None
-            if block1.alt <= self.sun_policy['min_el']:
-                ir1 = IR(name='sat.hwp_spin_down', subtype=IRMode.Gap, disable_hwp=False)
-            else:
-                ir1 = None'''
 
             return [IR(name='gap', subtype=IRMode.Gap, t0=block0.t1, t1=t0_parking,
                        az=az_parking, alt=alt_parking),
