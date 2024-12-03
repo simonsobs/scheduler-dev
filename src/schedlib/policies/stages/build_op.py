@@ -701,7 +701,6 @@ class PlanMoves:
         def get_traj_ok_time(az0, az1, alt0, alt1, t0):
             #Returns the timestamp until which the move from
             #(az0, alt0) to (az1, alt1) is sunsafe.
-            print('sun_policy', self.sun_policy)
             sun_tracker = get_sun_tracker(u.dt2ct(t0), policy=self.sun_policy)
             az = np.linspace(az0, az1, 101)
             el = np.linspace(alt0, alt1, 101)
