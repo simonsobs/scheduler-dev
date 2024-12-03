@@ -190,7 +190,6 @@ class BuildOp:
 
         logger.info(f"================ solve moves ================")
         logger.info("step 1: solve sun-safe moves")
-        print('plan_moves', self.plan_moves)
         ir = PlanMoves(**self.plan_moves).apply(ir)
 
         logger.info("step 2: simplify moves")
