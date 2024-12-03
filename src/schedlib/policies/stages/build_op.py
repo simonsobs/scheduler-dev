@@ -93,7 +93,10 @@ class BuildOp:
     Attributes
     ----------
     min_duration : float
-        parameter for min-duration rule: minimum duration of a block to schedule.
+        Parameter for min-duration rule: minimum duration of a block to schedule.
+    min_cmb_duration: float
+        Parameter for second pass of min-duration for cmb observations only.
+        Clears up leftover short observations after splitting.
     max_pass : int
         Maximum number of attempts
     plan_moves : Dict[str, Any]
@@ -104,6 +107,7 @@ class BuildOp:
     """
     min_duration: float = 1 * u.minute
     min_cmb_duration: float = 10 * u.minute
+    disable_hwp: bool = False
     max_pass: int = 3
     plan_moves: Dict[str, Any] = field(default_factory=dict)
     simplify_moves: Dict[str, Any] = field(default_factory=dict)
@@ -186,6 +190,7 @@ class BuildOp:
 
         logger.info(f"================ solve moves ================")
         logger.info("step 1: solve sun-safe moves")
+        print('plan_moves', self.plan_moves)
         ir = PlanMoves(**self.plan_moves).apply(ir)
 
         logger.info("step 2: simplify moves")
@@ -418,6 +423,8 @@ class BuildOp:
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif isinstance(ir, MoveTo):
                 op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt, 'force': True}]  # aux move_to should be enforced
+                if ir.alt <= self.plan_moves['sun_policy']['min_el']:
+                    op_cfgs.insert(0, {'name': 'sat.hwp_spin_down', 'sched_mode': IRMode.Aux, 'disable_hwp': self.disable_hwp})
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif ir.subtype in [IRMode.PreSession, IRMode.PostSession]:
                 state, _, op_blocks = self._apply_ops(state, ir.operations, az=ir.az, alt=ir.alt)
@@ -694,6 +701,7 @@ class PlanMoves:
         def get_traj_ok_time(az0, az1, alt0, alt1, t0):
             #Returns the timestamp until which the move from
             #(az0, alt0) to (az1, alt1) is sunsafe.
+            print('sun_policy', self.sun_policy)
             sun_tracker = get_sun_tracker(u.dt2ct(t0), policy=self.sun_policy)
             az = np.linspace(az0, az1, 101)
             el = np.linspace(alt0, alt1, 101)
@@ -718,6 +726,11 @@ class PlanMoves:
             t1 = get_traj_ok_time(block0.az, block1.az, block0.alt, block1.alt,
                                   block0.t1)
             if t1 >= block1.t0:
+                '''if block1.alt <= self.sun_policy['min_el']:
+                        ir = [IR(name='sat.hwp_spin_down', subtype=IRMode.Gap, disable_hwp=False)]
+                    else:
+                        ir = []
+                '''
                 return [IR(name='gap', subtype=IRMode.Gap, t0=block0.t1, t1=block1.t0,
                            az=block1.az, alt=block1.alt)]
 
@@ -770,6 +783,15 @@ class PlanMoves:
             if t1_parking > block1.t0:
                 logger.warning("sun-safe parking delays move to next field by "
                                f"{(t1_parking - block1.t0).total_seconds()} seconds")
+
+            '''if alt_parking <= self.sun_policy['min_el']:
+                ir0 = IR(name='sat.hwp_spin_down', subtype=IRMode.Gap, disable_hwp=False)
+            else:
+                ir0 = None
+            if block1.alt <= self.sun_policy['min_el']:
+                ir1 = IR(name='sat.hwp_spin_down', subtype=IRMode.Gap, disable_hwp=False)
+            else:
+                ir1 = None'''
 
             return [IR(name='gap', subtype=IRMode.Gap, t0=block0.t1, t1=t0_parking,
                        az=az_parking, alt=alt_parking),
