@@ -423,8 +423,6 @@ class BuildOp:
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif isinstance(ir, MoveTo):
                 op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt, 'force': True}]  # aux move_to should be enforced
-                if ir.alt <= self.plan_moves['sun_policy']['min_el']:
-                    op_cfgs.insert(0, {'name': 'sat.hwp_spin_down', 'sched_mode': IRMode.Aux, 'disable_hwp': self.disable_hwp})
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif ir.subtype in [IRMode.PreSession, IRMode.PostSession]:
                 state, _, op_blocks = self._apply_ops(state, ir.operations, az=ir.az, alt=ir.alt)

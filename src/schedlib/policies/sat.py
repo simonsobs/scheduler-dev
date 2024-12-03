@@ -103,8 +103,6 @@ class CalTarget:
 #  def my_op(state):
 #      return state, 10, ["do something"]
 
-HWP_SPIN_DOWN = 10*u.minute
-
 @cmd.operation(name="sat.preamble", duration=0)
 def preamble():
     return [
@@ -176,7 +174,7 @@ def hwp_spin_down(state, disable_hwp=False):
         return state, 0, ["# hwp already stopped"]
     else:
         state = state.replace(hwp_spinning=False)
-        return state, HWP_SPIN_DOWN, [
+        return state, cmd.HWP_SPIN_DOWN, [
             "run.hwp.stop(active=True)",
             "sup.disable_driver_board()",
         ]
