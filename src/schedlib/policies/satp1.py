@@ -215,7 +215,6 @@ def make_config(
     az_accel,
     iv_cadence,
     bias_step_cadence,
-    disable_hwp,
     max_cmb_scan_duration,
     cal_targets,
     boresight_override=None,
@@ -226,7 +225,6 @@ def make_config(
     operations = make_operations(
         az_speed, az_accel,
         iv_cadence, bias_step_cadence,
-        disable_hwp,
         **op_cfg
     )
 
@@ -253,7 +251,6 @@ def make_config(
         'az_accel' : az_accel,
         'iv_cadence' : iv_cadence,
         'bias_step_cadence' : bias_step_cadence,
-        'disable_hwp': disable_hwp,
         'max_cmb_scan_duration' : max_cmb_scan_duration,
         'stages': {
             'build_op': {
@@ -281,13 +278,14 @@ class SATP1Policy(SATPolicy):
 
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5,
-        iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour, max_cmb_scan_duration=1*u.hour,
-        disable_hwp=False, cal_targets=[], boresight_override=None,
+        iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
+        max_cmb_scan_duration=1*u.hour,
+        cal_targets=[], boresight_override=None,
         state_file=None, **op_cfg
     ):
         x = cls(**make_config(
             master_file, az_speed, az_accel, iv_cadence,
-            bias_step_cadence, disable_hwp, max_cmb_scan_duration, cal_targets,
+            bias_step_cadence, max_cmb_scan_duration, cal_targets,
             boresight_override, **op_cfg
         ))
         x.state_file=state_file

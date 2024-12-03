@@ -410,7 +410,6 @@ class SATPolicy:
     az_accel: float = 2. # deg / s^2
     iv_cadence : float = 4 * u.hour
     bias_step_cadence : float = 0.5 * u.hour
-    disable_hwp : bool = False
     max_cmb_scan_duration : float = 1 * u.hour
     allow_az_maneuver: bool = True
     wafer_sets: Dict[str, Any] = field(default_factory=dict)
@@ -716,7 +715,7 @@ class SATPolicy:
             state = self.init_state(t0)
 
         # load building stage
-        build_op = get_build_stage('build_op', **self.stages.get('build_op', {'disable_hwp': self.disable_hwp}))
+        build_op = get_build_stage('build_op', **self.stages.get('build_op', {}))
         ops, state = build_op.apply(seq, t0, t1, state, self.operations, self.max_cmb_scan_duration)
         if return_state:
             return ops, state
