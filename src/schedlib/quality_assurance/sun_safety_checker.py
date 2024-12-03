@@ -31,7 +31,7 @@ class SunCrawler:
             master_file='None',
             az_speed=None, az_accel=None,
             iv_cadence=None, bias_step_cadence=None,
-            max_cmb_scan_duration=None,
+            min_hwp_el=None, max_cmb_scan_duration=None,
             cal_targets=None,
         )['rules']['sun-avoidance']
             
