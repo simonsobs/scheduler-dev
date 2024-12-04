@@ -189,7 +189,7 @@ class BuildOp:
         ir = PlanMoves(**self.plan_moves).apply(ir)
 
         logger.info("step 2: simplify moves")
-        ir = SimplifyMoves(**self.simplify_moves).apply(ir, max_cmb_scan_duration)
+        ir = SimplifyMoves(**self.simplify_moves).apply(ir)
 
         # in full generality we should do some round-trips to make sure
         # the moves are still valid when we include the time costs of
@@ -379,12 +379,15 @@ class BuildOp:
         logger.info("step 4: planning post-session ops")
 
         ops = [op for op in operations if op['sched_mode'] == SchedMode.PostSession]
+        az_stow = [op['az_stow'] for op in ops if 'az_stow' in op][0]
+        alt_stow = [op['el_stow'] for op in ops if 'el_stow' in op][0]
+
         state, post_dur, _ = self._apply_ops(state, ops)
         ir += [ 
             IR(name='post_session', subtype=IRMode.PostSession,
                t0=state.curr_time-dt.timedelta(seconds=post_dur), 
                t1=state.curr_time, operations=ops,
-               az=state.az_now, alt=state.el_now)
+               az=az_stow, alt=alt_stow)
         ]
         logger.debug(f"post-session state: {state}")
 
@@ -802,7 +805,7 @@ class PlanMoves:
         last_az, last_alt = None, None
         # Combine, but skipping first and last blocks, which are init/shutdown.
         for i, b in enumerate(seq):
-            if b.name in ['pre_session', 'post_session']:
+            if b.name in ['pre_session']:
                 # Pre/post-ambles, leave it alone.
                 seq_ += [b]
             elif b.name == 'gap':
@@ -822,7 +825,7 @@ class PlanMoves:
                     seq_ += [MoveTo(az=b.az, alt=b.alt)]
                     last_az, last_alt = b.az, b.alt
                 else:
-                    if (b.block != seq[i-1].block) & (i>0):
+                    if i > 0:
                         seq_ += [MoveTo(az=b.az, alt=b.alt)]
                 seq_ += [b]
 
@@ -831,12 +834,12 @@ class PlanMoves:
 
 @dataclass(frozen=True)
 class SimplifyMoves:
-    def apply(self, ir, max_cmb_scan_duration):
+    def apply(self, ir):
         """simplify moves by removing redundant MoveTo blocks"""
         i_pass = 0
         while True:
             logger.info(f"simplify_moves: {i_pass=}")
-            ir_new = self.round_trip(ir, max_cmb_scan_duration)
+            ir_new = self.round_trip(ir)
             #ir_new = ir
             if ir_new == ir:
                 logger.info("simplify_moves: IR converged")
@@ -844,7 +847,7 @@ class SimplifyMoves:
             ir = ir_new
             i_pass += 1
 
-    def round_trip(self, ir, max_cmb_scan_duration):
+    def round_trip(self, ir):
         def without(i):
             return ir[:i] + ir[i+1:]
         for bi in range(len(ir)-1):

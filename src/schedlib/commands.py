@@ -381,12 +381,8 @@ def start_time(state):
 def move_to(state, az, el, force=False):
     if not force and (state.az_now == az and state.el_now == el):
         return state, []
-
-    if el == state.el_now:
-        cmd = [f"run.acu.move_to(az={round(az, 3)}, el={(round(el, 3))})"]
     else:
         cmd = [
-            f"run.acu.move_to(az={round(az, 3)}, el={round(state.el_now, 3)})",
             f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
         ]
     state = state.replace(az_now=az, el_now=el)
