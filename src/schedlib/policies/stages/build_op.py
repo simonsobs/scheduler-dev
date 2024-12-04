@@ -92,8 +92,13 @@ class BuildOp:
 
     Attributes
     ----------
+    policy_config : Dict[str, Any]
+        Full configuration of the SATPolicy.
     min_duration : float
-        parameter for min-duration rule: minimum duration of a block to schedule.
+        Parameter for min-duration rule: minimum duration of a block to schedule.
+    min_cmb_duration: float
+        Parameter for second pass of min-duration for cmb observations only.
+        Clears up leftover short observations after splitting.
     max_pass : int
         Maximum number of attempts
     plan_moves : Dict[str, Any]
@@ -102,8 +107,10 @@ class BuildOp:
         Config dict for SimplifyMoves pass
 
     """
+    policy_config: Dict[str, Any]
     min_duration: float = 1 * u.minute
     min_cmb_duration: float = 10 * u.minute
+    disable_hwp: bool = False
     max_pass: int = 3
     plan_moves: Dict[str, Any] = field(default_factory=dict)
     simplify_moves: Dict[str, Any] = field(default_factory=dict)
@@ -165,13 +172,13 @@ class BuildOp:
                             seq[i-1] = seq[i-1].extend_right(dt.timedelta(seconds=(max_combined_duration - seq[i-1].duration.total_seconds())))
         return seq
 
-    def apply(self, seq, t0, t1, state, operations, max_cmb_scan_duration):
+    def apply(self, seq, t0, t1, state, operations):
         init_state = state
         seq_prev_ = None
         seq_ = seq
         for i in range(self.max_pass):
             logger.info(f"================ pass {i+1} ================")
-            seq_ = self.round_trip(seq_, t0, t1, init_state, operations, max_cmb_scan_duration)
+            seq_ = self.round_trip(seq_, t0, t1, init_state, operations)
             if seq_ == seq_prev_:
                 logger.info(f"round_trip: converged in pass {i+1}, lowering...")
                 break
@@ -181,7 +188,7 @@ class BuildOp:
 
         logger.info(f"================ lowering ================")
 
-        ir = self.lower(seq_, t0, t1, init_state, operations, max_cmb_scan_duration)
+        ir = self.lower(seq_, t0, t1, init_state, operations)
         assert ir[-1].t1 <= t1, "Going beyond our schedule limit, something is wrong!"
 
         logger.info(f"================ solve moves ================")
@@ -189,7 +196,7 @@ class BuildOp:
         ir = PlanMoves(**self.plan_moves).apply(ir)
 
         logger.info("step 2: simplify moves")
-        ir = SimplifyMoves(**self.simplify_moves).apply(ir, max_cmb_scan_duration)
+        ir = SimplifyMoves(**self.simplify_moves).apply(ir)
 
         # in full generality we should do some round-trips to make sure
         # the moves are still valid when we include the time costs of
@@ -205,7 +212,7 @@ class BuildOp:
 
         return ir_ops, out_state
 
-    def lower(self, seq, t0, t1, state, operations, max_cmb_scan_duration=None):
+    def lower(self, seq, t0, t1, state, operations):
         ir = []
 
         # -----------------------------------------------------------------
@@ -323,7 +330,7 @@ class BuildOp:
         non_overlaps = core.seq_remove_overlap(full_interval, ir_blocks)  # as constraint
 
         cmb_blocks = core.seq_remove_overlap(cmb_blocks, ir_blocks)
-        cmb_blocks = self.merge_cmb_blocks(cmb_blocks, dt.timedelta(seconds=max_cmb_scan_duration))
+        cmb_blocks = self.merge_cmb_blocks(cmb_blocks, dt.timedelta(seconds=self.policy_config.max_cmb_scan_duration))
         cmb_blocks = core.seq_flatten(ru.MinDuration(self.min_cmb_duration)(cmb_blocks))
 
         # re-merge all blocks
@@ -355,8 +362,8 @@ class BuildOp:
                 logger.debug(f"--> operational constraint: {non_overlap.t0} to {non_overlap.t1}")
                 constraint = core.block_intersect(constraint, non_overlap)
                 ops_ = cmb_ops
-                if max_cmb_scan_duration is not None:
-                    blocks = self.divide_cmb_scans(block, dt.timedelta(seconds=max_cmb_scan_duration))
+                if self.policy_config.max_cmb_scan_duration is not None:
+                    blocks = self.divide_cmb_scans(block, dt.timedelta(seconds=self.policy_config.max_cmb_scan_duration))
                 else:
                     blocks = [block]
             elif block.subtype == 'cal':
@@ -390,8 +397,8 @@ class BuildOp:
 
         return ir
     
-    def round_trip(self, seq, t0, t1, state, operations, max_cmb_scan_duration):
-        ir = self.lower(seq, t0, t1, state, operations, max_cmb_scan_duration)
+    def round_trip(self, seq, t0, t1, state, operations):
+        ir = self.lower(seq, t0, t1, state, operations)
         seq = self.lift(ir)
 
         # opportunity to do some correction:
@@ -417,7 +424,8 @@ class BuildOp:
                 op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Aux, 't1': ir.t1}]
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif isinstance(ir, MoveTo):
-                op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt, 'force': True}]  # aux move_to should be enforced
+                op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt,
+                'min_el': self.policy_config.min_hwp_el, 'force': True}]  # aux move_to should be enforced
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif ir.subtype in [IRMode.PreSession, IRMode.PostSession]:
                 state, _, op_blocks = self._apply_ops(state, ir.operations, az=ir.az, alt=ir.alt)
@@ -831,12 +839,12 @@ class PlanMoves:
 
 @dataclass(frozen=True)
 class SimplifyMoves:
-    def apply(self, ir, max_cmb_scan_duration):
+    def apply(self, ir):
         """simplify moves by removing redundant MoveTo blocks"""
         i_pass = 0
         while True:
             logger.info(f"simplify_moves: {i_pass=}")
-            ir_new = self.round_trip(ir, max_cmb_scan_duration)
+            ir_new = self.round_trip(ir)
             #ir_new = ir
             if ir_new == ir:
                 logger.info("simplify_moves: IR converged")
@@ -844,7 +852,7 @@ class SimplifyMoves:
             ir = ir_new
             i_pass += 1
 
-    def round_trip(self, ir, max_cmb_scan_duration):
+    def round_trip(self, ir):
         def without(i):
             return ir[:i] + ir[i+1:]
         for bi in range(len(ir)-1):

@@ -12,6 +12,7 @@ logger = u.init_logger(__name__)
 
 
 MIN_DURATION = 0.01
+HWP_SPIN_DOWN = 10*u.minute
 
 @dataclass_json
 @dataclass(frozen=True)
@@ -377,21 +378,32 @@ def start_time(state):
         f"run.wait_until('{state.curr_time.isoformat()}', tolerance=3600)"
     ]
 
-@operation(name="move_to", duration=0)
-def move_to(state, az, el, force=False):
+@operation(name="move_to", return_duration=True)
+def move_to(state, az, el, min_el=48, force=False):
     if not force and (state.az_now == az and state.el_now == el):
-        return state, []
+        return state, 0, []
+
+    duration = 0
+    cmd = []
 
     if el == state.el_now:
-        cmd = [f"run.acu.move_to(az={round(az, 3)}, el={(round(el, 3))})"]
+        cmd += [f"run.acu.move_to(az={round(az, 3)}, el={(round(el, 3))})"]
     else:
-        cmd = [
+        if state.hwp_spinning and el < min_el:
+            state = state.replace(hwp_spinning=False)
+            duration += HWP_SPIN_DOWN
+            cmd += [
+                "run.hwp.stop(active=True)",
+                "sup.disable_driver_board()",
+            ]
+
+        cmd += [
             f"run.acu.move_to(az={round(az, 3)}, el={round(state.el_now, 3)})",
             f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
         ]
     state = state.replace(az_now=az, el_now=el)
 
-    return state, cmd
+    return state, duration, cmd
 
 @operation(name='set_scan_params', duration=0)
 def set_scan_params(state, az_speed, az_accel):

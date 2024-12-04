@@ -1,10 +1,12 @@
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Dict
 from schedlib import commands as cmd
 
 @dataclass(frozen=True)
 class BuildSched:
+    policy_config: Dict[str, Any]
+
     def apply(self, irs, t0, t1, state):
         init_state = state
         commands = []

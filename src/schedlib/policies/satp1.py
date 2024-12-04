@@ -178,8 +178,8 @@ def make_operations(
         hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper', 'forward':hwp_dir }
     pre_session_ops = [
         { 'name': 'sat.preamble'        , 'sched_mode': SchedMode.PreSession},
-        { 'name': 'start_time'          ,'sched_mode': SchedMode.PreSession},
-        { 'name': 'set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
+        { 'name': 'start_time'          , 'sched_mode': SchedMode.PreSession},
+        { 'name': 'set_scan_params'     , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
     ]
     if run_relock:
         pre_session_ops += [
@@ -215,6 +215,7 @@ def make_config(
     az_accel,
     iv_cadence,
     bias_step_cadence,
+    min_hwp_el,
     max_cmb_scan_duration,
     cal_targets,
     boresight_override=None,
@@ -251,6 +252,7 @@ def make_config(
         'az_accel' : az_accel,
         'iv_cadence' : iv_cadence,
         'bias_step_cadence' : bias_step_cadence,
+        'min_hwp_el' : min_hwp_el,
         'max_cmb_scan_duration' : max_cmb_scan_duration,
         'stages': {
             'build_op': {
@@ -278,14 +280,15 @@ class SATP1Policy(SATPolicy):
 
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5,
-        iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour, max_cmb_scan_duration=1*u.hour,
-        cal_targets=[], boresight_override=None, 
+        iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
+        min_hwp_el=48, max_cmb_scan_duration=1*u.hour,
+        cal_targets=[], boresight_override=None,
         state_file=None, **op_cfg
     ):
         x = cls(**make_config(
             master_file, az_speed, az_accel, iv_cadence,
-            bias_step_cadence, max_cmb_scan_duration, cal_targets,
-            boresight_override, **op_cfg
+            bias_step_cadence, min_hwp_el, max_cmb_scan_duration,
+            cal_targets, boresight_override, **op_cfg
         ))
         x.state_file=state_file
         return x
