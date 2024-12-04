@@ -304,7 +304,7 @@ class SATP3Policy(SATPolicy):
     ):
         x = cls(**make_config(
             master_file, az_speed, az_accel,
-            iv_cadence, bias_step_cadence,
+            iv_cadence, bias_step_cadence, min_hwp_el,
             max_cmb_scan_duration,
             cal_targets, **op_cfg)
         )
