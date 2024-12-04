@@ -58,10 +58,10 @@ class IR(core.Block):
         return f"{self.name[:15]:<15} ({self.subtype[:8]:<8}) az = {az}: {self.t0.strftime('%y-%m-%d %H:%M:%S')} -> {self.t1.strftime('%y-%m-%d %H:%M:%S')}"
 
     def replace(self, **kwargs):
-        """link `replace` in the wrapper block with the block it contains. 
-        Note that when IR is produced, we assume no trimming needs to happen, 
-        so we use `dc_replace` instead of `super().replace` which accounts for 
-        trimming effect on drift scans. It is not necessary here as we are 
+        """link `replace` in the wrapper block with the block it contains.
+        Note that when IR is produced, we assume no trimming needs to happen,
+        so we use `dc_replace` instead of `super().replace` which accounts for
+        trimming effect on drift scans. It is not necessary here as we are
         merely solving for different unwraps for drift scan.
 
         """
@@ -92,8 +92,13 @@ class BuildOp:
 
     Attributes
     ----------
+    policy_config : Dict[str, Any]
+        Full configuration of the SATPolicy.
     min_duration : float
-        parameter for min-duration rule: minimum duration of a block to schedule.
+        Parameter for min-duration rule: minimum duration of a block to schedule.
+    min_cmb_duration: float
+        Parameter for second pass of min-duration for cmb observations only.
+        Clears up leftover short observations after splitting.
     max_pass : int
         Maximum number of attempts
     plan_moves : Dict[str, Any]
@@ -102,8 +107,10 @@ class BuildOp:
         Config dict for SimplifyMoves pass
 
     """
+    policy_config: Dict[str, Any]
     min_duration: float = 1 * u.minute
     min_cmb_duration: float = 10 * u.minute
+    disable_hwp: bool = False
     max_pass: int = 3
     plan_moves: Dict[str, Any] = field(default_factory=dict)
     simplify_moves: Dict[str, Any] = field(default_factory=dict)
@@ -165,13 +172,13 @@ class BuildOp:
                             seq[i-1] = seq[i-1].extend_right(dt.timedelta(seconds=(max_combined_duration - seq[i-1].duration.total_seconds())))
         return seq
 
-    def apply(self, seq, t0, t1, state, operations, max_cmb_scan_duration):
+    def apply(self, seq, t0, t1, state, operations):
         init_state = state
         seq_prev_ = None
         seq_ = seq
         for i in range(self.max_pass):
             logger.info(f"================ pass {i+1} ================")
-            seq_ = self.round_trip(seq_, t0, t1, init_state, operations, max_cmb_scan_duration)
+            seq_ = self.round_trip(seq_, t0, t1, init_state, operations)
             if seq_ == seq_prev_:
                 logger.info(f"round_trip: converged in pass {i+1}, lowering...")
                 break
@@ -181,7 +188,7 @@ class BuildOp:
 
         logger.info(f"================ lowering ================")
 
-        ir = self.lower(seq_, t0, t1, init_state, operations, max_cmb_scan_duration)
+        ir = self.lower(seq_, t0, t1, init_state, operations)
         assert ir[-1].t1 <= t1, "Going beyond our schedule limit, something is wrong!"
 
         logger.info(f"================ solve moves ================")
@@ -205,7 +212,7 @@ class BuildOp:
 
         return ir_ops, out_state
 
-    def lower(self, seq, t0, t1, state, operations, max_cmb_scan_duration=None):
+    def lower(self, seq, t0, t1, state, operations):
         ir = []
 
         # -----------------------------------------------------------------
@@ -323,7 +330,7 @@ class BuildOp:
         non_overlaps = core.seq_remove_overlap(full_interval, ir_blocks)  # as constraint
 
         cmb_blocks = core.seq_remove_overlap(cmb_blocks, ir_blocks)
-        cmb_blocks = self.merge_cmb_blocks(cmb_blocks, dt.timedelta(seconds=max_cmb_scan_duration))
+        cmb_blocks = self.merge_cmb_blocks(cmb_blocks, dt.timedelta(seconds=self.policy_config.max_cmb_scan_duration))
         cmb_blocks = core.seq_flatten(ru.MinDuration(self.min_cmb_duration)(cmb_blocks))
 
         # re-merge all blocks
@@ -355,8 +362,8 @@ class BuildOp:
                 logger.debug(f"--> operational constraint: {non_overlap.t0} to {non_overlap.t1}")
                 constraint = core.block_intersect(constraint, non_overlap)
                 ops_ = cmb_ops
-                if max_cmb_scan_duration is not None:
-                    blocks = self.divide_cmb_scans(block, dt.timedelta(seconds=max_cmb_scan_duration))
+                if self.policy_config.max_cmb_scan_duration is not None:
+                    blocks = self.divide_cmb_scans(block, dt.timedelta(seconds=self.policy_config.max_cmb_scan_duration))
                 else:
                     blocks = [block]
             elif block.subtype == 'cal':
@@ -383,18 +390,18 @@ class BuildOp:
         alt_stow = [op['el_stow'] for op in ops if 'el_stow' in op][0]
 
         state, post_dur, _ = self._apply_ops(state, ops)
-        ir += [ 
+        ir += [
             IR(name='post_session', subtype=IRMode.PostSession,
-               t0=state.curr_time-dt.timedelta(seconds=post_dur), 
+               t0=state.curr_time-dt.timedelta(seconds=post_dur),
                t1=state.curr_time, operations=ops,
                az=az_stow, alt=alt_stow)
         ]
         logger.debug(f"post-session state: {state}")
 
         return ir
-    
-    def round_trip(self, seq, t0, t1, state, operations, max_cmb_scan_duration):
-        ir = self.lower(seq, t0, t1, state, operations, max_cmb_scan_duration)
+
+    def round_trip(self, seq, t0, t1, state, operations):
+        ir = self.lower(seq, t0, t1, state, operations)
         seq = self.lift(ir)
 
         # opportunity to do some correction:
@@ -420,7 +427,8 @@ class BuildOp:
                 op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Aux, 't1': ir.t1}]
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif isinstance(ir, MoveTo):
-                op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt, 'force': True}]  # aux move_to should be enforced
+                op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt,
+                'min_el': self.policy_config.min_hwp_el, 'force': True}]  # aux move_to should be enforced
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif ir.subtype in [IRMode.PreSession, IRMode.PostSession]:
                 state, _, op_blocks = self._apply_ops(state, ir.operations, az=ir.az, alt=ir.alt)
@@ -437,7 +445,7 @@ class BuildOp:
         for ir in irs:
             state, op_blocks = resolve_block(state, ir)
             ir_lowered += op_blocks
-        return ir_lowered, state 
+        return ir_lowered, state
 
     def _apply_ops(self, state, op_cfgs, block=None, az=None, alt=None):
         """
@@ -677,7 +685,7 @@ class BuildOp:
                 az=block.az,
                 alt=block.alt,
                 block=block,
-                operations=post_ops) 
+                operations=post_ops)
             ]
 
         return state, op_seq
@@ -799,7 +807,7 @@ class PlanMoves:
             gaps = get_safe_gaps(seq[i-1], seq[i])
             seq_.extend(gaps)
             seq_.append(seq[i])
-        
+
         # Replace gaps with Wait, Move, Wait.
         seq_, seq = [], seq_
         last_az, last_alt = None, None
@@ -865,7 +873,7 @@ class SimplifyMoves:
                 # gap followed by wait until will be replaced by the wait until
                 return without(bi)
         return ir
-        
+
 
 def find_unwrap(az, az_limits=[-90, 450]) -> List[float]:
     az = (az - az_limits[0]) % 360 + az_limits[0]  # min az becomes az_limits[0]
@@ -873,10 +881,10 @@ def find_unwrap(az, az_limits=[-90, 450]) -> List[float]:
     return az_unwraps
 
 def az_ranges_intersect(
-    r1: List[Tuple[float, float]], 
-    r2: List[Tuple[float, float]], 
-    *, 
-    az_limits: Tuple[float, float], 
+    r1: List[Tuple[float, float]],
+    r2: List[Tuple[float, float]],
+    *,
+    az_limits: Tuple[float, float],
     az_step: float
 ) -> List[Tuple[float, float]]:
     az_full = np.arange(az_limits[0], az_limits[1]+az_step, az_step)

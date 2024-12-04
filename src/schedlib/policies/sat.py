@@ -103,8 +103,6 @@ class CalTarget:
 #  def my_op(state):
 #      return state, 10, ["do something"]
 
-HWP_SPIN_DOWN = 10*u.minute
-
 @cmd.operation(name="sat.preamble", duration=0)
 def preamble():
     return [
@@ -177,7 +175,7 @@ def hwp_spin_down(state, disable_hwp=False):
         return state, 0, ["# hwp already stopped"]
     else:
         state = state.replace(hwp_spinning=False)
-        return state, HWP_SPIN_DOWN, [
+        return state, cmd.HWP_SPIN_DOWN, [
             "run.hwp.stop(active=True)",
             "sup.disable_driver_board()",
         ]
@@ -413,6 +411,7 @@ class SATPolicy:
     az_accel: float = 2. # deg / s^2
     iv_cadence : float = 4 * u.hour
     bias_step_cadence : float = 0.5 * u.hour
+    min_hwp_el : float = 48 # deg
     max_cmb_scan_duration : float = 1 * u.hour
     allow_az_maneuver: bool = True
     wafer_sets: Dict[str, Any] = field(default_factory=dict)
@@ -718,8 +717,8 @@ class SATPolicy:
             state = self.init_state(t0)
 
         # load building stage
-        build_op = get_build_stage('build_op', **self.stages.get('build_op', {}))
-        ops, state = build_op.apply(seq, t0, t1, state, self.operations, self.max_cmb_scan_duration)
+        build_op = get_build_stage('build_op', {'policy_config': self, **self.stages.get('build_op', {})})
+        ops, state = build_op.apply(seq, t0, t1, state, self.operations)
         if return_state:
             return ops, state
         return ops
@@ -741,7 +740,7 @@ class SATPolicy:
         """
         if state is None:
             state = self.init_state(t0)
-        build_sched = get_build_stage('build_sched', **self.stages.get('build_sched', {}))
+        build_sched = get_build_stage('build_sched', {'policy_config': self, **self.stages.get('build_sched', {})})
         commands = build_sched.apply(irs, t0, t1, state)
         return '\n'.join(commands)
 

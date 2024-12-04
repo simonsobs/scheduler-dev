@@ -220,7 +220,7 @@ def make_operations(
     if home_at_end:
         post_session_ops = [
             { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
-            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 60},
+            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 40},
         ]
     else:
         post_session_ops = []
@@ -233,6 +233,7 @@ def make_config(
     az_accel,
     iv_cadence,
     bias_step_cadence,
+    min_hwp_el,
     max_cmb_scan_duration,
     cal_targets,
     boresight_override=None,
@@ -252,7 +253,7 @@ def make_config(
     sun_policy = {
         'min_angle': 49,
         'min_sun_time': 1980,
-        'min_el': 48,
+        'min_el': 40,
     }
 
     config = {
@@ -271,6 +272,7 @@ def make_config(
         'az_accel' : az_accel,
         'iv_cadence' : iv_cadence,
         'bias_step_cadence' : bias_step_cadence,
+        'min_hwp_el' : min_hwp_el,
         'max_cmb_scan_duration' : max_cmb_scan_duration,
         'stages': {
             'build_op': {
@@ -296,12 +298,14 @@ def make_config(
 class SATP3Policy(SATPolicy):
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.5, az_accel=0.25,
-        iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour, max_cmb_scan_duration=1*u.hour,
+        iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
+        min_hwp_el=48, max_cmb_scan_duration=1*u.hour,
         cal_targets=[], state_file=None, **op_cfg
     ):
         x = cls(**make_config(
             master_file, az_speed, az_accel,
-            iv_cadence, bias_step_cadence, max_cmb_scan_duration,
+            iv_cadence, bias_step_cadence, min_hwp_el,
+            max_cmb_scan_duration,
             cal_targets, **op_cfg)
         )
         x.state_file = state_file
@@ -315,7 +319,7 @@ class SATP3Policy(SATPolicy):
         return State(
             curr_time=t0,
             az_now=180,
-            el_now=60,
+            el_now=40,
             boresight_rot_now=0,
             hwp_spinning=False,
         )
