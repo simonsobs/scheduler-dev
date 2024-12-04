@@ -220,7 +220,7 @@ def make_operations(
     if home_at_end:
         post_session_ops = [
             { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
-            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 60},
+            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 40},
         ]
     else:
         post_session_ops = []
@@ -253,7 +253,7 @@ def make_config(
     sun_policy = {
         'min_angle': 49,
         'min_sun_time': 1980,
-        'min_el': 48,
+        'min_el': 40,
     }
 
     config = {
@@ -319,7 +319,7 @@ class SATP3Policy(SATPolicy):
         return State(
             curr_time=t0,
             az_now=180,
-            el_now=60,
+            el_now=40,
             boresight_rot_now=0,
             hwp_spinning=False,
         )
