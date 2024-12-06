@@ -386,15 +386,13 @@ class BuildOp:
         logger.info("step 4: planning post-session ops")
 
         ops = [op for op in operations if op['sched_mode'] == SchedMode.PostSession]
-        az_stow = [op['az_stow'] for op in ops if 'az_stow' in op][0]
-        alt_stow = [op['el_stow'] for op in ops if 'el_stow' in op][0]
-
         state, post_dur, _ = self._apply_ops(state, ops)
         ir += [
             IR(name='post_session', subtype=IRMode.PostSession,
                t0=state.curr_time-dt.timedelta(seconds=post_dur),
                t1=state.curr_time, operations=ops,
-               az=az_stow, alt=alt_stow)
+               az=self.plan_moves['stow_position']['az_stow'],
+               alt=self.plan_moves['stow_position']['el_stow'])
         ]
         logger.debug(f"post-session state: {state}")
 
@@ -694,6 +692,7 @@ class BuildOp:
 class PlanMoves:
     """solve moves to make seq possible"""
     sun_policy: Dict[str, Any]
+    stow_position: Dict[str, Any]
     az_step: float = 1
     az_limits: Tuple[float, float] = (-90, 450)
 
