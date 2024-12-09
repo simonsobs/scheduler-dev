@@ -393,14 +393,20 @@ def move_to(state, az, el, min_el=48, force=False):
             state = state.replace(hwp_spinning=False)
             duration += HWP_SPIN_DOWN
             cmd += [
+                f"run.acu.move_to(az={round(state.az_now, 3)}, el={round(state.el_now, 3)})",
                 "run.hwp.stop(active=True)",
                 "sup.disable_driver_board()",
             ]
-
-        cmd += [
-            f"run.acu.move_to(az={round(az, 3)}, el={round(state.el_now, 3)})",
-            f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
-        ]
+        if state.el_now < el:
+            cmd += [
+                f"run.acu.move_to(az={round(az, 3)}, el={round(state.el_now, 3)})",
+                f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
+            ]
+        else:
+            cmd += [
+                f"run.acu.move_to(az={round(state.az_now, 3)}, el={round(el, 3)})",
+                f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
+            ]
     state = state.replace(az_now=az, el_now=el)
 
     return state, duration, cmd
