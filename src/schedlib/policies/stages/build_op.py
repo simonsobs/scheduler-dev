@@ -336,16 +336,6 @@ class BuildOp:
         # re-merge all blocks
         all_blocks = core.seq_sort(core.seq_merge(cmb_blocks, cal_blocks, flatten=True))
 
-        # prevent obs from going outside of the allowed range by wrapping around
-        # these are not caught by find_unwrap which only checks the first value
-        for i, block in enumerate(all_blocks):
-            az1 = block.az + block.az_drift * (block.duration).total_seconds()
-
-            if az1 < self.plan_moves['az_limits'][0]:
-                all_blocks[i] = block.replace(az=block.az + 360)
-            elif az1 > self.plan_moves['az_limits'][1]:
-                all_blocks[i] = block.replace(az=block.az - 360)
-
         # done with previously planned operation seqs
         # re-plan from the end of initialization.
         state = post_init_state
