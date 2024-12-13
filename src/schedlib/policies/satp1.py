@@ -235,9 +235,9 @@ def make_config(
         'min_el': 48,
     }
 
-    stow_position = {
-        'az_stow': 180,
-        'el_stow': 48,
+    az_range = {
+        'trim': False,
+        'az_range': [-45, 405]
     }
 
     config = {
@@ -248,6 +248,7 @@ def make_config(
                 'min_duration': 600
             },
             'sun-avoidance': sun_policy,
+            'az-range': az_range,
         },
         'operations': operations,
         'cal_targets': cal_targets,
@@ -265,7 +266,7 @@ def make_config(
                     'stow_position': stow_position,
                     'sun_policy': sun_policy,
                     'az_step': 0.5,
-                    'az_limits': [-45, 405],
+                    'az_limits': az_range['az_range'],
                 }
             }
         }
