@@ -236,6 +236,11 @@ def make_config(
         'min_el': 40,
     }
 
+    stow_position = {
+        'az_stow': 180,
+        'el_stow': 40,
+    }
+
     az_range = {
         'trim': False,
         'az_range': [-45, 405]
