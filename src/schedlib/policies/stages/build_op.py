@@ -443,7 +443,6 @@ class BuildOp:
         # `lower` generates a basic plan, here we work with ir to resolve 
         # all operations within each blocks
         def resolve_block(state, ir):
-            print(self.policy_config)
             if isinstance(ir, WaitUntil):
                 op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Aux, 't1': ir.t1}]
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
