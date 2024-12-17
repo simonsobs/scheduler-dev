@@ -218,10 +218,17 @@ def make_operations(
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
     ]
     if home_at_end:
-        post_session_ops = [
-            { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
-            { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 40},
-        ]
+        if disable_hwp:
+            post_session_ops = [
+                { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 48},
+                { 'name': 'end_time'          , 'sched_mode': SchedMode.PostSession},
+            ]
+        else:
+            post_session_ops = [
+                { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
+                { 'name': 'sat.wrap_up'         , 'sched_mode': SchedMode.PostSession, 'az_stow': 180, 'el_stow': 40},
+                { 'name': 'end_time'          , 'sched_mode': SchedMode.PostSession},
+            ]
     else:
         post_session_ops = []
 
@@ -299,7 +306,7 @@ class SATP3Policy(SATPolicy):
     @classmethod
     def from_defaults(cls, master_file, az_speed=0.5, az_accel=0.25,
         iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
-        min_hwp_el=48, max_cmb_scan_duration=1*u.hour,
+        min_hwp_el=47.9, max_cmb_scan_duration=1*u.hour,
         cal_targets=[], state_file=None, **op_cfg
     ):
         x = cls(**make_config(
@@ -314,12 +321,13 @@ class SATP3Policy(SATPolicy):
     def add_cal_target(self, *args, **kwargs):
         self.cal_targets.append(make_cal_target(*args, **kwargs))
 
-    def init_state(self, t0: dt.datetime) -> State:
+    def init_state(self, t0: dt.datetime, t1: dt.datetime) -> State:
         """customize typical initial state for satp1, if needed"""
         return State(
-            curr_time=t0,
-            az_now=180,
-            el_now=40,
-            boresight_rot_now=0,
-            hwp_spinning=False,
-        )
+                curr_time=t0,
+                end_time=t1,
+                az_now=180,
+                el_now=40,
+                boresight_rot_now=0,
+                hwp_spinning=False,
+            )

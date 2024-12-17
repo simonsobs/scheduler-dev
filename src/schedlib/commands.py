@@ -25,6 +25,8 @@ class State:
     ----------
     curr_time : datetime.datetime
         The current timestamp of the state.
+    end_time : datetime.datetime
+        The end timestamp of the state.
     az_now : float
         The current azimuth position in degrees.
     el_now : float
@@ -47,6 +49,7 @@ class State:
 
     """
     curr_time: dt.datetime
+    end_time: dt.datetime
     az_now: Optional[float] = None
     el_now: Optional[float] = None
     az_speed_now: Optional[float] = None
@@ -378,8 +381,14 @@ def start_time(state):
         f"run.wait_until('{state.curr_time.isoformat()}', tolerance=3600)"
     ]
 
+@operation(name='end_time')
+def end_time(state):
+    return state, [
+        f"run.wait_until('{state.end_time.isoformat()}')"
+    ]
+
 @operation(name="move_to", return_duration=True)
-def move_to(state, az, el, min_el=48, force=False):
+def move_to(state, az, el, min_el=47.9, force=False):
     if not force and (state.az_now == az and state.el_now == el):
         return state, 0, []
 
@@ -394,8 +403,10 @@ def move_to(state, az, el, min_el=48, force=False):
             duration += HWP_SPIN_DOWN
             cmd += [
                 f"run.acu.move_to(az={round(state.az_now, 3)}, el={round(state.el_now, 3)})",
-                "run.hwp.stop(active=True)",
-                "sup.disable_driver_board()",
+                #"run.hwp.stop(active=True)",
+                #"sup.disable_driver_board()",
+                "run.hwp.stop(active=False)",
+                "time.sleep(15*60)",
             ]
         if state.el_now < el:
             cmd += [
@@ -407,6 +418,14 @@ def move_to(state, az, el, min_el=48, force=False):
                 f"run.acu.move_to(az={round(state.az_now, 3)}, el={round(el, 3)})",
                 f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
             ]
+
+        if (not state.hwp_spinning) and (el > min_el):
+            state = state.replace(hwp_spinning=True)
+            cmd += [
+                "sup.enable_driver_board()",
+                "run.hwp.set_freq(freq=2)",
+            ]
+        
     state = state.replace(az_now=az, el_now=el)
 
     return state, duration, cmd

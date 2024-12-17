@@ -175,8 +175,10 @@ def hwp_spin_down(state, disable_hwp=False):
     else:
         state = state.replace(hwp_spinning=False)
         return state, cmd.HWP_SPIN_DOWN, [
-            "run.hwp.stop(active=True)",
-            "sup.disable_driver_board()",
+            #"run.hwp.stop(active=True)",
+            #"sup.disable_driver_board()",
+            "run.hwp.stop(active=False)",
+            "time.sleep(15*60)"
         ]
 
 # per block operation: block will be passed in as parameter
@@ -366,12 +368,23 @@ def bias_step(state, block, bias_step_cadence=None):
 
 @cmd.operation(name='sat.wrap_up', duration=0)
 def wrap_up(state, az_stow, el_stow):
-    state = state.replace(az_now=az_stow, el_now=el_stow)
-    return state, [
-        "# go home",
-        f"run.acu.move_to(az={az_stow}, el={el_stow})",
-        "time.sleep(1)"
-    ]
+    if state.el_now == el_stow:
+        state = state.replace(az_now=az_stow, el_now=el_stow)
+        return state, [
+            "# go home",
+            f"run.acu.move_to(az={az_stow}, el={el_stow})",
+            "time.sleep(1)"
+        ]
+    else:
+        az_now = state.az_now
+        state = state.replace(az_now=az_stow, el_now=el_stow)
+        return state, [
+            "# go home",
+            f"run.acu.move_to(az={az_now}, el={el_stow})",
+            f"run.acu.move_to(az={az_stow}, el={el_stow})",
+            "time.sleep(1)"
+        ]
+
 
 @dataclass
 class SATPolicy:
@@ -713,7 +726,8 @@ class SATPolicy:
 
         """
         if state is None:
-            state = self.init_state(t0)
+            #state = self.init_state(t0)
+            state = self.init_state(t0, t1)
 
         # load building stage
         build_op = get_build_stage('build_op', {'policy_config': self, **self.stages.get('build_op', {})})
@@ -738,7 +752,8 @@ class SATPolicy:
 
         """
         if state is None:
-            state = self.init_state(t0)
+            #state = self.init_state(t0)
+            state = self.init_state(t0, t1)
         build_sched = get_build_stage('build_sched', {'policy_config': self, **self.stages.get('build_sched', {})})
         commands = build_sched.apply(irs, t0, t1, state)
         return '\n'.join(commands)
