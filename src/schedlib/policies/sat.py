@@ -480,13 +480,6 @@ class SATPolicy:
                 if source not in blocks['calibration']:
                     blocks['calibration'][source] = src.source_gen_seq(source, t0, t1)
 
-        # update az speed in scan blocks
-        blocks = core.seq_map_when(
-            lambda b: isinstance(b, inst.ScanBlock),
-            lambda b: b.replace(az_speed=self.az_speed,az_accel=self.az_accel),
-            blocks
-        )
-
         # trim to given time range
         blocks = core.seq_trim(blocks, t0, t1)
 
@@ -642,7 +635,7 @@ class SATPolicy:
         blocks['baseline']['cmb'] = core.seq_map(
             lambda block: block.replace(
                 subtype="cmb",
-                tag=f"{block.az:.0f}-{block.az+block.throw:.0f}"
+                tag=f"{block.tag},{block.az:.0f}-{block.az+block.throw:.0f}"
             ),
             blocks['baseline']['cmb']
         )
