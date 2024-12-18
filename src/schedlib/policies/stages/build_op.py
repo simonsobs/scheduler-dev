@@ -31,11 +31,11 @@ def get_traj_ok_time(az0, az1, alt0, alt1, t0, sun_policy):
     sun_safety = sun_tracker.check_trajectory(t=u.dt2ct(t0), az=az, el=el)
     return u.ct2dt(u.dt2ct(t0) + sun_safety['sun_time'])
 
-def get_parking(t0, t1, az0, alt0, sun_policy, az_parking=180):
+def get_parking(t0, t1, alt0, sun_policy, az_parking=180):
     # gets a safe parking location for the time range and
-    # Do the move in two steps, parking at az=180 (most likely
-    # to be sun-safe).  Identify a spot that is safe for the
-    # duration of t0 to t1.
+    # Do the move in two steps, parking at az_parking (180
+    # is most likely to be sun-safe).  Identify a spot that
+    # is safe for the duration of t0 to t1.
     alt_range = alt0, sun_policy['min_el']
     n_alts = max(2, int(round(abs(alt_range[1] - alt_range[0]) / 4. + 1)))
     for alt_parking in np.linspace(alt_range[0], alt_range[1], n_alts):
@@ -433,7 +433,7 @@ class BuildOp:
                 # add a buffer to start and end to be safe
                 t_start = t0 - dt.timedelta(seconds=300)
                 t_end = t1 + dt.timedelta(seconds=300)
-                az, alt, _, _ = get_parking(t_start, t_end, az, alt, self.plan_moves['sun_policy'], az)
+                az, alt, _, _ = get_parking(t_start, t_end, alt, self.plan_moves['sun_policy'])
                 logger.info(f"found sun safe stow position at ({az}, {alt})")
             # allow for overriding of stow position from config
             else:
@@ -787,8 +787,7 @@ class PlanMoves:
                            az=block1.az, alt=block1.alt)]
 
             az_parking, alt_parking, t0_parking, t1_parking = get_parking(block0.t1, block1.t0,
-                                                                          block0.az, block0.alt,
-                                                                          self.sun_policy)
+                                                                          block0.alt, self.sun_policy)
 
             def check_parking(t0_parking, t1_parking, alt_parking):
                 if get_traj_ok_time(az_parking, az_parking, alt_parking, alt_parking,
@@ -857,8 +856,8 @@ class PlanMoves:
                     az=block.az, alt=block.alt)])
             else:
                 movet = block.t1 #max(safet, block.t1)
-                az_parking, alt_parking, t0_parking, t1_parking = get_parking(movet, t_end, block.az,
-                                                                              block.alt, self.sun_policy)
+                az_parking, alt_parking, t0_parking, t1_parking = get_parking(movet, t_end, block.alt,
+                                                                              self.sun_policy)
 
                 get_safe_gaps(block, IR(name='gap', subtype=IRMode.Gap, t0=t0_parking, t1=t1_parking,
                         az=az_parking, alt=alt_parking))
