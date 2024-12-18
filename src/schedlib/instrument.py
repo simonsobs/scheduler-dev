@@ -31,6 +31,9 @@ class ScanBlock(core.NamedBlock):
         Azimuth acceleration in degrees per second squared (default is 2).
     boresight_angle : float, optional
         Boresight angle in degrees (default is None).
+    hwp_dir : bool, optional
+        HWP direction for SATs. Forward is True, backwards if False.
+        Default is None.
     subtype : str, optional
         Subtype of the scan block (default is an empty string).
     tag : str, optional
@@ -43,6 +46,7 @@ class ScanBlock(core.NamedBlock):
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s**2
     boresight_angle: Optional[float] = None # deg
+    hwp_dir: Optional[bool] = None
     subtype: str = ""
     tag: str = ""
 
@@ -301,7 +305,6 @@ def parse_sequence_from_toast(ifile):
     columns = ["start_utc", "stop_utc", "hwp_dir", "rotation", "az_min", "az_max",
                "el", "speed", "accel", "pass", "sub", "uid", "patch"]
 
-
     # count the number of lines to skip
     with open(ifile) as f:
         for i, l in enumerate(f):
@@ -322,7 +325,8 @@ def parse_sequence_from_toast(ifile):
             az_accel=row['accel'],
             throw=np.abs(row['az_max'] - row['az_min']),
             boresight_angle=row['rotation'],
-            tag=row['uid'].strip()
+            tag=row['uid'].strip(),
+            hwp_dir=(row['hwp_dir'] == 1)
         )
         blocks.append(block)
     return blocks
