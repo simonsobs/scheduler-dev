@@ -427,20 +427,19 @@ class BuildOp:
 
         if len(ops) > 0:
             # find an alt, az that is sun-safe for the entire duration of the schedule.
-            # starts with the initial altaz given in the config
-            az = self.plan_moves['stow_position']['az_stow']
-            alt = self.plan_moves['stow_position']['el_stow']
-
-            # allow for calculation of sun safe stow position to be overidden in config
-            if az is None and alt is None:
+            if not self.plan_moves['stow_position']:
                 az = 180
                 alt = 60
                 # add a buffer to start and end to be safe
                 t_start = t0 - dt.timedelta(seconds=300)
                 t_end = t1 + dt.timedelta(seconds=300)
                 az, alt, _, _ = get_parking(t_start, t_end, az, alt, self.plan_moves['sun_policy'], az)
-
-            logger.info(f"found sun safe stow position at ({az}, {alt})")
+                logger.info(f"found sun safe stow position at ({az}, {alt})")
+            # allow for overriding of stow position from config
+            else:
+                az = self.plan_moves['stow_position']['az_stow']
+                alt = self.plan_moves['stow_position']['el_stow']
+                logger.info(f"using specified stow position at ({az}, {alt})")
         else:
             az = all_blocks[-1].az
             alt = all_blocks[-1].alt
