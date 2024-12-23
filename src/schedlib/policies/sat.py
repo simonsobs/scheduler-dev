@@ -656,6 +656,16 @@ class SATPolicy:
 
         blocks = core.seq_sort(blocks['baseline']['cmb'] + blocks['calibration'], flatten=True)
 
+        # -----------------------------------------------------------------
+        # step 5: verify
+        # -----------------------------------------------------------------
+
+        # check if blocks are above min elevation
+        for block in blocks:
+            assert block.alt >= self.rules['sun-avoidance']['min_el'], (
+            f"Block {block} is below the minimum elevation "
+            f"of {self.rules['sun-avoidance']['min_el']} degrees."
+            )
         return blocks
 
     def init_state(self, t0: dt.datetime) -> State:
