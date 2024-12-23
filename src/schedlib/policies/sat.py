@@ -661,11 +661,13 @@ class SATPolicy:
         # -----------------------------------------------------------------
 
         # check if blocks are above min elevation
-        for block in blocks:
-            assert block.alt >= self.rules['sun-avoidance']['min_el'], (
-            f"Block {block} is below the minimum elevation "
-            f"of {self.rules['sun-avoidance']['min_el']} degrees."
-            )
+        for block in core.seq_flatten(blocks):
+            if hasattr(block, 'alt'):
+                assert block.alt >= self.rules['sun-avoidance']['min_el'], (
+                f"Block {block} is below the minimum elevation "
+                f"of {self.rules['sun-avoidance']['min_el']} degrees."
+                )
+
         return blocks
 
     def init_state(self, t0: dt.datetime) -> State:
