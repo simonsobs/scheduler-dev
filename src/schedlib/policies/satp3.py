@@ -237,6 +237,7 @@ def make_config(
     max_cmb_scan_duration,
     cal_targets,
     boresight_override=None,
+    hwp_override=None,
     **op_cfg
 ):
     blocks = make_blocks(master_file)
@@ -249,6 +250,7 @@ def make_config(
 
     if boresight_override is not None:
         logger.warning("Boresight Override does nothing for SATp3")
+        boresight_override = None
 
     sun_policy = {
         'min_angle': 49,
@@ -279,6 +281,8 @@ def make_config(
         'operations': operations,
         'cal_targets': cal_targets,
         'scan_tag': None,
+        'boresight_override': boresight_override,
+        'hwp_override': hwp_override,
         'az_speed': az_speed,
         'az_accel': az_accel,
         'iv_cadence': iv_cadence,
@@ -312,13 +316,14 @@ class SATP3Policy(SATPolicy):
     def from_defaults(cls, master_file, az_speed=0.5, az_accel=0.25,
         iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
         min_hwp_el=48, max_cmb_scan_duration=1*u.hour,
-        cal_targets=[], state_file=None, **op_cfg
+        cal_targets=[], boresight_override=None, hwp_override=None,
+        state_file=None, **op_cfg
     ):
         x = cls(**make_config(
             master_file, az_speed, az_accel,
             iv_cadence, bias_step_cadence, min_hwp_el,
-            max_cmb_scan_duration,
-            cal_targets, **op_cfg)
+            max_cmb_scan_duration, cal_targets,
+            boresight_override, hwp_override, **op_cfg)
         )
         x.state_file = state_file
         return x

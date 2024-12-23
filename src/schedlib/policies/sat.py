@@ -418,6 +418,7 @@ class SATPolicy:
     cal_targets: List[CalTarget] = field(default_factory=list)
     scan_tag: Optional[str] = None
     boresight_override: Optional[float] = None
+    hwp_override: Optional[bool] = None
     az_speed: float = 1. # deg / s
     az_accel: float = 2. # deg / s^2
     iv_cadence : float = 4 * u.hour
@@ -477,6 +478,12 @@ class SATPolicy:
                     blocks = core.seq_map(
                         lambda b: b.replace(
                             boresight_angle=self.boresight_override
+                        ), blocks
+                    )
+                if self.hwp_override is not None:
+                    blocks = core.seq_map(
+                        lambda b: b.replace(
+                            hwp_dir=self.hwp_override
                         ), blocks
                     )
                 return blocks

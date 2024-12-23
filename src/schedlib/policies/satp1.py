@@ -219,6 +219,7 @@ def make_config(
     max_cmb_scan_duration,
     cal_targets,
     boresight_override=None,
+    hwp_override=None,
     **op_cfg
 ):
     blocks = make_blocks(master_file)
@@ -259,6 +260,7 @@ def make_config(
         'cal_targets': cal_targets,
         'scan_tag': None,
         'boresight_override': boresight_override,
+        'hwp_override': hwp_override,
         'az_speed': az_speed,
         'az_accel': az_accel,
         'iv_cadence': iv_cadence,
@@ -294,13 +296,13 @@ class SATP1Policy(SATPolicy):
     def from_defaults(cls, master_file, az_speed=0.8, az_accel=1.5,
         iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
         min_hwp_el=48, max_cmb_scan_duration=1*u.hour,
-        cal_targets=[], boresight_override=None,
+        cal_targets=[], boresight_override=None, hwp_override=None,
         state_file=None, **op_cfg
     ):
         x = cls(**make_config(
             master_file, az_speed, az_accel, iv_cadence,
             bias_step_cadence, min_hwp_el, max_cmb_scan_duration,
-            cal_targets, boresight_override, **op_cfg
+            cal_targets, boresight_override, hwp_override, **op_cfg
         ))
         x.state_file=state_file
         return x
