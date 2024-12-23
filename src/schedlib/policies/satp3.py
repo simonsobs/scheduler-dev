@@ -162,13 +162,14 @@ def make_blocks(master_file):
     }
 
 commands_uxm_relock = [
-    "############# Daily Relock",
-    "run.smurf.zero_biases()",
     "",
+    "############# Relock #############",
+    "run.smurf.zero_biases()",
     "time.sleep(120)",
     "run.smurf.take_noise(concurrent=True, tag='res_check')",
     "run.smurf.uxm_relock(concurrent=True)",
     "run.smurf.take_bgmap(concurrent=True)",
+    "############# Relock Over #############",
     "",
 ]
 
@@ -191,7 +192,7 @@ commands_det_setup = [
 def make_operations(
     az_speed, az_accel, iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
     disable_hwp=False, apply_boresight_rot=False, hwp_cfg=None,
-    hwp_dir=True, home_at_end=False, run_relock=False,
+    hwp_dir=True, home_at_end=False, relock_cadence=None,
 ):
     if hwp_cfg is None:
         hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper', 'forward':hwp_dir }
@@ -201,9 +202,9 @@ def make_operations(
         { 'name': 'start_time'          ,'sched_mode': SchedMode.PreSession},
         { 'name': 'set_scan_params' , 'sched_mode': SchedMode.PreSession, 'az_speed': az_speed, 'az_accel': az_accel, },
     ]
-    if run_relock:
+    if relock_cadence is not None:
         pre_session_ops += [
-            { 'name': 'sat.ufm_relock'  , 'sched_mode': SchedMode.PreSession, 'commands': commands_uxm_relock, }
+            { 'name': 'sat.ufm_relock'  , 'sched_mode': SchedMode.PreSession, 'commands': commands_uxm_relock, 'relock_cadence': relock_cadence}
         ]
     cal_ops = [
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'commands': commands_det_setup, 'apply_boresight_rot': apply_boresight_rot, },
@@ -213,7 +214,7 @@ def make_operations(
     ]
     cmb_ops = [
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreObs, 'commands': commands_det_setup, 'apply_boresight_rot': apply_boresight_rot, 'iv_cadence':iv_cadence},
-        { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
+        { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, 'forward': hwp_dir},
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, 'bias_step_cadence': bias_step_cadence},
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
     ]
