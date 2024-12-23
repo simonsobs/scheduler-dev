@@ -125,11 +125,9 @@ def preamble():
 def ufm_relock(state, commands=None, relock_cadence=None):
     if state.last_ufm_relock is None:
         doit = True
-    elif relock_cadence is not None:
+    if not doit and relock_cadence is not None:
         if (state.curr_time - state.last_ufm_relock).total_seconds() > relock_cadence:
             doit = True
-        else:
-            doit = False
 
     if doit:
         if commands is None:
