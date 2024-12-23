@@ -312,8 +312,11 @@ class SATP3Policy(SATPolicy):
     def from_defaults(cls, master_file, az_speed=0.5, az_accel=0.25,
         iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
         min_hwp_el=48, max_cmb_scan_duration=1*u.hour,
-        cal_targets=[], state_file=None, **op_cfg
+        cal_targets=None, state_file=None, **op_cfg
     ):
+        if cal_targets is None:
+            cal_targets = []
+
         x = cls(**make_config(
             master_file, az_speed, az_accel,
             iv_cadence, bias_step_cadence, min_hwp_el,
