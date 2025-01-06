@@ -330,7 +330,7 @@ def setup_boresight(state, block, apply_boresight_rot=True):
         ):
         if state.hwp_spinning:
             state = state.replace(hwp_spinning=False)
-            duration += HWP_SPIN_DOWN
+            duration += cmd.HWP_SPIN_DOWN
             commands += [
                 "run.hwp.stop(active=True)",
                 "sup.disable_driver_board()",
