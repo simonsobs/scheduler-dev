@@ -1277,6 +1277,7 @@ class PlanMoves:
             # Check the move
             t1 = get_traj_ok_time(block0.az, block1.az, block0.alt, block1.alt,
                                   block0.t1, self.sun_policy)
+
             if t1 >= block1.t0:
                 return [IR(name='gap', subtype=IRMode.Gap, t0=block0.t1, t1=block1.t0,
                            az=block1.az, alt=block1.alt)]
@@ -1360,7 +1361,7 @@ class PlanMoves:
             seq_.append(seq[i])
 
         # find sun-safe parking if not stowing at end of schedule
-        if seq[-1].name != 'pre_block':
+        if seq[-1].block.name != 'post-session':
             block = seq[-1]
             safet = get_traj_ok_time(block.az, block.az, block.alt, block.alt, block.t1, self.sun_policy)
             # if current position is safe until end of schedule
@@ -1417,6 +1418,7 @@ class PlanMoves:
                     if (b.block != seq[i-1].block) & (i>0):
                         seq_ += [MoveTo(az=b.az, alt=b.alt)]
                 seq_ += [b]
+
         return seq_
 
 
