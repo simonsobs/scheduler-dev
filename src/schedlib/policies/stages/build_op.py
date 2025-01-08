@@ -1349,9 +1349,6 @@ class PlanMoves:
             seq_.extend(gaps)
             seq_.append(seq[i])
 
-        for s in seq_:
-            print('zzz', s.name)
-
         # find sun-safe parking if not stowing at end of schedule
         if seq[-1].name != 'pre_block':
             block = seq[-1]
