@@ -473,8 +473,8 @@ def bias_step(state, block, bias_step_cadence=None):
         return state, 0, []
 
 @cmd.operation(name='sat.wrap_up', duration=1)
-def wrap_up(state, az_stow, el_stow):
-    state = state.replace(az_now=az_stow, el_now=el_stow)
+def wrap_up(state):
+    #state = state.replace(az_now=az_stow, el_now=el_stow)
     return state, [
         # "# go home",
         # f"run.acu.move_to(az={az_stow}, el={el_stow})",
@@ -553,6 +553,39 @@ class SATPolicy:
             else:
                 config = yaml.load(config, Loader=loader)
         return cls(**config)
+
+    def divide_blocks(self, block, max_dt=dt.timedelta(minutes=60), min_dt=dt.timedelta(minutes=15)):
+        duration = block.duration
+
+        # if the block is small enough, return it as is
+        if duration <= (max_dt + min_dt):
+            return [block]
+
+        n_blocks = duration // max_dt
+        remainder = duration % max_dt
+
+        # split if 1 block with remainder > min duration
+        if n_blocks == 1:
+            return core.block_split(block, block.t0 + max_dt)
+
+        blocks = []
+        # calculate the offset for splitting
+        offset = (remainder + max_dt) / 2 if remainder.total_seconds() > 0 else max_dt
+
+        split_blocks = core.block_split(block, block.t0 + offset)
+        blocks.append(split_blocks[0])
+
+        # split the remaining block into chunks of max duration
+        for i in range(n_blocks - 1):
+            split_blocks = core.block_split(split_blocks[-1], split_blocks[-1].t0 + max_dt)
+            blocks.append(split_blocks[0])
+
+        # add the remaining part
+        if remainder.total_seconds() > 0:
+            split_blocks = core.block_split(split_blocks[-1], split_blocks[-1].t0 + offset)
+            blocks.append(split_blocks[0])
+
+        return blocks
 
     def init_seqs(self, t0: dt.datetime, t1: dt.datetime) -> core.BlocksTree:
         """
@@ -862,7 +895,7 @@ class SATPolicy:
             state = self.init_state(t0)
 
         # load building stage
-        build_op = get_build_stage('build_op', **{'policy_config': self, **self.stages.get('build_op', {})})
+        build_op = get_build_stage('build_op', {'policy_config': self, **self.stages.get('build_op', {})})
 
         # first resolve overlapping between cal and cmb
         cal_blocks = core.seq_flatten(core.seq_filter(lambda b: b.subtype == 'cal', seq))
@@ -870,6 +903,10 @@ class SATPolicy:
         wiregrid_blocks = core.seq_flatten(core.seq_filter(lambda b: b.subtype == 'wiregrid', seq))
         cal_blocks += wiregrid_blocks
         seq = core.seq_sort(core.seq_merge(cmb_blocks, cal_blocks, flatten=True))
+
+        # divide cmb blocks
+        if self.max_cmb_scan_duration is not None:
+            seq = core.seq_flatten(core.seq_map(lambda b: self.divide_blocks(b, dt.timedelta(seconds=self.max_cmb_scan_duration)) if b.subtype=='cmb' else b, seq))
 
         # compile operations
         cal_pre = [op for op in self.operations if op['sched_mode'] == SchedMode.PreCal]
@@ -923,9 +960,16 @@ class SATPolicy:
             'priority': 3,
             'pinned': True  # remain unchanged during multi-pass
         }
+        # move to stow position if specified, otherwise keep final position
+        if len(pos_sess) > 0:
+            az_stow = self.stages['build_op']['plan_moves']['stow_position']['az_stow']
+            alt_stow = self.stages['build_op']['plan_moves']['stow_position']['el_stow']
+        else:
+            az_stow = seq[-1]['block'].az
+            alt_stow = seq[-1]['block'].alt
         end_block = {
             'name': 'post-session',
-            'block': inst.StareBlock(name="post-session", az=180, alt=50, t0=t1-dt.timedelta(seconds=1), t1=t1),
+            'block': inst.StareBlock(name="post-session", az=az_stow, alt=alt_stow, t0=t1-dt.timedelta(seconds=1), t1=t1),
             'pre': pos_sess, # scheduled before t1
             'in': [],
             'post': [],

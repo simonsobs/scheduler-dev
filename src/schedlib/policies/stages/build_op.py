@@ -250,7 +250,7 @@ class BuildOp:
         # -----------------------------------------------------------------
         logger.info("step 1: planning pre-session ops")
 
-        ops = [op for op in operations if op['sched_mode'] == SchedMode.PreSession]
+        ops = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PreSession]
         state, _, _ = self._apply_ops(state, ops)
 
         # assume pre-session doesn't change az_now and el_now of init state
@@ -288,15 +288,15 @@ class BuildOp:
         cmb_blocks = core.seq_flatten(core.seq_filter(lambda b: b.subtype == 'cmb', seq))
 
         # compile calibration operations
-        pre_ops  = [op for op in operations if op['sched_mode'] == SchedMode.PreCal]
-        in_ops   = [op for op in operations if op['sched_mode'] == SchedMode.InCal]
-        post_ops = [op for op in operations if op['sched_mode'] == SchedMode.PostCal]
+        pre_ops  = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PreCal]
+        in_ops   = [op for op in operations if op['sched_mode'] == cmd.SchedMode.InCal]
+        post_ops = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PostCal]
         cal_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
 
         # compile cmb operations (also needed for state propagation)
-        pre_ops  = [op for op in operations if op['sched_mode'] == SchedMode.PreObs]
-        in_ops   = [op for op in operations if op['sched_mode'] == SchedMode.InObs]
-        post_ops = [op for op in operations if op['sched_mode'] == SchedMode.PostObs]
+        pre_ops  = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PreObs]
+        in_ops   = [op for op in operations if op['sched_mode'] == cmd.SchedMode.InObs]
+        post_ops = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PostObs]
         cmb_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
 
         logger.debug(f"cal_ops to plan: {cal_ops}")
@@ -415,7 +415,7 @@ class BuildOp:
         # -----------------------------------------------------------------
         logger.info("step 4: planning post-session ops")
 
-        ops = [op for op in operations if op['sched_mode'] == SchedMode.PostSession]
+        ops = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PostSession]
         state, post_dur, _ = self._apply_ops(state, ops)
 
         if len(ops) > 0:
@@ -443,7 +443,7 @@ class BuildOp:
 
         # opportunity to do some correction:
         # if our post session is running longer than our constraint, trim the sequence
-        if len(list(filter(lambda o: o['sched_mode'] == SchedMode.PostSession, operations))) > 0:
+        if len(list(filter(lambda o: o['sched_mode'] == cmd.SchedMode.PostSession, operations))) > 0:
             # if we have post session, it will guarentee to be the last
             session_end = ir[-1].t1
             if session_end > t1:
@@ -785,7 +785,7 @@ class BuildOpSimple:
             logger.info(f"================ solve moves ================")
             logger.info("step 1: solve sun-safe moves")
             try:
-                ir = PlanMoves(**self.plan_moves).apply(ir)
+                ir = PlanMoves(**self.plan_moves).apply(ir, t1)
             except SunSafeError as e:
                 logger.exception(f"unable to plan sun-safe moves: {e}")
 
@@ -1049,6 +1049,13 @@ class BuildOpSimple:
             state = state.replace(curr_time=max(constraint.t0, state.curr_time))
         else:
             state = state.replace(curr_time=constraint.t0) # min(constraint.t0, block.t0))
+
+        shift = 10
+        safet = get_traj_ok_time(block.az, block.az, block.alt, block.alt, state.curr_time, self.plan_moves['sun_policy'])
+        while safet <= state.curr_time:
+            state = state.replace(curr_time=state.curr_time + dt.timedelta(seconds=shift))
+            safet = get_traj_ok_time(block.az, block.az, block.alt, block.alt, state.curr_time, self.plan_moves['sun_policy'])
+
         initial_state = state
 
         logger.debug(f"--> with constraint: planning {block.name} from {state.curr_time} to {block.t1}")
@@ -1187,12 +1194,16 @@ class BuildOpSimple:
                 op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Aux, 't1': ir.t1}]
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif isinstance(ir, MoveTo):
-                op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt, 'force': True}]  # aux move_to should be enforced
+                op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt,
+                'min_el': self.policy_config.min_hwp_el, 'force': True}]  # aux move_to should be enforced
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
             elif ir.subtype in [IRMode.PreSession, IRMode.PostSession]:
                 state, _, op_blocks = self._apply_ops(state, ir.operations, az=ir.az, alt=ir.alt)
             elif ir.subtype in [IRMode.PreBlock, IRMode.InBlock, IRMode.PostBlock]:
-                state, _, op_blocks = self._apply_ops(state, ir.operations, block=ir.block)
+                op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Aux, 't1': ir.t0}]
+                state, _, op_blocks_wait = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
+                state, _, op_blocks_cmd = self._apply_ops(state, ir.operations, block=ir.block)
+                op_blocks = op_blocks_wait + op_blocks_cmd
             elif ir.subtype == IRMode.Gap:
                 op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Gap, 't1': ir.t1}]
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
@@ -1268,7 +1279,7 @@ class PlanMoves:
             n_alts = max(2, int(round(abs(alt_range[1] - alt_range[0]) / 4. + 1)))
             for alt_parking in np.linspace(alt_range[0], alt_range[1], n_alts):
                 safet = get_traj_ok_time(az_parking, az_parking, alt_parking, alt_parking,
-                                         block0.t1)
+                                         block0.t1, self.sun_policy)
                 if safet >= block1.t0:
                     break
             else:
@@ -1338,8 +1349,11 @@ class PlanMoves:
             seq_.extend(gaps)
             seq_.append(seq[i])
 
+        for s in seq_:
+            print('zzz', s.name)
+
         # find sun-safe parking if not stowing at end of schedule
-        if seq[-1].name in 'post_session' and len(seq[-1].operations) == 0:
+        if seq[-1].name != 'pre_block':
             block = seq[-1]
             safet = get_traj_ok_time(block.az, block.az, block.alt, block.alt, block.t1, self.sun_policy)
             # if current position is safe until end of schedule
@@ -1365,7 +1379,6 @@ class PlanMoves:
                         az=block.az, alt=block.alt),
                         IR(name='gap', subtype=IRMode.Gap, t0=t0_parking, t1=t1_parking,
                         az=az_parking, alt=alt_parking)])
-
 
         # Replace gaps with Wait, Move, Wait.
         seq_, seq = [], seq_
@@ -1394,7 +1407,7 @@ class PlanMoves:
                     seq_ += [MoveTo(az=b.az, alt=b.alt)]
                     last_az, last_alt = b.az, b.alt
                 else:
-                    if (b.block != seq[bi-1].block) & (bi>0):
+                    if (b.block != seq[i-1].block) & (i>0):
                         seq_ += [MoveTo(az=b.az, alt=b.alt)]
                 seq_ += [b]
         return seq_
