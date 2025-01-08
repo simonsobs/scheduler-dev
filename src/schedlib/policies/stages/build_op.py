@@ -745,6 +745,7 @@ class BuildOpSimple:
     max_pass: int = 3
     max_reject: int = 3
     min_duration: float = 1 * u.minute
+    min_cmb_duration: float = 10 * u.minute
     plan_moves: Dict[str, Any] = field(default_factory=dict)
     simplify_moves: Dict[str, Any] = field(default_factory=dict)
 
@@ -911,6 +912,7 @@ class BuildOpSimple:
         # but needs more work
         seq_out = []
         min_dur_filter = ru.MinDuration(self.min_duration)
+        min_cmb_dur_filter = ru.MinDuration(self.min_cmb_duration)
         for b in seq:
             if b.get('pinned', False):
                 seq_out += [b]
@@ -921,8 +923,15 @@ class BuildOpSimple:
                 # does it meet our minimum duration requirement? drop if it doesn't
                 # if min_dur_filter(matched[0]) == matched[0]:
                 if min_dur_filter(matched[0]) == matched[0]:
-                    b = b | {'block': matched[0]}
-                    seq_out += [b]
+                    if b['block'].subtype != 'cmb':
+                        b = b | {'block': matched[0]}
+                        seq_out += [b]
+                    # remove cmb blocks that were trimmed too short
+                    elif min_cmb_dur_filter(matched[0]) == matched[0]:
+                        b = b | {'block': matched[0]}
+                        seq_out += [b]
+                    else:
+                        logger.info(f"--> dropping {b['name']} due to min cmb duration requirement")
                 else:
                     logger.info(f"--> dropping {b['name']} due to min duration requirement")
         return seq_out
@@ -1197,13 +1206,14 @@ class BuildOpSimple:
                 op_cfgs = [{'name': 'move_to', 'sched_mode': IRMode.Aux, 'az': ir.az, 'el': ir.alt,
                 'min_el': self.policy_config.min_hwp_el, 'force': True}]  # aux move_to should be enforced
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
-            elif ir.subtype in [IRMode.PreSession, IRMode.PostSession]:
-                state, _, op_blocks = self._apply_ops(state, ir.operations, az=ir.az, alt=ir.alt)
             elif ir.subtype in [IRMode.PreBlock, IRMode.InBlock, IRMode.PostBlock]:
-                op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Aux, 't1': ir.t0}]
-                state, _, op_blocks_wait = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
-                state, _, op_blocks_cmd = self._apply_ops(state, ir.operations, block=ir.block)
-                op_blocks = op_blocks_wait + op_blocks_cmd
+                if ir.block.name in ['pre-session', 'post-session']:
+                    state, _, op_blocks = self._apply_ops(state, ir.operations, az=ir.az, alt=ir.alt)
+                else:
+                    op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Aux, 't1': ir.t0}]
+                    state, _, op_blocks_wait = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
+                    state, _, op_blocks_cmd = self._apply_ops(state, ir.operations, block=ir.block)
+                    op_blocks = op_blocks_wait + op_blocks_cmd
             elif ir.subtype == IRMode.Gap:
                 op_cfgs = [{'name': 'wait_until', 'sched_mode': IRMode.Gap, 't1': ir.t1}]
                 state, _, op_blocks = self._apply_ops(state, op_cfgs, az=ir.az, alt=ir.alt)
@@ -1383,7 +1393,7 @@ class PlanMoves:
 
         # Combine, but skipping first and last blocks, which are init/shutdown.
         for i, b in enumerate(seq):
-            if b.name in ['pre_session']:
+            if b.block is not None and b.block.name in ['pre-session']:
                 # Pre/post-ambles, leave it alone.
                 seq_ += [b]
                 continue
