@@ -250,7 +250,7 @@ class BuildOp:
         # -----------------------------------------------------------------
         logger.info("step 1: planning pre-session ops")
 
-        ops = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PreSession]
+        ops = [op for op in operations if op['sched_mode'] == SchedMode.PreSession]
         state, _, _ = self._apply_ops(state, ops)
 
         # assume pre-session doesn't change az_now and el_now of init state
@@ -288,15 +288,15 @@ class BuildOp:
         cmb_blocks = core.seq_flatten(core.seq_filter(lambda b: b.subtype == 'cmb', seq))
 
         # compile calibration operations
-        pre_ops  = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PreCal]
-        in_ops   = [op for op in operations if op['sched_mode'] == cmd.SchedMode.InCal]
-        post_ops = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PostCal]
+        pre_ops  = [op for op in operations if op['sched_mode'] == SchedMode.PreCal]
+        in_ops   = [op for op in operations if op['sched_mode'] == SchedMode.InCal]
+        post_ops = [op for op in operations if op['sched_mode'] == SchedMode.PostCal]
         cal_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
 
         # compile cmb operations (also needed for state propagation)
-        pre_ops  = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PreObs]
-        in_ops   = [op for op in operations if op['sched_mode'] == cmd.SchedMode.InObs]
-        post_ops = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PostObs]
+        pre_ops  = [op for op in operations if op['sched_mode'] == SchedMode.PreObs]
+        in_ops   = [op for op in operations if op['sched_mode'] == SchedMode.InObs]
+        post_ops = [op for op in operations if op['sched_mode'] == SchedMode.PostObs]
         cmb_ops = { 'pre_ops': pre_ops, 'in_ops': in_ops, 'post_ops': post_ops }
 
         logger.debug(f"cal_ops to plan: {cal_ops}")
@@ -415,7 +415,7 @@ class BuildOp:
         # -----------------------------------------------------------------
         logger.info("step 4: planning post-session ops")
 
-        ops = [op for op in operations if op['sched_mode'] == cmd.SchedMode.PostSession]
+        ops = [op for op in operations if op['sched_mode'] == SchedMode.PostSession]
         state, post_dur, _ = self._apply_ops(state, ops)
 
         if len(ops) > 0:
@@ -443,7 +443,7 @@ class BuildOp:
 
         # opportunity to do some correction:
         # if our post session is running longer than our constraint, trim the sequence
-        if len(list(filter(lambda o: o['sched_mode'] == cmd.SchedMode.PostSession, operations))) > 0:
+        if len(list(filter(lambda o: o['sched_mode'] == SchedMode.PostSession, operations))) > 0:
             # if we have post session, it will guarentee to be the last
             session_end = ir[-1].t1
             if session_end > t1:
