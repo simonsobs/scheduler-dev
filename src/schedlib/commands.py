@@ -12,6 +12,7 @@ logger = u.init_logger(__name__)
 
 
 MIN_DURATION = 0.01
+HWP_SPIN_UP = 20*u.minute
 HWP_SPIN_DOWN = 10*u.minute
 
 @dataclass_json
@@ -118,8 +119,6 @@ class State:
             A new State instance with the current time incremented by the specified number of seconds.
         """
         return self.replace(curr_time=self.curr_time+dt.timedelta(seconds=dt_sec))
-
-
 
 # -------------------------------------------------------------------------
 #                         Register operations
