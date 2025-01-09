@@ -192,10 +192,10 @@ commands_det_setup = [
 def make_operations(
     az_speed, az_accel, iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
     disable_hwp=False, apply_boresight_rot=False, hwp_cfg=None,
-    hwp_dir=True, home_at_end=False, relock_cadence=None,
+    home_at_end=False, relock_cadence=None,
 ):
     if hwp_cfg is None:
-        hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper', 'forward':hwp_dir }
+        hwp_cfg = { 'iboot2': 'power-iboot-hwp-2', 'pid': 'hwp-pid', 'pmx': 'hwp-pmx', 'hwp-pmx': 'pmx', 'gripper': 'hwp-gripper'}
 
     pre_session_ops = [
         { 'name': 'sat.preamble'        , 'sched_mode': SchedMode.PreSession, },
@@ -208,13 +208,13 @@ def make_operations(
         ]
     cal_ops = [
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreCal, 'commands': commands_det_setup, 'apply_boresight_rot': apply_boresight_rot, },
-        { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp, 'forward':hwp_dir},
+        { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreCal, 'disable_hwp': disable_hwp},
         { 'name': 'sat.source_scan'     , 'sched_mode': SchedMode.InCal, },
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PostCal, 'bias_step_cadence': bias_step_cadence},
     ]
     cmb_ops = [
         { 'name': 'sat.det_setup'       , 'sched_mode': SchedMode.PreObs, 'commands': commands_det_setup, 'apply_boresight_rot': apply_boresight_rot, 'iv_cadence':iv_cadence},
-        { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp, 'forward': hwp_dir},
+        { 'name': 'sat.hwp_spin_up'     , 'sched_mode': SchedMode.PreObs, 'disable_hwp': disable_hwp},
         { 'name': 'sat.bias_step'       , 'sched_mode': SchedMode.PreObs, 'bias_step_cadence': bias_step_cadence},
         { 'name': 'sat.cmb_scan'        , 'sched_mode': SchedMode.InObs, },
     ]
@@ -238,6 +238,7 @@ def make_config(
     max_cmb_scan_duration,
     cal_targets,
     boresight_override=None,
+    hwp_override=None,
     **op_cfg
 ):
     blocks = make_blocks(master_file)
@@ -250,6 +251,7 @@ def make_config(
 
     if boresight_override is not None:
         logger.warning("Boresight Override does nothing for SATp3")
+        boresight_override = None
 
     sun_policy = {
         'min_angle': 49,
@@ -280,6 +282,8 @@ def make_config(
         'operations': operations,
         'cal_targets': cal_targets,
         'scan_tag': None,
+        'boresight_override': boresight_override,
+        'hwp_override': hwp_override,
         'az_speed': az_speed,
         'az_accel': az_accel,
         'iv_cadence': iv_cadence,
@@ -313,13 +317,14 @@ class SATP3Policy(SATPolicy):
     def from_defaults(cls, master_file, az_speed=0.5, az_accel=0.25,
         iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
         min_hwp_el=48, max_cmb_scan_duration=1*u.hour,
-        cal_targets=[], state_file=None, **op_cfg
+        cal_targets=[], boresight_override=None, hwp_override=None,
+        state_file=None, **op_cfg
     ):
         x = cls(**make_config(
             master_file, az_speed, az_accel,
             iv_cadence, bias_step_cadence, min_hwp_el,
-            max_cmb_scan_duration,
-            cal_targets, **op_cfg)
+            max_cmb_scan_duration, cal_targets,
+            boresight_override, hwp_override, **op_cfg)
         )
         x.state_file = state_file
         return x
