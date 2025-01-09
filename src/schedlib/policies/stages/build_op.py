@@ -175,7 +175,7 @@ class BuildOp:
 
         return blocks
 
-    def merge_cmb_blocks(self, seq, max_dt=dt.timedelta(minutes=60), min_dt=dt.timedelta(minutes=15)):
+    def merge_adjacent_blocks(self, seq, max_dt=dt.timedelta(minutes=60), min_dt=dt.timedelta(minutes=15)):
         for i in range(1, len(seq)):
             current, previous = seq[i], seq[i-1]
             # skip previously merged blocks
@@ -360,7 +360,7 @@ class BuildOp:
         non_overlaps = core.seq_remove_overlap(full_interval, ir_blocks)  # as constraint
 
         cmb_blocks = core.seq_remove_overlap(cmb_blocks, ir_blocks)
-        cmb_blocks = self.merge_cmb_blocks(cmb_blocks, dt.timedelta(seconds=self.policy_config.max_cmb_scan_duration))
+        cmb_blocks = self.merge_adjacent_blocks(cmb_blocks, dt.timedelta(seconds=self.policy_config.max_cmb_scan_duration))
         cmb_blocks = core.seq_flatten(ru.MinDuration(self.min_cmb_duration)(cmb_blocks))
 
         # re-merge all blocks
@@ -749,6 +749,30 @@ class BuildOpSimple:
     plan_moves: Dict[str, Any] = field(default_factory=dict)
     simplify_moves: Dict[str, Any] = field(default_factory=dict)
 
+    def merge_adjacent_blocks(self, seq, max_dt=dt.timedelta(minutes=60), min_dt=dt.timedelta(minutes=15)):
+        for i in range(1, len(seq)):
+            current, previous = seq[i], seq[i-1]
+            # skip previously merged blocks
+            if current is None or previous is None:
+                continue
+            # don't merge blocks that are too far apart in time
+            time_gap = (current.t0 - previous.t1).total_seconds()
+            combined_duration = (current.duration + previous.duration).total_seconds()
+            max_combined_duration = (max_dt + min_dt).total_seconds()
+            # if blocks were split from same block and are close in time
+            if current.tag == previous.tag and time_gap <= min_dt.total_seconds():
+                # don't merge blocks that are longer than the max length
+                if combined_duration <= max_combined_duration:
+                    seq[i-1] = previous.extend_right(current.duration)
+                    seq[i] = None
+                    # add some or all of time gaps (likely from det_setup)
+                    if time_gap > 0:
+                        if (seq[i-1].duration.total_seconds() + time_gap) <= max_combined_duration:
+                            seq[i-1] = seq[i-1].extend_right(dt.timedelta(seconds=time_gap))
+                        else:
+                            seq[i-1] = seq[i-1].extend_right(dt.timedelta(seconds=(max_combined_duration - seq[i-1].duration.total_seconds())))
+        return seq
+
     def apply(self, seq, t0, t1, state):
         init_state = state
 
@@ -775,6 +799,22 @@ class BuildOpSimple:
                     logger.info(f"round_trip: converged in pass {i+1}, lowering...")
                     break
                 seq_ = seq_new
+
+                cmb_blocks = self.merge_adjacent_blocks([s['block'] for s in seq_ if s['block'].subtype == 'cmb'],
+                             dt.timedelta(seconds=self.policy_config.max_cmb_scan_duration))
+
+                seq_temp = []
+                cmb_index = 0
+                for s in seq_:
+                    if s['block'].subtype == 'cmb':
+                        if cmb_blocks[cmb_index] is not None:
+                            s = s.copy()
+                            s['block'] = cmb_blocks[cmb_index]
+                        cmb_index += 1
+                    seq_temp.append(s)
+
+                seq_ = seq_temp
+
             else:
                 logger.warning(f"round_trip: ir did not converge after {self.max_pass} passes, proceeding anyway")
 
@@ -923,15 +963,15 @@ class BuildOpSimple:
                 # does it meet our minimum duration requirement? drop if it doesn't
                 # if min_dur_filter(matched[0]) == matched[0]:
                 if min_dur_filter(matched[0]) == matched[0]:
-                    if b['block'].subtype != 'cmb':
-                        b = b | {'block': matched[0]}
-                        seq_out += [b]
-                    # remove cmb blocks that were trimmed too short
-                    elif min_cmb_dur_filter(matched[0]) == matched[0]:
-                        b = b | {'block': matched[0]}
-                        seq_out += [b]
+                    if b['block'].subtype == 'cmb':
+                        if min_cmb_dur_filter(matched[0]) == matched[0]:
+                            b = b | {'block': matched[0]}
+                            seq_out.append(b)
+                        else:
+                            logger.info(f"--> dropping {b['name']} due to min cmb duration requirement")
                     else:
-                        logger.info(f"--> dropping {b['name']} due to min cmb duration requirement")
+                        b = b | {'block': matched[0]}
+                        seq_out.append(b)
                 else:
                     logger.info(f"--> dropping {b['name']} due to min duration requirement")
         return seq_out
@@ -1372,9 +1412,6 @@ class PlanMoves:
                 movet = block.t1 #max(safet, block.t1)
                 az_parking, alt_parking, t0_parking, t1_parking = get_parking(movet, t_end, block.az, block.alt)
 
-                get_safe_gaps(block, IR(name='gap', subtype=IRMode.Gap, t0=t0_parking, t1=t1_parking,
-                        az=az_parking, alt=alt_parking))
-
                 move_away_by = get_traj_ok_time(
                     block.az, az_parking, block.alt, alt_parking, movet, self.sun_policy)
                 if move_away_by < t0_parking:
@@ -1383,10 +1420,8 @@ class PlanMoves:
                     else:
                         t0_parking = move_away_by + (move_away_by - movet) / 2
 
-                seq_.extend([IR(name='gap', subtype=IRMode.Gap, t0=block.t1, t1=movet,
-                        az=block.az, alt=block.alt),
-                        IR(name='gap', subtype=IRMode.Gap, t0=t0_parking, t1=t1_parking,
-                        az=az_parking, alt=alt_parking)])
+                seq_.append(IR(name='gap', subtype=IRMode.Gap, t0=t0_parking, t1=t1_parking,
+                        az=az_parking, alt=alt_parking))
 
         # Replace gaps with Wait, Move, Wait.
         seq_, seq = [], seq_
