@@ -169,7 +169,7 @@ def hwp_spin_up(state, block, disable_hwp=False):
             "sup.disable_driver_board()",
             ]
         else:
-            return state, 0, [f"# hwp already spinning with forward={state.hwp_dir}"]
+            return state, 0, [f"# hwp already spinning with direction={state.hwp_dir}"]
 
     hwp_dir = block.hwp_dir if block.hwp_dir is not None else state.hwp_dir
     state = state.replace(hwp_dir=hwp_dir)
