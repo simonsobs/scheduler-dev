@@ -12,7 +12,7 @@ logger = u.init_logger(__name__)
 
 
 MIN_DURATION = 0.01
-HWP_SPIN_DOWN = 10*u.minute
+HWP_SPIN_DOWN = 15*u.minute
 HWP_SPIN_UP = 20*u.minute
 
 @dataclass_json
@@ -394,10 +394,18 @@ def move_to(state, az, el, min_el=48, force=False):
             "run.hwp.stop(active=True)",
             "sup.disable_driver_board()",
         ]
-
-    cmd += [
-        f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
-    ]
+    if el == state.el_now:
+        cmd += [f"run.acu.move_to(az={round(az, 3)}, el={(round(el, 3))})"]
+    elif el < state.el_now:
+        cmd += [
+            f"run.acu.move_to(az={round(state.az_now, 3)}, el={round(el, 3)})",
+            f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
+        ]
+    elif el > state.el_now:
+        cmd += [
+            f"run.acu.move_to(az={round(az, 3)}, el={round(state.el_now, 3)})",
+            f"run.acu.move_to(az={round(az, 3)}, el={round(el, 3)})",
+        ]
     state = state.replace(az_now=az, el_now=el)
 
     return state, duration, cmd
