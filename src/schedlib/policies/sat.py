@@ -379,12 +379,6 @@ def bias_step(state, block, bias_step_cadence=None):
     else:
         return state, 0, []
 
-@cmd.operation(name='sat.wrap_up', duration=0)
-def wrap_up(state):
-    return state, [
-        "time.sleep(1)"
-    ]
-
 @dataclass
 class SATPolicy:
     """a more realistic SAT policy.
