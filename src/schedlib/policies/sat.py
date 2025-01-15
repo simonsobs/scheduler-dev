@@ -376,13 +376,13 @@ def cmb_scan(state, block):
         )
     else:
         commands = []
-
+    
     commands.extend([
         "run.seq.scan(",
         f"    description='{block.name}',",
         f"    stop_time='{block.t1.isoformat()}',",
         f"    width={round(block.throw,3)}, az_drift=0,",
-        f"    subtype='cmb', tag='{block.tag}',",
+        f"    subtype='{block.subtype}', tag='{block.tag}',",
         f"    min_duration=600,",
         ")",
     ])
@@ -492,7 +492,7 @@ def wiregrid(state):
     return state, [
         "run.wiregrid.calibrate(continuous=False, elevation_check=True, boresight_check=False, temperature_check=False)"
     ]
-
+ 
 @dataclass
 class SATPolicy:
     """a more realistic SAT policy.

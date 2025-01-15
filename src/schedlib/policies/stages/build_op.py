@@ -18,6 +18,8 @@ from schedlib.thirdparty.avoidance import get_sun_tracker
 
 logger = u.init_logger(__name__)
 
+logger = u.init_logger(__name__)
+
 def get_traj_ok_time(az0, az1, alt0, alt1, t0, sun_policy):
     # Returns the timestamp until which the move from
     # (az0, alt0) to (az1, alt1) is sunsafe.
@@ -101,9 +103,12 @@ class IR(core.Block):
         trimming effect on drift scans. It is not necessary here as we are
         merely solving for different unwraps for drift scan.
 
+        We allow the option of changing the block or block.subtype here because 
+        sometimes we need to run a master schedule but mark things as
+        calibration. Most important example: drone calibration campaigns 
         """
-        if self.block is not None:
-            block_kwargs = {k: v for k, v in kwargs.items() if k in ['t0', 't1', 'az', 'alt']}
+        if self.block is not None and 'block' not in kwargs:
+            block_kwargs = {k: v for k, v in kwargs.items() if k in ['t0', 't1', 'az', 'alt', 'subtype']}
             new_block = dc_replace(self.block, **block_kwargs)
             kwargs['block'] = new_block
         return dc_replace(self, **kwargs)
@@ -444,8 +449,20 @@ class BuildOp:
         state, post_dur, _ = self._apply_ops(state, ops)
 
         if len(ops) > 0:
-            az = self.plan_moves['stow_position']['az_stow']
-            alt = self.plan_moves['stow_position']['el_stow']
+            # find an alt, az that is sun-safe for the entire duration of the schedule.
+            if not self.plan_moves['stow_position']:
+                az = 180
+                alt = 60
+                # add a buffer to start and end to be safe
+                t_start = t0 - dt.timedelta(seconds=300)
+                t_end = t1 + dt.timedelta(seconds=300)
+                az, alt, _, _ = get_parking(t_start, t_end, alt, self.plan_moves['sun_policy'])
+                logger.info(f"found sun safe stow position at ({az}, {alt})")
+            # allow for overriding of stow position from config
+            else:
+                az = self.plan_moves['stow_position']['az_stow']
+                alt = self.plan_moves['stow_position']['el_stow']
+                logger.info(f"using specified stow position at ({az}, {alt})")
         else:
             az = all_blocks[-1].az
             alt = all_blocks[-1].alt
