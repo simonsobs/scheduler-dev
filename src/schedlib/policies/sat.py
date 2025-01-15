@@ -376,7 +376,7 @@ def cmb_scan(state, block):
         )
     else:
         commands = []
-    
+
     commands.extend([
         "run.seq.scan(",
         f"    description='{block.name}',",
@@ -492,7 +492,7 @@ def wiregrid(state):
     return state, [
         "run.wiregrid.calibrate(continuous=False, elevation_check=True, boresight_check=False, temperature_check=False)"
     ]
- 
+
 @dataclass
 class SATPolicy:
     """a more realistic SAT policy.
