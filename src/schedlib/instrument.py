@@ -326,7 +326,7 @@ def parse_sequence_from_toast(ifile):
     blocks = []
     for _, row in df.iterrows():
         block = ScanBlock(
-            name = escape_string(row['patch'].strip()),
+            name=escape_string(row['patch'].strip()),
             t0=u.str2datetime(row['start_utc']),
             t1=u.str2datetime(row['stop_utc']),
             alt=row['el'],
