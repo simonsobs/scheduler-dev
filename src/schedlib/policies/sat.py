@@ -16,6 +16,7 @@ from .. import config as cfg, core, source as src, rules as ru
 from .. import commands as cmd, instrument as inst, utils as u
 from ..thirdparty import SunAvoidance
 from .stages import get_build_stage
+from .stages.build_op import get_parking
 
 logger = u.init_logger(__name__)
 
@@ -485,15 +486,6 @@ def bias_step(state, block, bias_step_cadence=None):
         return state, 60, [ "run.smurf.bias_step(concurrent=True)", ]
     else:
         return state, 0, []
-
-@cmd.operation(name='sat.wrap_up', duration=1)
-def wrap_up(state):
-    #state = state.replace(az_now=az_stow, el_now=el_stow)
-    return state, [
-        # "# go home",
-        # f"run.acu.move_to(az={az_stow}, el={el_stow})",
-        "time.sleep(1)"
-    ]
 
 @cmd.operation(name='sat.wiregrid', duration=15*u.minute)
 def wiregrid(state):
@@ -976,8 +968,18 @@ class SATPolicy:
         }
         # move to stow position if specified, otherwise keep final position
         if len(pos_sess) > 0:
-            az_stow = self.stages['build_op']['plan_moves']['stow_position']['az_stow']
-            alt_stow = self.stages['build_op']['plan_moves']['stow_position']['el_stow']
+            # find an alt, az that is sun-safe for the entire duration of the schedule.
+            if not self.stages['build_op']['plan_moves']['stow_position']:
+                az_start = 180
+                alt_start = 60
+                # add a buffer to start and end to be safe
+                t_start = t0 - dt.timedelta(seconds=300)
+                t_end = t1 + dt.timedelta(seconds=300)
+                az_stow, alt_stow, _, _ = get_parking(t_start, t_end, alt_start, self.stages['build_op']['plan_moves']['sun_policy'])
+                logger.info(f"found sun safe stow position at ({az_stow}, {alt_stow})")
+            else:
+                az_stow = self.stages['build_op']['plan_moves']['stow_position']['az_stow']
+                alt_stow = self.stages['build_op']['plan_moves']['stow_position']['el_stow']
         else:
             az_stow = seq[-1]['block'].az
             alt_stow = seq[-1]['block'].alt
