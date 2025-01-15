@@ -126,6 +126,7 @@ def preamble():
 
 @cmd.operation(name='sat.ufm_relock', return_duration=True)
 def ufm_relock(state, commands=None, relock_cadence=None):
+    doit = False
     if state.last_ufm_relock is None:
         doit = True
     if not doit and relock_cadence is not None:
@@ -136,12 +137,12 @@ def ufm_relock(state, commands=None, relock_cadence=None):
         if commands is None:
             commands = [
                 "",
-                "############# Relock #############",
+                "####################### Relock #######################",
                 "run.smurf.zero_biases()",
                 "time.sleep(120)",
                 "run.smurf.take_noise(concurrent=True, tag='res_check')",
                 "run.smurf.uxm_relock(concurrent=True)",
-                "############# Relock Over #############",
+                "################## Relock Over #######################",
                 "",
             ]
         state = state.replace(
@@ -150,7 +151,7 @@ def ufm_relock(state, commands=None, relock_cadence=None):
         )
         return state, 15*u.minute, commands
     else:
-        return state, 0, ["# no ufm relock needed at this time"]
+        return state, 0, []
 
 @cmd.operation(name='sat.hwp_spin_up', return_duration=True)
 def hwp_spin_up(state, block, disable_hwp=False):
@@ -226,7 +227,7 @@ def det_setup(state, block, commands=None, apply_boresight_rot=True, iv_cadence=
         if commands is None:
             commands = [
                 "",
-                "################### Detector Setup ######################",
+                "############### Detector Setup #######################",
                 "with disable_trace():",
                 "    run.initialize()",
                 "run.smurf.take_bgmap(concurrent=True)",
@@ -237,7 +238,7 @@ def det_setup(state, block, commands=None, apply_boresight_rot=True, iv_cadence=
                 "time.sleep(180)",
                 "run.smurf.bias_step(concurrent=True)",
                 "run.smurf.take_noise(concurrent=True, tag='bias_check')",
-                "#################### Detector Setup Over ####################",
+                "############ Detector Setup Over #####################",
                 "",
             ]
         state = state.replace(
