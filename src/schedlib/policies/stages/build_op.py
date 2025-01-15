@@ -461,7 +461,49 @@ class BuildOp:
 
     def round_trip(self, seq, t0, t1, state, operations):
         ir = self.lower(seq, t0, t1, state, operations)
-        seq = self.lift(ir)
+        ir_ = core.seq_flatten(ir)
+
+        for i in range(1, len(ir_)):
+            block0 = ir_[i-1].block
+            block1 = ir_[i].block
+            # if one block starts immediately after another and they aren't gap blocks
+            if ir_[i-1].t1 == ir_[i].t0 and block0 is not None and block1 is not None:
+                safet = get_traj_ok_time(
+                    block0.az, block1.az,
+                    block0.alt, block1.alt,
+                    block0.t1, self.plan_moves['sun_policy']
+                )
+
+                shift = 10
+                t0 = ir_[i-1].t1
+
+                # is the move sun-safe
+                while safet <= block1.t0:
+                    # if we are currently in a obs block
+                    if ir_[i].subtype == IRMode.InBlock:
+                    # don't need to update anything else as we will lift the
+                    # obs blocks immediately afterwards
+                        ir_[i] = ir_[i].replace(
+                                block=block1.shrink_left(dt.timedelta(seconds=shift))
+                            )
+                    # if current IR is a pre-obs block we can shrink the next
+                    # observation block
+                    elif ir_[i].subtype == IRMode.PreBlock and i != len(ir_)-1:
+                        if ir_[i+1].subtype == IRMode.InBlock:
+                            next_block = ir_[i+1].block
+                            ir_[i+1] = ir_[i+1].replace(
+                                block=next_block.shrink_left(dt.timedelta(seconds=shift))
+                            )
+
+                    # update obs start time
+                    t0 += dt.timedelta(seconds=shift)
+                    safet = get_traj_ok_time(
+                        block0.az, block1.az,
+                        block0.alt, block1.alt,
+                        t0, self.plan_moves['sun_policy']
+                    )
+
+        seq = self.lift(ir_)
 
         # opportunity to do some correction:
         # if our post session is running longer than our constraint, trim the sequence
