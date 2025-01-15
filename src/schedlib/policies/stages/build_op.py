@@ -15,9 +15,6 @@ from dataclasses import dataclass, field, replace as dc_replace
 from schedlib import core, commands as cmd, utils as u, rules as ru, instrument as inst
 from schedlib.thirdparty.avoidance import get_sun_tracker
 
-
-logger = u.init_logger(__name__)
-
 logger = u.init_logger(__name__)
 
 def get_traj_ok_time(az0, az1, alt0, alt1, t0, sun_policy):
