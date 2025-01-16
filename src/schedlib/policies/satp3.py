@@ -178,6 +178,7 @@ commands_det_setup = [
     "################### Detector Setup######################",
     "with disable_trace():",
     "    run.initialize()",
+    "pysmurfs = run.CLIENTS['smurf']",
     "run.smurf.take_bgmap(concurrent=True)",
     "run.smurf.iv_curve(concurrent=True)",
     "for smurf in pysmurfs:",
