@@ -489,10 +489,14 @@ class SATPolicy:
         blocks = tu.tree_map(construct_seq, self.blocks,
                              is_leaf=lambda x: isinstance(x, dict) and 'type' in x)
 
-        # if a block ends at at t1 < t <= t1 + t1_tolerance, extend to t1 + tolerance
+        # if a block ends at at t1 < t <= t1 + t1_tolerance, extend t1 to t1 + tolerance
+        t1_new = t1
         for block in blocks['baseline']['cmb']:
             if block.t1 > t1 and (block.t1 - t1).total_seconds() <= self.t1_tolerance:
-                t1 = block.t1
+                t1_new = block.t1
+
+        # update t1
+        t1 = t1_new
 
         # by default add calibration blocks specified in cal_targets if not already specified
         for cal_target in self.cal_targets:
@@ -783,16 +787,16 @@ class SATPolicy:
         # initialize sequences
         seqs = self.init_seqs(t0, t1)
 
-        # check if seqence was extended due to tolerance
-        seq_t1 = core.seq_sort(seq['baseline']['cmb'], flatten=True)[-1].t1
-        if seq_t1 > t1:
-            t1 = seq_t1
-
         # apply observing rules
         seqs = self.apply(seqs)
 
         # initialize state
         state = state or self.init_state(t0)
+
+        # check if seqence was extended due to tolerance
+        seq_t1 = core.seq_sort(seq['baseline']['cmb'], flatten=True)[-1].t1
+        if seq_t1 > t1:
+            t1 = seq_t1
 
         # plan operation seq
         ir = self.seq2cmd(seqs, t0, t1, state)
