@@ -669,11 +669,17 @@ class SATPolicy:
         # -----------------------------------------------------------------
 
         # check if blocks are above min elevation
+        alt_limits = self.stages['build_op']['plan_moves']['el_limits']
         for block in core.seq_flatten(blocks):
             if hasattr(block, 'alt'):
-                assert block.alt >= self.rules['sun-avoidance']['min_el'], (
+                assert block.alt >= alt_limits[0], (
                 f"Block {block} is below the minimum elevation "
-                f"of {self.rules['sun-avoidance']['min_el']} degrees."
+                f"of {alt_limits[0]} degrees."
+                )
+
+                assert block.alt < alt_limits[1], (
+                f"Block {block} is above the maximum elevation "
+                f"of {alt_limits[1]} degrees."
                 )
 
         return blocks

@@ -766,6 +766,7 @@ class PlanMoves:
     stow_position: Dict[str, Any]
     az_step: float = 1
     az_limits: Tuple[float, float] = (-90, 450)
+    el_limits: Tuple[float, float] = (40, 90)
 
     def apply(self, seq, t_end):
         """take a list of IR from BuildOp as input to solve for optimal sun-safe moves"""
