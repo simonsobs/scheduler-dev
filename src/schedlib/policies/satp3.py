@@ -228,6 +228,7 @@ def make_operations(
 
 def make_config(
     master_file,
+    t1_tolerance,
     az_speed,
     az_accel,
     iv_cadence,
@@ -284,6 +285,7 @@ def make_config(
         },
         'operations': operations,
         'cal_targets': cal_targets,
+        't1_tolerance': t1_tolerance,
         'scan_tag': None,
         'boresight_override': boresight_override,
         'hwp_override': hwp_override,
@@ -317,7 +319,8 @@ def make_config(
 @dataclass
 class SATP3Policy(SATPolicy):
     @classmethod
-    def from_defaults(cls, master_file, az_speed=0.5, az_accel=0.25,
+    def from_defaults(cls, master_file, t1_tolerance=0.0*u.second,
+        az_speed=0.5, az_accel=0.25,
         iv_cadence=4*u.hour, bias_step_cadence=0.5*u.hour,
         min_hwp_el=48, max_cmb_scan_duration=1*u.hour,
         cal_targets=None, az_stow=None, el_stow=None,
@@ -328,7 +331,7 @@ class SATP3Policy(SATPolicy):
             cal_targets = []
 
         x = cls(**make_config(
-            master_file, az_speed, az_accel,
+            master_file, t1_tolerance, az_speed, az_accel,
             iv_cadence, bias_step_cadence, min_hwp_el,
             max_cmb_scan_duration, cal_targets,
             az_stow, el_stow, boresight_override,

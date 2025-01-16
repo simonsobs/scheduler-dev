@@ -28,7 +28,7 @@ class SunCrawler:
                 from schedlib.policies.satp3 import make_config
 
         self.configs = make_config(
-            master_file='None',
+            master_file='None', t1_tolerance=None,
             az_speed=None, az_accel=None,
             iv_cadence=None, bias_step_cadence=None,
             min_hwp_el=None, max_cmb_scan_duration=None,
