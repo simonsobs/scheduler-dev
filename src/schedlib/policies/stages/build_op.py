@@ -764,9 +764,9 @@ class PlanMoves:
     """solve moves to make seq possible"""
     sun_policy: Dict[str, Any]
     stow_position: Dict[str, Any]
+    el_limits: Tuple[float, float]
     az_step: float = 1
     az_limits: Tuple[float, float] = (-90, 450)
-    el_limits: Tuple[float, float] = (40, 90)
 
     def apply(self, seq, t_end):
         """take a list of IR from BuildOp as input to solve for optimal sun-safe moves"""
