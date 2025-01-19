@@ -26,6 +26,8 @@ class State:
     ----------
     curr_time : datetime.datetime
         The current timestamp of the state.
+    end_time : datetime.datetime
+        The end timestamp of the state.
     az_now : float
         The current azimuth position in degrees.
     el_now : float
@@ -48,6 +50,7 @@ class State:
 
     """
     curr_time: dt.datetime
+    end_time: dt.datetime
     az_now: Optional[float] = None
     el_now: Optional[float] = None
     az_speed_now: Optional[float] = None
@@ -377,6 +380,12 @@ def wait_until(state, t1: dt.datetime):
 def start_time(state):
     return state, [
         f"run.wait_until('{state.curr_time.isoformat()}', tolerance=3600)"
+    ]
+
+@operation(name='end_time')
+def end_time(state):
+    return state, [
+        f"run.wait_until('{state.end_time.isoformat()}')"
     ]
 
 @operation(name="move_to", return_duration=True)

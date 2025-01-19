@@ -666,7 +666,7 @@ class SATPolicy:
 
         return blocks
 
-    def init_state(self, t0: dt.datetime) -> State:
+    def init_state(self, t0: dt.datetime, t1: dt.datetime) -> State:
         """
         Initializes the observatory state with some reasonable guess.
         In practice it should ideally be replaced with actual data
@@ -676,6 +676,8 @@ class SATPolicy:
         ----------
         t0 : float
             The initial time for the state, typically representing the current time in a specific format.
+        t1 : float
+            The end time for the state, typically representing the current time in a specific format.
 
         Returns
         -------
@@ -683,6 +685,7 @@ class SATPolicy:
         """
         return State(
             curr_time=t0,
+            end_time=t1,
             az_now=180,
             el_now=48,
             boresight_rot_now=0,
@@ -725,7 +728,7 @@ class SATPolicy:
 
         """
         if state is None:
-            state = self.init_state(t0)
+            state = self.init_state(t0, t1)
 
         # load building stage
         build_op = get_build_stage('build_op', {'policy_config': self, **self.stages.get('build_op', {})})
@@ -750,7 +753,7 @@ class SATPolicy:
 
         """
         if state is None:
-            state = self.init_state(t0)
+            state = self.init_state(t0, t1)
         build_sched = get_build_stage('build_sched', {'policy_config': self, **self.stages.get('build_sched', {})})
         commands = build_sched.apply(irs, t0, t1, state)
         return '\n'.join(commands)

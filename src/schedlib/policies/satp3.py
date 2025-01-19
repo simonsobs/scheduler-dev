@@ -221,6 +221,7 @@ def make_operations(
     if home_at_end:
         post_session_ops = [
             { 'name': 'sat.hwp_spin_down'   , 'sched_mode': SchedMode.PostSession, 'disable_hwp': disable_hwp, },
+            { 'name': 'end_time'          ,'sched_mode': SchedMode.PostSession},
         ]
     else:
         post_session_ops = []
@@ -341,10 +342,11 @@ class SATP3Policy(SATPolicy):
     def add_cal_target(self, *args, **kwargs):
         self.cal_targets.append(make_cal_target(*args, **kwargs))
 
-    def init_state(self, t0: dt.datetime) -> State:
+    def init_state(self, t0: dt.datetime, t1: dt.datetime) -> State:
         """customize typical initial state for satp1, if needed"""
         return State(
             curr_time=t0,
+            end_time=t1,
             az_now=180,
             el_now=40,
             boresight_rot_now=0,
