@@ -12,6 +12,15 @@ logger = u.init_logger(__name__)
 # ----------------------------------------------------
 #         setup satp3 specific configs
 # ----------------------------------------------------
+EL_STOW_SATp3 = 40
+AZ_STOW_SATp3 = 180
+
+def make_stow_position(az_stow = None, el_stow = None):
+    if az_stow is None:
+        az_stow = AZ_STOW_SATp3 
+    if el_stow is None:
+        el_stow = EL_STOW_SATp3
+    return az_stow, el_stow
 
 def make_geometry():
     ufm_mv12_shift = np.degrees([0, 0])
@@ -262,7 +271,11 @@ def make_config(
     }
 
     if az_stow is None or el_stow is None:
-        stow_position = {}
+        az_stow, el_stow = make_stow_position()
+        stow_position = {
+            'az_stow': az_stow,
+            'el_stow': el_stow,
+        }
     else:
         stow_position = {
             'az_stow': az_stow,
